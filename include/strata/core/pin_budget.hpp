@@ -24,6 +24,8 @@
 
 #include <cuda_runtime.h>
 
+#include "strata/platform/memory.hpp"
+
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -97,13 +99,21 @@ inline uint64_t soft_reserve_default_mib() {
 }
 }  // namespace pin_detail
 
+/// cudaHostRegister with STRATA_MLOCK_REGISTERED's lock first (platform/memory.hpp; off by default).
+inline cudaError_t host_register_locked(void* p, size_t bytes, unsigned flags) {
+    const uint64_t locked = strata::platform::lock_registered(p, bytes);
+    const cudaError_t e = cudaHostRegister(p, bytes, flags);
+    if (e != cudaSuccess && locked != 0) strata::platform::unlock_registered(p, bytes);
+    return e;
+}
+
 /// cudaHostRegister through the (test) budget.
 inline cudaError_t pin_register(void* p, size_t bytes, unsigned flags) {
     auto& s = pin_detail::st();
-    if (s.sim_budget == 0) return cudaHostRegister(p, bytes, flags);
+    if (s.sim_budget == 0) return host_register_locked(p, bytes, flags);
     std::lock_guard<std::mutex> g(s.mu);
     if (s.sim_used + bytes > s.sim_budget) return cudaErrorMemoryAllocation;
-    const cudaError_t e = cudaHostRegister(p, bytes, flags);
+    const cudaError_t e = host_register_locked(p, bytes, flags);
     if (e == cudaSuccess) pin_detail::sim_charge(s, p, bytes);
     return e;
 }

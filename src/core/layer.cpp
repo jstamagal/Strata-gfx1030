@@ -601,7 +601,7 @@ uint8_t* kv_host_alloc(uint64_t bytes) {
     auto register_anon = [](uint64_t n) -> uint8_t* {
         void* m = mmap(nullptr, (size_t) n, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
         if (m == MAP_FAILED) return nullptr;
-        if (cudaHostRegister(m, (size_t) n, cudaHostRegisterPortable | cudaHostRegisterMapped) != cudaSuccess) {
+        if (strata::core::host_register_locked(m, (size_t) n, cudaHostRegisterPortable | cudaHostRegisterMapped) != cudaSuccess) {
             (void) cudaGetLastError();
             munmap(m, (size_t) n);
             return nullptr;

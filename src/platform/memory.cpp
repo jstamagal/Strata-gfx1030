@@ -9,6 +9,8 @@
 #include <cstring>
 #else
 #include <algorithm>
+#include <atomic>
+#include <cerrno>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -160,6 +162,11 @@ uint64_t total_physical_memory() {
 bool read_ahead_enabled() { return false; }
 void advise_willneed(const void*, uint64_t) {}
 void advise_willneed(int, uint64_t, uint64_t) {}
+
+bool mlock_registered_on() { return false; }
+uint64_t lock_registered(void*, uint64_t) { return 0; }
+void unlock_registered(void*, uint64_t) {}
+void report_registered_locks(const char*) {}
 #else
 LockResult lock_resident(void* p, uint64_t bytes) {
     LockResult r;
@@ -185,6 +192,59 @@ LockResult lock_resident_ranges(const std::vector<std::pair<void*, uint64_t>>& r
 
 void unlock_resident(void* p, uint64_t bytes) {
     if (p != nullptr && bytes != 0) munlock(p, bytes);
+}
+
+namespace {
+std::atomic<uint64_t> g_reg_locked{0}, g_reg_failed{0};
+std::atomic<int> g_reg_ranges{0};
+std::atomic<bool> g_reg_said{false};
+}  // namespace
+
+bool mlock_registered_on() {
+    static const bool on = [] {
+        const char* v = std::getenv("STRATA_MLOCK_REGISTERED");
+        return v != nullptr && std::atoi(v) != 0;
+    }();
+    return on;
+}
+
+uint64_t lock_registered(void* p, uint64_t bytes) {
+    if (!mlock_registered_on() || p == nullptr || bytes == 0) return 0;
+    int rc = -1;
+#ifdef MLOCK_ONFAULT
+    rc = mlock2(p, (size_t) bytes, MLOCK_ONFAULT);
+    if (rc != 0 && errno == ENOSYS) rc = mlock(p, (size_t) bytes);
+#else
+    rc = mlock(p, (size_t) bytes);
+#endif
+    if (rc != 0) {
+        const int e = errno;
+        g_reg_failed += bytes;
+        if (!g_reg_said.exchange(true))
+            std::fprintf(stderr, "strata: STRATA_MLOCK_REGISTERED: mlock of %.2f GiB failed (%s; raise ulimit -l) - "
+                                 "the registration goes on unlocked\n",
+                         (double) bytes / 1073741824.0, std::strerror(e));
+        return 0;
+    }
+    g_reg_locked += bytes;
+    ++g_reg_ranges;
+    return bytes;
+}
+
+void unlock_registered(void* p, uint64_t bytes) {
+    if (!mlock_registered_on() || p == nullptr || bytes == 0) return;
+    if (munlock(p, (size_t) bytes) == 0) {
+        g_reg_locked -= bytes;
+        --g_reg_ranges;
+    }
+}
+
+void report_registered_locks(const char* when) {
+    if (!mlock_registered_on()) return;
+    std::fprintf(stderr, "strata: STRATA_MLOCK_REGISTERED: %.2f GiB of GPU-registered host memory locked in %d ranges "
+                         "(%.2f GiB refused)%s%s\n",
+                 (double) g_reg_locked.load() / 1073741824.0, g_reg_ranges.load(),
+                 (double) g_reg_failed.load() / 1073741824.0, when ? ", " : "", when ? when : "");
 }
 
 bool gpu_shared_memory_budget(const void*, uint64_t& budget, uint64_t& usage, std::string& why) {

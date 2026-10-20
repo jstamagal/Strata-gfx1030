@@ -479,7 +479,7 @@ int pin_blobs(std::vector<std::pair<uintptr_t, uintptr_t>> r, std::vector<void*>
     }
     r.resize(k + 1);
     for (const auto& [a, e] : r) {
-        if (cudaHostRegister((void*) a, (size_t) (e - a), cudaHostRegisterReadOnly | cudaHostRegisterPortable) ==
+        if (strata::core::host_register_locked((void*) a, (size_t) (e - a), cudaHostRegisterReadOnly | cudaHostRegisterPortable) ==
             cudaSuccess)
             live.push_back((void*) a);
         else {
@@ -13543,6 +13543,7 @@ int main(int argc, char** argv) {
                     }
                 }).detach();
         }
+        strata::platform::report_registered_locks("at READY");
         strata::core::pin_sim_report("at READY");
         strata::core::pin_reserve_release_hard();   // the load is over: nothing else needs the headroom
         std::printf("READY %lld stop\n", (long long) o.max_context);   // "stop": this engine honours STOP
