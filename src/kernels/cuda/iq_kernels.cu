@@ -11,6 +11,7 @@
 #include "strata/kernels/dp4a.hpp"
 #include "strata/kernels/q8_1_finite.hpp"
 #include "s26_tsum.cuh"
+#include "../../qwen35/q36_experts.hpp"
 
 #include <cuda_fp16.h>
 #include <cuda_runtime.h>
@@ -5377,6 +5378,8 @@ void native_expert_grouped(const NativeExpertLayout& L, const unsigned long long
     }
     check("native_expert_grouped/down");
 }
+
+#include "../../qwen35/q36_experts.cuh"
 
 }  // namespace strata::kernels
 
