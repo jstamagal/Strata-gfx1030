@@ -27,6 +27,7 @@
 #include "strata/prefill/moe_mmq.hpp"
 #include "strata/qwen35/engine.hpp"
 #include "q36_kernels.cuh"
+#include "q36_tp_plan.hpp"
 #if defined(STRATA_Q36_CPU_POOL)
 #include "strata/kernels/cpu/native_expert.hpp"
 #include "strata/kernels/cpu/pool.hpp"
@@ -1025,6 +1026,7 @@ struct Layer {
     const uint8_t *src_g = nullptr, *src_u = nullptr, *src_d = nullptr;
     size_t src_gsz = 0, src_dsz = 0;
     uint8_t* hblobs = nullptr;  // hybrid mode: every expert's blob in host memory, `stride` apart
+    int tp_rank = -1;           // TP: a half-FF shard of every expert
     int n_slots = 0;            // hybrid mode: the experts resident in VRAM
 };
 
@@ -1162,7 +1164,7 @@ std::vector<uint8_t> requant_q8_0(const uint8_t* src, int n_in, int n_out, int t
 /// `dev_of` (a layer split): the device of each layer, the MTP block's at [n_layers] (the last device, which also holds
 /// the head); empty = the current device for everything.
 bool load(const std::string& path, Model& m, std::string& err, bool want_mtp, const std::vector<int>& dev_of = {},
-          int n_dev = 1) {
+          int n_dev = 1, int tp_rank = -1) {
     const auto t0 = Clock::now();
     m.file = std::make_shared<strata::GgufModel>(strata::GgufModel::open(path));
     const strata::GgufModel& gm = *m.file;
@@ -1173,6 +1175,11 @@ bool load(const std::string& path, Model& m, std::string& err, bool want_mtp, co
     }
     size_t checked = 0;
     if (!strata::core::check_gguf_layout(gm, m.g, err, &checked)) return false;
+    std::unique_ptr<q36tp::Plan> tp_plan;
+    if (tp_rank >= 0) {
+        tp_plan = std::make_unique<q36tp::Plan>(m.g);
+        m.g = tp_plan->local;
+    }
     const auto& g = m.g;
     if (g.head_dim != 256 || g.ssm_state_size != 128 || g.ssm_d_conv != 4 || g.n_expert > 512 || m.top_k > 15) {
         err = "a geometry this driver's kernels do not take (head 256, state 128, conv 4, <= 512 experts, top-k <= 15)";
@@ -1194,12 +1201,24 @@ bool load(const std::string& path, Model& m, std::string& err, bool want_mtp, co
     auto f32 = [&](const std::string& name) -> const float* {
         size_t s = 0;
         const strata::TensorInfo* t = find(name, s);
-        bytes += t->elements() * 4;
-        return upload_f32(*t, gm.shard(s).tensor_data(*t));
+        strata::TensorInfo shard = *t;
+        const uint8_t* src = gm.shard(s).tensor_data(*t);
+        std::vector<uint8_t> data;
+        if (tp_plan) data = q36tp::gather(shard, src, tp_plan->slice(name, tp_rank));
+        bytes += shard.elements() * 4;
+        return upload_f32(shard, data.empty() ? src : data.data());
     };
     auto mat = [&](const std::string& name) -> Mat {
         size_t s = 0;
         const strata::TensorInfo* t = find(name, s);
+        const uint8_t* src = gm.shard(s).tensor_data(*t);
+        strata::TensorInfo shard = *t;
+        std::vector<uint8_t> data;
+        if (tp_plan) {
+            data = q36tp::gather(shard, src, tp_plan->slice(name, tp_rank));
+            if (!data.empty()) src = data.data();
+            t = &shard;
+        }
         Mat w;
         w.type = (int) t->type;
         w.n_in = (int) t->shape[0];
@@ -1211,7 +1230,7 @@ bool load(const std::string& path, Model& m, std::string& err, bool want_mtp, co
         static const int dense_q = std::getenv("STRATA_Q36_DENSE_Q") ? std::atoi(std::getenv("STRATA_Q36_DENSE_Q")) : 0;
         if (dense_q > 0 && w.type == 8 && name != "output.weight" && w.n_in % 256 == 0 && K::native_mmvq_supported(dense_q) &&
             row_bytes(dense_q, w.n_in) > 0) {
-            const std::vector<uint8_t> rq = requant_q8_0(gm.shard(s).tensor_data(*t), w.n_in, w.n_out, dense_q);
+            const std::vector<uint8_t> rq = requant_q8_0(src, w.n_in, w.n_out, dense_q);
             uint8_t* d = nullptr;
             CK(cudaMalloc(&d, rq.size()));
             CK(cudaMemcpy(d, rq.data(), rq.size(), cudaMemcpyHostToDevice));
@@ -1223,14 +1242,14 @@ bool load(const std::string& path, Model& m, std::string& err, bool want_mtp, co
         const uint64_t nb = strata::tensor_payload_bytes(*t);
         uint8_t* d = nullptr;
         CK(cudaMalloc(&d, nb));
-        CK(cudaMemcpy(d, gm.shard(s).tensor_data(*t), nb, cudaMemcpyHostToDevice));
+        CK(cudaMemcpy(d, src, nb, cudaMemcpyHostToDevice));
         bytes += nb;
         w.d = d;
         // STRATA_Q8_PACKED (on by default here): the lossless qs / d plane copy the Q8_0 decode kernels read instead,
         // bitwise the same outputs
         if (w.type == 8 && K::native_q8_0_packed_enabled() && K::native_q8_0_packed_eligible(w.n_in, w.n_out)) {
             std::vector<uint8_t> packed(nb);
-            K::native_q8_0_pack_host(gm.shard(s).tensor_data(*t), packed.data(), w.n_in, w.n_out);
+            K::native_q8_0_pack_host(src, packed.data(), w.n_in, w.n_out);
             uint8_t* pd = nullptr;
             CK(cudaMalloc(&pd, nb));
             CK(cudaMemcpy(pd, packed.data(), nb, cudaMemcpyHostToDevice));
@@ -1304,6 +1323,12 @@ bool load(const std::string& path, Model& m, std::string& err, bool want_mtp, co
                   "do not take (build with -DSTRATA_Q6K_EXPERTS=ON for Q6_K)";
             return false;
         }
+        if (tp_plan) {
+            int be = 0, bb = 0;
+            if (!strata::block_geometry(td->type, be, bb) || g.n_ff % be) {
+                err = L(l, "TP expert down split crosses a quant block"); return false;
+            }
+        }
         y.L = K::native_expert_layout((int) tg->type, (int) td->type, g.n_embd, g.n_ff);
         const size_t gsz = (size_t) g.n_ff * y.L.gu_row, dsz = (size_t) g.n_embd * y.L.d_row;
         // a stride in whole blocks of both parts' types (MMQ steps over the experts by blocks), 16-byte aligned
@@ -1312,8 +1337,9 @@ bool load(const std::string& path, Model& m, std::string& err, bool want_mtp, co
         y.src_g = gm.shard(sg).tensor_data(*tg);
         y.src_u = gm.shard(su).tensor_data(*tu);
         y.src_d = gm.shard(sd).tensor_data(*td);
-        y.src_gsz = gsz;
-        y.src_dsz = dsz;
+        y.src_gsz = tp_plan ? gsz * 2 : gsz;
+        y.src_dsz = tp_plan ? dsz * 2 : dsz;
+        y.tp_rank = tp_rank;
     }
     if (home >= 0) CK(cudaSetDevice(home));   // the MTP block's own matrices, the output norm and the head
     if (m.has_mtp) {
@@ -1352,6 +1378,14 @@ bool load(const std::string& path, Model& m, std::string& err, bool want_mtp, co
 
 /// Expert e of layer L as its native blob [gate | up | down] (L.L.bytes) at dst (host memory).
 void expert_blob(const Layer& L, int64_t e, uint8_t* dst) {
+    if (L.tp_rank >= 0) {
+        const size_t gu = L.src_gsz / 2, dr = L.L.d_row;
+        std::memcpy(dst, L.src_g + e * L.src_gsz + L.tp_rank * gu, gu);
+        std::memcpy(dst + L.L.up_off, L.src_u + e * L.src_gsz + L.tp_rank * gu, gu);
+        for (size_t r = 0; r < L.src_dsz / (2 * dr); ++r)
+            std::memcpy(dst + L.L.down_off + r * dr, L.src_d + e * L.src_dsz + (2 * r + L.tp_rank) * dr, dr);
+        return;
+    }
     std::memcpy(dst, L.src_g + (size_t) e * L.src_gsz, L.src_gsz);
     std::memcpy(dst + L.L.up_off, L.src_u + (size_t) e * L.src_gsz, L.src_gsz);
     std::memcpy(dst + L.L.down_off, L.src_d + (size_t) e * L.src_dsz, L.src_dsz);
