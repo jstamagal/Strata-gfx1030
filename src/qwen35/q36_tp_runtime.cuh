@@ -16,7 +16,7 @@ void Engine::tp_swap(int from, int to) {
 }
 
 void Engine::tp_init(const Model& a, const Model& b, int context, int chunk, int sessions, bool pictures) {
-    tp = true; tp_models[0] = &a; tp_models[1] = &b; m = &a;
+    tp = true; tp_check = q36tp::enabled("STRATA_Q36_TP_CHECK"); tp_models[0] = &a; tp_models[1] = &b; m = &a;
     n_dev = 2; home = cur_dev = 0; CK(cudaSetDevice(0));
     ctx = context; tmax = std::max(chunk, kVerify); n_sess = std::max(1, std::min(sessions, kVerify)); vision = pictures;
     use_graph = false; // Each rank has its own stream; ordinary single-device capture must never surround TP.
@@ -54,6 +54,9 @@ void Engine::tp_init(const Model& a, const Model& b, int context, int chunk, int
             d_gslot = dalloc_t<int32_t>(kVerify); d_grow0 = dalloc_t<int32_t>(kVerify); d_gcnt = dalloc_t<int32_t>(kVerify);
         }
         tp_token[d] = dalloc_t<unsigned>(q36tp::join_blocks);
+        tp_remote[d] = dalloc((size_t)tmax * g.n_embd);
+        CK(cudaEventCreateWithFlags(&tp_copy_ready[d], cudaEventDisableTiming));
+        CK(cudaEventCreateWithFlags(&tp_copy_done[d], cudaEventDisableTiming));
         tp_logits[d] = dalloc((size_t) kVerify * m->head.n_out);
         CK(cudaEventCreateWithFlags(&tp_event[d], cudaEventDisableTiming));
         CK(cudaHostAlloc((void**)&tp_host[d], (size_t) tmax * g.n_embd * 4, cudaHostAllocPortable | cudaHostAllocMapped));
@@ -69,8 +72,10 @@ void Engine::tp_init(const Model& a, const Model& b, int context, int chunk, int
         CK(cudaDeviceSynchronize());
     });
     use_mmq = dev_mmq[0] && dev_mmq[1];
+    if (tp_check) std::fprintf(stderr, "strata-q36: STRATA_Q36_TP_CHECK=1: compare both residual replicas at each forward boundary (host readback)\n");
     std::fprintf(stderr, "strata-q36: STRATA_Q36_TP=1: two equal tensor shards, all experts on both GPUs; "
-                         "mapped-host joins, replicated residual, eager streams; CPU/hybrid experts unsupported\n");
+                         "mapped-host decode joins, copy-engine prompt joins, replicated residual, %s; CPU/hybrid experts unsupported\n",
+                         tp_graph && !verify_k ? "per-device graphs" : "eager streams");
 }
 
 // All callers submit inputs on home. A cross-device event orders their copies without a host wait.
@@ -97,6 +102,7 @@ void Engine::tp_enter(int T, bool mtp, const float* seeds) {
 }
 
 void Engine::tp_join(float* partial, int T) {
+    if (T > kVerify) return; // the coordinator submits both copy-engine transfers after producing both partials
     q36tp::join<<<q36tp::join_blocks, kThreads, 0, st>>>(partial, tp_mapped[cur_dev][cur_dev],
         tp_mapped[cur_dev][1-cur_dev], (size_t) T * m->g.n_embd, tp_flags[cur_dev][cur_dev],
         tp_flags[cur_dev][1-cur_dev], tp_token[cur_dev], cur_dev);
@@ -105,14 +111,16 @@ void Engine::tp_moe_end(int T, const int32_t* prow, const float* shared, const f
                          const float* wn, float* hout, int sgs) {
     const int N = (int)m->g.n_embd;
     q36tp::partial_moe<<<T, kThreads, 0, st>>>(moe_out, eparts, prow, ewts, (int)m->top_k, shared, sgate, sgs, N);
-    tp_join(moe_out, T);
     xq_ready = false;
+    if (T > kVerify) return; // prompt epilogue follows the copy-engine join
+    tp_join(moe_out, T);
     if (wn) k_add_rms<<<T, kThreads, 0, st>>>(x, moe_out, wn, hout, N, m->eps);
     else k_add<<<grid1((int64_t)T * N), kThreads, 0, st>>>(x, moe_out, (int64_t)T * N);
 }
 
 void Engine::tp_forward(int T, int64_t p0, int heads, bool verify) {
     tp_enter(T);
+    if (tp_graph_run(T, p0, verify)) { tp_head(T, heads); return; }
     const int N = (int)m->g.n_embd;
     for (int d = 0; d < 2; ++d) {
         use_dev(d);
@@ -120,15 +128,7 @@ void Engine::tp_forward(int T, int64_t p0, int heads, bool verify) {
         if (map_on) k_put_rows<<<T, kThreads, 0, st>>>(x, d_img, d_map, N);
         k_rms<<<T, kThreads, 0, st>>>(x, m->layers[0].attn_norm, h, N, m->eps);
     }
-    for (size_t l = 0; l < m->layers.size(); ++l) {
-        // Both mixer joins are submitted before either rank's MoE. This also permits VERIFY's host comparisons.
-        for (int phase : {1, 2}) for (int d = 0; d < 2; ++d) {
-            use_dev(d);
-            const bool last = l + 1 == m->layers.size();
-            layer(m->layers[l], l, T, p0, pos0, false, verify,
-                  last ? m->out_norm : m->layers[l+1].attn_norm, last ? hmain : h, phase);
-        }
-    }
+    for (size_t l = 0; l < m->layers.size(); ++l) tp_layer_pair(l, T, p0, verify);
     tp_head(T, heads);
 }
 
@@ -141,6 +141,7 @@ void Engine::tp_head(int T, int heads, bool mtp, bool draft, float* output, int3
     }
     use_dev(home);
     CK(cudaStreamWaitEvent(st, tp_event[1], 0));
+    if (tp_check) tp_check_residual(T, mtp);
     if (!heads) return;
     float* dst = output ? output : mtp ? logits_m : logits;
     int32_t* pk = picks ? picks : mtp ? pick_m : pick;
@@ -198,4 +199,27 @@ bool place_experts_tp(Model& a, Model& b, Engine& E, std::string& err) {
         std::fprintf(stderr, "strata-q36: TP device %d: %.2f GiB expert shards, half of every expert resident\n", d, bytes / double(1ull << 30));
     }
     E.use_dev(E.home); return true;
+}
+
+// Diagnostic only, at call boundaries: never inserts a host wait between layers.
+void Engine::tp_check_residual(int T, bool mtp) {
+    CK(cudaStreamSynchronize(st)); // home's event dependency also covers the peer
+    const size_t n = (size_t)T * m->g.n_embd;
+    std::vector<float> a(n), b(n);
+    for (int kind = 0; kind < 2; ++kind) {
+        const float* root = kind == 0 ? x : mtp ? hmtp : hmain;
+        const float* peer = kind == 0 ? devs[1].x : mtp ? devs[1].hmtp : devs[1].hmain;
+        CK(cudaMemcpy(a.data(), root, n * 4, cudaMemcpyDeviceToHost));
+        CK(cudaSetDevice(1));
+        CK(cudaMemcpy(b.data(), peer, n * 4, cudaMemcpyDeviceToHost));
+        CK(cudaSetDevice(home));
+        if (std::memcmp(a.data(), b.data(), n * 4)) {
+            size_t i = 0;
+            while (i < n && std::memcmp(&a[i], &b[i], sizeof(float)) == 0) ++i;
+            std::fprintf(stderr, "strata-q36: TP replica mismatch (%s %s, T=%d) at %zu: %.9g / %.9g\n",
+                         mtp ? "MTP" : "main", kind ? "hidden" : "residual", T, i, a[i], b[i]);
+            std::exit(1);
+        }
+        ++tp_checks;
+    }
 }

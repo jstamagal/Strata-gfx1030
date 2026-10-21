@@ -23,7 +23,9 @@ __global__ void join(float* dst, float* mine, const float* peer, size_t n, unsig
     if (!threadIdx.x) call = token[blockIdx.x] + 1;
     __syncthreads();
     const size_t i0 = (size_t) blockIdx.x * blockDim.x + threadIdx.x, step = (size_t) gridDim.x * blockDim.x;
-    for (size_t i = i0; i < n; i += step) mine[i] = dst[i];
+    const size_t nv = n / 4;
+    for (size_t i = i0; i < nv; i += step) ((float4*)mine)[i] = ((const float4*)dst)[i];
+    for (size_t i = nv * 4 + i0; i < n; i += step) mine[i] = dst[i];
     __threadfence_system();
     __syncthreads();
     const int f = blockIdx.x * flag_stride;
@@ -33,13 +35,22 @@ __global__ void join(float* dst, float* mine, const float* peer, size_t n, unsig
     }
     __syncthreads();
     __threadfence_system();
-    for (size_t i = i0; i < n; i += step) {
+    for (size_t i = i0; i < nv; i += step) {
+        float4 a = ((const float4*)dst)[i];
 #if defined(__HIPCC__)
-        const float other = __builtin_nontemporal_load(peer + i);
+        typedef float v4 __attribute__((ext_vector_type(4)));
+        const v4 v = __builtin_nontemporal_load((const v4*)peer + i);
+        const float4 b = make_float4(v.x, v.y, v.z, v.w);
 #else
-        const float other = ((const volatile float*)peer)[i];
+        const volatile float* p = peer + i * 4;
+        const float4 b = make_float4(p[0], p[1], p[2], p[3]);
 #endif
-        // Identical operand order on both devices, including signed zero / NaN behavior.
+        if (rank == 0) { a.x += b.x; a.y += b.y; a.z += b.z; a.w += b.w; }
+        else { a.x = b.x + a.x; a.y = b.y + a.y; a.z = b.z + a.z; a.w = b.w + a.w; }
+        ((float4*)dst)[i] = a;
+    }
+    for (size_t i = nv * 4 + i0; i < n; i += step) {
+        const float other = ((const volatile float*)peer)[i];
         dst[i] = rank == 0 ? dst[i] + other : other + dst[i];
     }
     __threadfence_system();

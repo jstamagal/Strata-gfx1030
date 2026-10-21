@@ -1,0 +1,43 @@
+// Large chunks use the copy engine and event ordering. No host readback or per-layer stream synchronization.
+void Engine::tp_copy_join(int T, bool moe) {
+    const size_t n = (size_t)T * m->g.n_embd;
+    for (int d = 0; d < 2; ++d) {
+        use_dev(d);
+        // The peer's previous H2D must finish before this device reuses its pinned send buffer.
+        if (tp_copy_used) CK(cudaStreamWaitEvent(st, tp_copy_done[1-d], 0));
+        CK(cudaMemcpyAsync(tp_host[d], moe ? moe_out : y, n * 4, cudaMemcpyDeviceToHost, st));
+        CK(cudaEventRecord(tp_copy_ready[d], st));
+    }
+    for (int d = 0; d < 2; ++d) {
+        use_dev(d);
+        CK(cudaStreamWaitEvent(st, tp_copy_ready[1-d], 0));
+        CK(cudaMemcpyAsync(tp_remote[d], tp_host[1-d], n * 4, cudaMemcpyHostToDevice, st));
+        q36tp::ordered_sum<<<grid1(n), kThreads, 0, st>>>(moe ? moe_out : y, tp_remote[d], n, d);
+        CK(cudaEventRecord(tp_copy_done[d], st));
+    }
+    tp_copy_used = true;
+}
+
+void Engine::tp_layer_pair(size_t li, int T, int64_t p0, bool verify, bool mtp) {
+    auto run = [&](int phase) {
+        for (int d = 0; d < 2; ++d) {
+            use_dev(d);
+            const bool last = li + 1 == m->layers.size();
+            const float* wn = mtp ? m->mtp_shnorm : last ? m->out_norm : m->layers[li+1].attn_norm;
+            float* hout = mtp ? hmtp : last ? hmain : h;
+            layer(mtp ? m->mtp : m->layers[li], li, T, p0, mtp ? pos0_m : pos0, false, verify, wn, hout, phase);
+        }
+    };
+    run(1);
+    if (T > kVerify) tp_copy_join(T, false);
+    run(2);
+    if (T > kVerify) {
+        tp_copy_join(T, true);
+        for (int d = 0; d < 2; ++d) {
+            use_dev(d);
+            const bool last = li + 1 == m->layers.size();
+            const float* wn = mtp ? m->mtp_shnorm : last ? m->out_norm : m->layers[li+1].attn_norm;
+            k_add_rms<<<T, kThreads, 0, st>>>(x, moe_out, wn, mtp ? hmtp : last ? hmain : h, (int)m->g.n_embd, m->eps);
+        }
+    }
+}

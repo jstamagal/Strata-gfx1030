@@ -1,6 +1,8 @@
 // MTP uses mirrored eh_proj and hidden seeds, followed by the same two sharded layer joins as the main model.
 void Engine::tp_forward_mtp(int T, int64_t p0, const float* seeds, bool draft) {
     tp_enter(T, true, seeds);
+    draft_pos = p0 + T;
+    if (tp_graph_run(T, p0, false, true, seeds)) { tp_head(T, draft ? 1 : 0, true, draft); return; }
     const int N = (int)m->g.n_embd;
     for (int d = 0; d < 2; ++d) {
         use_dev(d);
@@ -12,10 +14,7 @@ void Engine::tp_forward_mtp(int T, int64_t p0, const float* seeds, bool draft) {
         mm(m->eh_proj, mtp_cat, x, T);
         k_rms<<<T, kThreads, 0, st>>>(x, m->mtp.attn_norm, h, N, m->eps);
     }
-    for (int phase : {1, 2}) for (int d = 0; d < 2; ++d) {
-        use_dev(d);
-        layer(m->mtp, m->layers.size(), T, p0, pos0_m, false, false, m->mtp_shnorm, hmtp, phase);
-    }
+    tp_layer_pair(m->layers.size(), T, p0, false, true);
     draft_pos = p0 + T;
     tp_head(T, draft ? 1 : 0, true, draft);
 }

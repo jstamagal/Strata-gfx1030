@@ -4,8 +4,8 @@
 #include <stdexcept>
 
 namespace q36tp {
-inline bool enabled() {
-    const char* v = std::getenv("STRATA_Q36_TP");
+inline bool enabled(const char* name = "STRATA_Q36_TP") {
+    const char* v = std::getenv(name);
     return v && std::strcmp(v, "1") == 0;
 }
 struct Range { size_t begin, size; };
@@ -40,7 +40,17 @@ struct Plan {
         const std::string key = name.rfind("blk.", 0) == 0 ? name.substr(p + 1) : name;
         const auto& g = full;
         const size_t kd = g.ssm_state_size * g.ssm_k_heads, ratio = g.ssm_v_heads / g.ssm_k_heads;
-        if (key == "attn_qkv.weight" || key == "ssm_conv1d.weight") return seg(1, kd, 2 + ratio);
+        if (key == "attn_qkv.weight") {
+            const int64_t layer = std::strtoll(name.c_str() + 4, nullptr, 10);
+            if (layer == g.n_layers || strata::core::is_qsa_layer(g, layer)) {
+                const size_t qg = 2 * g.n_head * g.head_dim, kv = g.n_head_kv * g.head_dim;
+                Slice s = seg(1, qg);
+                for (auto r : seg(1, kv, 2).ranges) s.ranges.push_back({qg + r.begin, r.size});
+                return s;
+            }
+            return seg(1, kd, 2 + ratio);
+        }
+        if (key == "ssm_conv1d.weight") return seg(1, kd, 2 + ratio);
         if (key == "attn_gate.weight") return seg(1, kd, ratio);
         if (key == "ssm_out.weight") return seg(0, kd, ratio);
         if (key == "ssm_alpha.weight" || key == "ssm_beta.weight") return seg(1, g.ssm_k_heads, ratio);

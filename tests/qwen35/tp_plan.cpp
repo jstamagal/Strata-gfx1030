@@ -22,6 +22,11 @@ int main() {
             ++hlocal;
         }
         assert(qkv.size() == (size_t) p.local.ssm_conv_channels);
+        const auto fused = p.slice("blk.3.attn_qkv.weight", rank);
+        assert(fused.ranges.size() == 3);
+        assert(fused.ranges[0].begin == (size_t)(rank * g.n_head * g.head_dim));
+        assert(fused.ranges[1].begin == (size_t)(2 * g.n_head * g.head_dim + rank * g.n_head_kv * g.head_dim / 2));
+        assert(fused.ranges[2].begin == fused.ranges[1].begin + (size_t)(g.n_head_kv * g.head_dim));
         assert(p.slice("blk.4.attn_q.weight", rank).size() == (size_t) (2 * p.local.n_head * g.head_dim));
     }
     // Reconstruct a multi-expert tensor exactly from both shards, for every native expert format in the test file.

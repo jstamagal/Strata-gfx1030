@@ -18,3 +18,13 @@
     void tp_forward(int T, int64_t p0, int heads, bool verify);
     void tp_head(int T, int heads, bool mtp = false, bool draft = false, float* output = nullptr, int32_t* picks = nullptr);
     void tp_forward_mtp(int T, int64_t p0, const float* seeds, bool draft);
+    float* tp_remote[2] = {};
+    cudaEvent_t tp_copy_ready[2] = {}, tp_copy_done[2] = {};
+    bool tp_copy_used = false, tp_graph = true;
+    void tp_copy_join(int T, bool moe);
+    void tp_layer_pair(size_t li, int T, int64_t p0, bool verify, bool mtp = false);
+    long long tp_graph_key(int T, bool verify, bool mtp) const;
+    bool tp_graph_run(int T, int64_t p0, bool verify, bool mtp = false, const float* seeds = nullptr);
+    bool tp_check = false;
+    long long tp_checks = 0;
+    void tp_check_residual(int T, bool mtp);

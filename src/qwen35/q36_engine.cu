@@ -2367,9 +2367,11 @@ struct Engine {
             k_route_count<<<grid1(n_ent), kThreads, 0, st>>>(ids, (int) n_ent, rcnt, rmap);
             k_route_scan<<<1, 32, 0, st>>>(rcnt, ne, rbounds, rcur, rmax);
             k_route_scatter<<<grid1(n_ent), kThreads, 0, st>>>(ids, (int) n_ent, Kp, rcur, ent_dst, ent_tok, rinv, rmap);
-            CK(cudaMemcpyAsync(hpin + 10, rmax, 4, cudaMemcpyDeviceToHost, st));
-            if (lhy(li)) CK(cudaMemcpyAsync(h_cnt + li * g.n_expert, rcnt, (size_t) ne * 4, cudaMemcpyDeviceToHost, st));
-            CK(cudaStreamSynchronize(st));
+            if (!tp) {
+                CK(cudaMemcpyAsync(hpin + 10, rmax, 4, cudaMemcpyDeviceToHost, st));
+                if (lhy(li)) CK(cudaMemcpyAsync(h_cnt + li * g.n_expert, rcnt, (size_t) ne * 4, cudaMemcpyDeviceToHost, st));
+                CK(cudaStreamSynchronize(st));
+            }
             if (lhy(li)) {
                 Hy& H = hy[li];
                 for (int v = 0; v < ne; ++v) {   // (split: the counts are in the MMQ order)
@@ -2377,7 +2379,8 @@ struct Engine {
                     H.score[(size_t) x] += h_cnt[li * g.n_expert + v];
                 }
             }
-            const int64_t maxr = hpin[10];
+            // Top-k selects an expert at most once per token: T is a safe device-only MMQ launch bound.
+            const int64_t maxr = tp ? T : hpin[10];
             const uint8_t* wbase = lhy(li) ? stream_take((int) li) : L.blobs;
             MMQ::quantize(h, ent_tok, mq_x, L.L.gu_type, N, N, n_ent, st);
             MMQ::Product gu;
@@ -3531,6 +3534,8 @@ struct Engine {
 
 #include "q36_tp_runtime.cuh"
 #include "q36_tp_mtp.cuh"
+#include "q36_tp_prompt.cuh"
+#include "q36_tp_graph.cuh"
 
 // ------------------------------------------------------------------------------------------------ expert placement
 /// The routed experts after the engine's buffers: all in VRAM when they fit in `vram_gib` (< 0: the free VRAM less a
@@ -5066,7 +5071,7 @@ int strata::qwen35::run(int argc, char** argv) {
             if (val) ++i;
         } else {
             std::fprintf(stderr,
-                         "usage: strata-q36 --model GGUF [--max-context 32768] [--chunk 512] [--no-graph]\n"
+                         "usage: strata-q36 --model GGUF [--max-context 32768] [--chunk 512] [--no-graph] [--tensor-split]\n"
                          "       (--serve | --tokens IDS [--n 64] [--force IDS] [--dump-full-logits F] | --bench-pp N "
                          "--bench-tg N)\n");
             return 2;
@@ -5087,10 +5092,10 @@ int strata::qwen35::run(int argc, char** argv) {
     if (tensor_split && (expert_slots > 0 || expert_vram >= 0)) {
         std::fprintf(stderr, "strata-q36: TP requires all expert shards resident; CPU/hybrid expert limits are unsupported\n"); return 2;
     }
-    if (tensor_split && (chunk > Engine::kVerify || bench_pp > Engine::kVerify)) {
-        std::fprintf(stderr, "strata-q36: this TP stage supports chunks up to eight tokens (--chunk 8)\n"); return 2;
+    if (tensor_split && chunk == 0) {
+        const char* cv = std::getenv("STRATA_Q36_CHUNK");
+        chunk = cv ? std::max(Engine::kVerify, std::min(4096, std::atoi(cv))) : 512;
     }
-    if (tensor_split && chunk == 0) chunk = Engine::kVerify;
     Model m, tp_peer;
     std::string err;
     std::vector<int> dev_of;
@@ -5173,6 +5178,7 @@ int strata::qwen35::run(int argc, char** argv) {
             std::fprintf(stderr, "strata-q36: chunk rule: free %.2f GiB (raw %.2f, with %.2f packed), main experts %.2f GiB, chunk %d\n",
                          fr / 1073741824.0, fr_raw / 1073741824.0, packed / 1073741824.0, experts / 1073741824.0, chunk);
     }
+    E.tp_graph = graph;
     if (tensor_split) E.tp_init(m, tp_peer, ctx, chunk, batch, vision);
     else E.init(m, ctx, chunk, batch, vision);
     if (tensor_split ? !place_experts_tp(m, tp_peer, E, err) : E.n_dev > 1 ? !place_experts_split(m, E, cpu_threads, hybrid_rows, err)
@@ -5183,6 +5189,7 @@ int strata::qwen35::run(int argc, char** argv) {
     struct Report {
         Engine& E;
         ~Report() {
+            if (E.tp && E.tp_check) std::fprintf(stderr, "strata-q36 TP_CHECK: %lld bit-equal replica comparisons\n", E.tp_checks);
             if (E.verify_k) std::fprintf(stderr, "strata-q36 VERIFY: %lld comparisons, %lld mismatches\n", E.v_calls, E.v_bad);
             if (E.verify_k)
                 for (const auto& kv : E.v_by)
