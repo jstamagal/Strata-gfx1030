@@ -3,7 +3,7 @@ long long Engine::tp_graph_key(int T, bool verify, bool mtp) const {
     return (((((long long)cur * 2 + (int)rows_mode) * (kVerify+1) + (rows_mode ? rows_G : 0)) *
              (kVerify+1) + T) * 2 + (int)verify) * 2 + (int)mtp;
 }
-bool Engine::tp_graph_run(int T, int64_t p0, bool verify, bool mtp, const float* seeds) {
+bool Engine::tp_graph_run(int T, int64_t p0, bool verify, bool mtp, const float* seeds, bool capture_only) {
     if (!tp_graph || layer_dump.enabled() || verify_k || T > kVerify || map_on || mtab_now ||
         (tp_attn_rows && p0 + T <= kChunkCells * 4)) return false;
     // Main callers always stage MTP seeds here. Other seed addresses use eager execution, never a stale capture.
@@ -34,10 +34,54 @@ bool Engine::tp_graph_run(int T, int64_t p0, bool verify, bool mtp, const float*
             }
         }
         CK(cudaStreamEndCapture(st, &graph));
+        if (tp_launch_stats) {
+            size_t count = 0;
+            CK(cudaGraphGetNodes(graph, nullptr, &count));
+#if defined(__HIPCC__)
+            std::vector<hipGraphNode_t> nodes(count);
+            if (count) CK(hipGraphGetNodes(graph, nodes.data(), &count));
+#else
+            std::vector<cudaGraphNode_t> nodes(count);
+            if (count) CK(cudaGraphGetNodes(graph, nodes.data(), &count));
+#endif
+            size_t kernels = 0, copies = 0;
+            for (auto node : nodes) {
+#if defined(__HIPCC__)
+                hipGraphNodeType type;
+                CK(hipGraphNodeGetType(node, &type));
+                kernels += type == hipGraphNodeTypeKernel;
+                copies += type == hipGraphNodeTypeMemcpy;
+#else
+                cudaGraphNodeType type;
+                CK(cudaGraphNodeGetType(node, &type));
+                kernels += type == cudaGraphNodeTypeKernel;
+                copies += type == cudaGraphNodeTypeMemcpy;
+#endif
+            }
+            if (tp_stats_capturing && T == 1) {
+                const int saved = tp_stats_conv_ab[d] + tp_stats_gdn_q8[d] + tp_stats_router[d] +
+                                  tp_stats_join_norm[d] + tp_stats_moe_norm[d];
+                std::fprintf(stderr,
+                    "strata-q36 TP_LAUNCH_STATS %s T=1 rank %d: graph kernels %zu active, %zu baseline; "
+                    "saved %d (conv+alpha/beta %d, GDN+Q8 %d, router+group %d, mixer join+norm %d, MoE join+norm %d); "
+                    "graph copies %zu; T=1 heads=1 forward has %zu explicit kernels including head "
+                    "(input and split-head copies run outside graph)\n",
+                    mtp ? "MTP" : "main", d, kernels, kernels + saved, saved,
+                    tp_stats_conv_ab[d], tp_stats_gdn_q8[d], tp_stats_router[d],
+                    tp_stats_join_norm[d], tp_stats_moe_norm[d], copies,
+                    kernels + (d == home ? 4 : 2));
+            } else {
+                std::fprintf(stderr, "strata-q36 TP_LAUNCH_STATS captured %s T=%d verify=%d rank=%d: "
+                                     "%zu kernels, %zu copies\n", mtp ? "MTP" : "main", T,
+                                     (int) verify, d, kernels, copies);
+            }
+        }
         CK(cudaGraphInstantiate(&gx, graph, 0));
         CK(cudaGraphDestroy(graph));
     }
     // Capture both first: no running rendezvous kernel can block allocations needed to instantiate its peer.
-    for (int d = 0; d < 2; ++d) { use_dev(d); CK(cudaGraphLaunch(seg_graphs[key], st)); }
+    if (!capture_only)
+        for (int d = 0; d < 2; ++d) { use_dev(d); CK(cudaGraphLaunch(seg_graphs[key], st)); }
+    else use_dev(home);
     return true;
 }

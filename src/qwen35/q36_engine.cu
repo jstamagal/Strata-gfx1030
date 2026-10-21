@@ -30,6 +30,7 @@
 #include "q36_tp_plan.hpp"
 #include "q36_tp_collective.cuh"
 #include "q36_tp_moe_join.cuh"
+#include "q36_tp_fuse2.cuh"
 #include "q36_decode.cuh"
 #include "q36_experts.hpp"
 #include "q36_mtp_policy.h"
@@ -2261,19 +2262,27 @@ struct Engine {
         const int HK = (int) g.ssm_k_heads, HV = (int) g.ssm_v_heads, D = (int) g.ssm_state_size;
         const int C = (int) g.ssm_conv_channels;
         const int H = (int) g.n_head, HKV = (int) g.n_head_kv, HD = (int) g.head_dim;
+        const bool fused_mixer_norm = tp && tp_fuse2_join_norm && fast_k && !verify_k &&
+                                      T >= 1 && T <= 4 && N % 32 == 0;
         if (tp_phase != 2) {
         if (!L.attn) {
             float* qkv_b = verify ? v_qkv[li] : qkv;
             float* hc_b = verify ? v_hc[li] : hc;
             float* al_b = verify ? v_alpha[li] : alpha;
             float* be_b = verify ? v_beta[li] : beta;
+            bool ab_pending = false;
+            const bool fused_gdn_q8 = tp && tp_fuse2_gdn_q8 && !rows_mode && T >= 1 && T <= 4 &&
+                                      g.ssm_state_size == 128 && g.ssm_value_dim == (int64_t) HV * 128 &&
+                                      L.ssm_out.n_in == g.ssm_value_dim;
             prep_in(T);
             if (!decode_projections(L, T, qkv_b, al_b, be_b)) {
                 apply(L.qkv, xq, qkv_b, T);
                 apply(L.zg, xq, z, T);
                 if (T <= kGemmT) {
-                    k_gdn_ab<<<dim3(rows8(2 * HV), T), kThreads, 0, st>>>(L.alpha, L.beta, h, L.dt, L.ssm_a, al_b, be_b, N,
-                                                                          HV);
+                    ab_pending = tp && tp_fuse2_conv_ab && !rows_mode && T <= 4 && C % 128 == 0 && N % 4 == 0;
+                    if (!ab_pending)
+                        k_gdn_ab<<<dim3(rows8(2 * HV), T), kThreads, 0, st>>>(L.alpha, L.beta, h, L.dt, L.ssm_a, al_b, be_b, N,
+                                                                              HV);
                 } else {
                     f32mm(L.alpha, h, al_b, N, HV, T);
                     f32mm(L.beta, h, be_b, N, HV, T);
@@ -2294,17 +2303,56 @@ struct Engine {
                 // flipped near-tie later; with them the KL is the same, 1.05x / 0.81x the floor, but MTP would not be exact.)
                 // a prompt chunk: tiles of kConvTile tokens side by side (tile mode); else one block per head walks the tokens
                 const int tiles = (fast_k && T > kGemmT && !verify) ? (T + kConvTile - 1) / kConvTile : 1;
-                k_conv_seq<<<dim3(C / 128, tiles), 128, 0, st>>>(conv[li], qkv_b, L.conv, hc_b, C, 2 * HK, m->eps, T, !verify);
+                if (ab_pending) {
+                    if (tp_stats_capturing) ++tp_stats_conv_ab[cur_dev];
+                    float* ref = nullptr;
+                    if (verify_k) {
+                        CK(cudaMalloc((void**) &ref, ((size_t) 3 * C + (size_t) T * C + (size_t) 2 * T * HV) * 4));
+                        CK(cudaMemcpyAsync(ref, conv[li], (size_t) 3 * C * 4, cudaMemcpyDeviceToDevice, st));
+                    }
+                    q36tp_fuse2::conv_ab<<<C / 128 + ((2 * HV + 3) / 4) * T, 128, 0, st>>>(
+                        conv[li], qkv_b, L.conv, hc_b, C, 2 * HK, m->eps, T, !verify,
+                        L.alpha, L.beta, h, L.dt, L.ssm_a, al_b, be_b, N, HV);
+                    if (verify_k) {
+                        float* ref_hc = ref + (size_t) 3 * C;
+                        float* ref_alpha = ref_hc + (size_t) T * C;
+                        float* ref_beta = ref_alpha + (size_t) T * HV;
+                        k_conv_seq<<<C / 128, 128, 0, st>>>(ref, qkv_b, L.conv, ref_hc, C, 2 * HK, m->eps, T, !verify);
+                        k_gdn_ab<<<dim3(rows8(2 * HV), T), kThreads, 0, st>>>(
+                            L.alpha, L.beta, h, L.dt, L.ssm_a, ref_alpha, ref_beta, N, HV);
+                        verify_cmp("fuse2 conv output", hc_b, ref_hc, (size_t) T * C);
+                        verify_cmp("fuse2 alpha", al_b, ref_alpha, (size_t) T * HV);
+                        verify_cmp("fuse2 beta", be_b, ref_beta, (size_t) T * HV);
+                        if (!verify) verify_cmp("fuse2 conv history", conv[li], ref, (size_t) 3 * C);
+                        CK(cudaFree(ref));
+                    }
+                } else
+                    k_conv_seq<<<dim3(C / 128, tiles), 128, 0, st>>>(conv[li], qkv_b, L.conv, hc_b, C, 2 * HK, m->eps, T, !verify);
                 if (T > kGemmT && !verify) {   // a prompt chunk: the column-split delta rule, then the norm
                     k_gdn_seq_cols<<<dim3(HV, kGdnColGroups), dim3(128 / kGdnColGroups, 16), 0, st>>>(S[li], hc_b, C, al_b,
                                                                                                       be_b, gdn_y, HK, HV, T);
                     k_gdn_norm<<<dim3(HV, T), 128, 0, st>>>(gdn_y, z, L.ssm_norm, m->eps, gdn_y, HV);
                 } else {   // decode, verify windows and commits: one kernel, so a window's rows are a decode step's rows
-                    k_gdn_seq<<<HV, dim3(128, 4), 0, st>>>(S[li], hc_b, C, al_b, be_b, z, L.ssm_norm, m->eps, gdn_y, HK, HV,
-                                                           T, !verify);
+                    if (fused_gdn_q8) {
+                        if (tp_stats_capturing) ++tp_stats_gdn_q8[cur_dev];
+                        q36tp_fuse2::gdn_seq_q<<<HV, dim3(128, 4), 0, st>>>(
+                            S[li], hc_b, C, al_b, be_b, z, L.ssm_norm, m->eps, gdn_y, HK, HV,
+                            T, !verify, (q36k::QB*) q8);
+                        if (verify_k) {
+                            const size_t bytes = K::native_q8_1_bytes((int) g.ssm_value_dim, T);
+                            void* refq = nullptr;
+                            CK(cudaMalloc(&refq, bytes));
+                            K::native_quantize_q8_1(gdn_y, refq, (int) g.ssm_value_dim * T, 1, st);
+                            verify_cmp("fuse2 gdn q8", (const float*) q8, (const float*) refq, bytes / 4);
+                            CK(cudaFree(refq));
+                        }
+                    } else
+                        k_gdn_seq<<<HV, dim3(128, 4), 0, st>>>(S[li], hc_b, C, al_b, be_b, z, L.ssm_norm, m->eps, gdn_y, HK, HV,
+                                                               T, !verify);
                 }
             }
-            mm(L.ssm_out, gdn_y, y, T);
+            if (fused_gdn_q8) apply(L.ssm_out, q8, y, T);
+            else mm(L.ssm_out, gdn_y, y, T);
         } else {
             prep_in(T);
             if (!decode_projections(L, T)) {
@@ -2395,23 +2443,50 @@ struct Engine {
             }
             mm(L.wo, att, y, T);
         }
-        if (tp) tp_join(y, T);
+        if (tp && !fused_mixer_norm) tp_join(y, T);
         }
         if (tp_phase == 1) return;
-        add_rms_post(L, T);
+        if (fused_mixer_norm) {
+            if (tp_stats_capturing) ++tp_stats_join_norm[cur_dev];
+            tp_join_norm(y, L.post_norm, h, T, true);
+            xq_post = true;
+        } else add_rms_post(L, T);
         if (!tp || cur_dev == home) layer_dump.mixer(x, st);
         // routed experts (one token: the router and the shared expert's gate in one product, the gate its last row)
         const bool one = T == 1;
         // a decode batch of up to 8 rows takes the router and the shared expert's gate in one product too (rows of 257) when the fused
         // router follows; the prompt chunks and the checks keep the separate products
         const bool ext = one || (fast_k && std::getenv("STRATA_Q36_NO_EXT") == nullptr && !verify_k && T <= kGemmT && g.n_expert == 256 && Kp == 8);
-        if (ext) f32mm(L.router_ext, h, logits_r, N, (int) g.n_expert + 1, T);
-        else f32mm(L.router, h, logits_r, N, (int) g.n_expert, T);
         // the hybrid rows path: a batch of up to hybrid_t rows; when only the MTP block is hybrid, its every batch
         // (its prompt pass too: no staging buffers then)
         const bool hy_rows = lhy(li) && (T <= hybrid_t || !main_hybrid);
         const bool mmq_rows = !hy_rows && T > kGemmT && use_mmq;
-        if (!(!mmq_rows && route_group(L, hy_rows ? hy[li].slot_of_d : nullptr, T, ext ? (int) g.n_expert + 1 : (int) g.n_expert)))
+        const int router_rows = (int) g.n_expert + (ext ? 1 : 0);
+        const bool fused_router = tp && tp_fuse2_router && !hy_rows && fast_k && T >= 1 && T <= 4 &&
+                                  g.n_expert == 256 && Kp == 8 && N % 4 == 0;
+        if (fused_router) {
+            if (tp_stats_capturing) ++tp_stats_router[cur_dev];
+            q36tp_fuse2::router_group<<<rows8(router_rows) * T, kThreads, 0, st>>>(
+                ext ? L.router_ext : L.router, h, logits_r, N, router_rows, T, router_rows, ids, ewts,
+                L.blobs, L.stride, grp_ptr, grp_start, n_groups, ent_dst, ent_tok, tp_route_done[cur_dev]);
+            grouped_by_route = true;
+            if (verify_k) {
+                if (!vbuf) CK(cudaMalloc((void**) &vbuf, (size_t) 8 * 16384 * 4));
+                k_gemv_f32<<<dim3(rows8(router_rows), T), kThreads, 0, st>>>(
+                    ext ? L.router_ext : L.router, h, vbuf, N, router_rows);
+                verify_cmp("fuse2 router logits", logits_r, vbuf, (size_t) T * router_rows);
+                int32_t* vid = (int32_t*) (vbuf + 8 * 8192);
+                float* vw = vbuf + 8 * 8192 + 64;
+                K::native_router_topk(logits_r, vid, vw, 256, Kp, T, st);
+                verify_cmp("fuse2 route ids", (const float*) ids, (const float*) vid, (size_t) T * Kp);
+                verify_cmp("fuse2 route weights", ewts, vw, (size_t) T * Kp);
+                group_verify(L, nullptr, T);
+            }
+        } else {
+            if (ext) f32mm(L.router_ext, h, logits_r, N, router_rows, T);
+            else f32mm(L.router, h, logits_r, N, router_rows, T);
+        }
+        if (!fused_router && !(!mmq_rows && route_group(L, hy_rows ? hy[li].slot_of_d : nullptr, T, router_rows)))
             K::native_router_topk(logits_r, ids, ewts, (int) g.n_expert, Kp, T, st);
         const int64_t n_ent = (int64_t) T * Kp;
         const int32_t* prow = nullptr;
@@ -5300,6 +5375,7 @@ int strata::qwen35::run(int argc, char** argv) {
         }
     } report{E};
     E.reset();
+    if (E.tp) E.tp_prepare_launch_stats(mtp_d);
     E.mtp_d = m.has_mtp ? mtp_d : 0;
     const auto on = [](const char* name) { const char* v = std::getenv(name); return v && std::strcmp(v, "1") == 0; };
     E.mtp_stats.enabled = on("STRATA_Q36_MTP_STATS");

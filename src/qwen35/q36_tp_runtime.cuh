@@ -54,6 +54,7 @@ void Engine::tp_init(const Model& a, const Model& b, int context, int chunk, int
             d_gslot = dalloc_t<int32_t>(kVerify); d_grow0 = dalloc_t<int32_t>(kVerify); d_gcnt = dalloc_t<int32_t>(kVerify);
         }
         tp_token[d] = dalloc_t<unsigned>(q36tp::join_blocks);
+        if (tp_fuse2_router) tp_route_done[d] = dalloc_t<unsigned>(1);
         tp_remote[d] = dalloc((size_t)tmax * g.n_embd);
         CK(cudaEventCreateWithFlags(&tp_copy_ready[d], cudaEventDisableTiming));
         CK(cudaEventCreateWithFlags(&tp_copy_done[d], cudaEventDisableTiming));
@@ -73,11 +74,37 @@ void Engine::tp_init(const Model& a, const Model& b, int context, int chunk, int
     });
     use_mmq = dev_mmq[0] && dev_mmq[1];
     if (tp_check) std::fprintf(stderr, "strata-q36: STRATA_Q36_TP_CHECK=1: compare both residual replicas at each forward boundary (host readback)\n");
-    for (const char* flag : {"STRATA_Q36_TP_ATTN_ROWS", "STRATA_Q36_TP_HEAD_Q8", "STRATA_Q36_TP_MOE_JOIN"})
+    for (const char* flag : {"STRATA_Q36_TP_ATTN_ROWS", "STRATA_Q36_TP_HEAD_Q8", "STRATA_Q36_TP_MOE_JOIN",
+                             "STRATA_Q36_TP_FUSE2_CONV_AB", "STRATA_Q36_TP_FUSE2_GDN_Q8", "STRATA_Q36_TP_FUSE2_ROUTER",
+                             "STRATA_Q36_TP_FUSE2_JOIN_NORM", "STRATA_Q36_TP_FUSE2_MOE_NORM",
+                             "STRATA_Q36_TP_LAUNCH_STATS"})
         if (q36tp::enabled(flag)) std::fprintf(stderr, "strata-q36: %s=1 (experimental TP decode)\n", flag);
+    if (tp_launch_stats)
+        std::fprintf(stderr, "strata-q36 TP_LAUNCH_STATS: T=1 heads=1 submits 4 transfer calls "
+                             "(token, position, two vocab halves), or 5 for MTP with peer seed; "
+                             "MTP seed staging adds device copies; ordinary TP forward has no host stream wait\n");
     std::fprintf(stderr, "strata-q36: STRATA_Q36_TP=1: two equal tensor shards, all experts on both GPUs; "
                          "mapped-host decode joins, copy-engine prompt joins, replicated residual, %s; CPU/hybrid experts unsupported\n",
                          tp_graph && !verify_k ? "per-device graphs" : "eager streams");
+}
+
+void Engine::tp_prepare_launch_stats(int requested_mtp) {
+    if (!tp_launch_stats) return;
+    if (!tp_graph || verify_k || tp_attn_rows) {
+        std::fprintf(stderr, "strata-q36 TP_LAUNCH_STATS: T=1 graph count unavailable with eager TP, verification, or TP_ATTN_ROWS\n");
+        return;
+    }
+    tp_stats_capturing = true;
+    tp_graph_run(1, kChunkCells * 4, false, false, nullptr, true);
+    if (m->has_mtp && requested_mtp > 0) {
+        tp_stats_conv_ab[0] = tp_stats_conv_ab[1] = 0;
+        tp_stats_gdn_q8[0] = tp_stats_gdn_q8[1] = 0;
+        tp_stats_router[0] = tp_stats_router[1] = 0;
+        tp_stats_join_norm[0] = tp_stats_join_norm[1] = 0;
+        tp_stats_moe_norm[0] = tp_stats_moe_norm[1] = 0;
+        tp_graph_run(1, kChunkCells * 4, false, true, mtp_seed(), true);
+    }
+    tp_stats_capturing = false;
 }
 
 // All callers submit inputs on home. A cross-device event orders their copies without a host wait.
@@ -109,6 +136,19 @@ void Engine::tp_join(float* partial, int T) {
         tp_mapped[cur_dev][1-cur_dev], (size_t) T * m->g.n_embd, tp_flags[cur_dev][cur_dev],
         tp_flags[cur_dev][1-cur_dev], tp_token[cur_dev], cur_dev);
 }
+void Engine::tp_join_norm(float* partial, const float* w, float* hout, int T, bool quantized) {
+    const int N = (int) m->g.n_embd;
+    if (quantized)
+        q36tp_fuse2::join_norm<true><<<q36tp::join_blocks, kThreads, 0, st>>>(
+            partial, tp_mapped[cur_dev][cur_dev], tp_mapped[cur_dev][1-cur_dev], (size_t) T * N,
+            tp_flags[cur_dev][cur_dev], tp_flags[cur_dev][1-cur_dev], tp_token[cur_dev], cur_dev,
+            x, w, hout, (q36k::QB*) xq, N, m->eps, T);
+    else
+        q36tp_fuse2::join_norm<false><<<q36tp::join_blocks, kThreads, 0, st>>>(
+            partial, tp_mapped[cur_dev][cur_dev], tp_mapped[cur_dev][1-cur_dev], (size_t) T * N,
+            tp_flags[cur_dev][cur_dev], tp_flags[cur_dev][1-cur_dev], tp_token[cur_dev], cur_dev,
+            x, w, hout, nullptr, N, m->eps, T);
+}
 void Engine::tp_moe_end(int T, const int32_t* prow, const float* shared, const float* sgate,
                          const float* wn, float* hout, int sgs) {
     const int N = (int)m->g.n_embd;
@@ -119,6 +159,12 @@ void Engine::tp_moe_end(int T, const int32_t* prow, const float* shared, const f
     else q36tp::partial_moe<<<T, kThreads, 0, st>>>(moe_out, eparts, prow, ewts, (int)m->top_k, shared, sgate, sgs, N);
     xq_ready = false;
     if (T > kVerify) return; // prompt epilogue follows the copy-engine join
+    const bool fused_norm = tp_fuse2_moe_norm && !tp_moe_join && !verify_k && wn && T <= 4 && N % 32 == 0;
+    if (fused_norm) {
+        if (tp_stats_capturing) ++tp_stats_moe_norm[cur_dev];
+        tp_join_norm(moe_out, wn, hout, T, false);
+        return;
+    }
     if (!tp_moe_join) tp_join(moe_out, T);
     if (wn) k_add_rms<<<T, kThreads, 0, st>>>(x, moe_out, wn, hout, N, m->eps);
     else k_add<<<grid1((int64_t)T * N), kThreads, 0, st>>>(x, moe_out, (int64_t)T * N);

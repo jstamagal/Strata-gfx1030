@@ -11,8 +11,10 @@
     cudaEvent_t tp_event[2] = {};
     void tp_swap(int from, int to);
     void tp_init(const Model& a, const Model& b, int context, int chunk, int sessions, bool pictures);
+    void tp_prepare_launch_stats(int requested_mtp);
     void tp_enter(int T, bool mtp = false, const float* seeds = nullptr);
     void tp_join(float* partial, int T);
+    void tp_join_norm(float* partial, const float* w, float* hout, int T, bool quantized);
     void tp_moe_end(int T, const int32_t* prow, const float* shared, const float* sgate,
                     const float* wn, float* hout, int sgs);
     void tp_forward(int T, int64_t p0, int heads, bool verify);
@@ -24,10 +26,22 @@
     void tp_copy_join(int T, bool moe);
     void tp_layer_pair(size_t li, int T, int64_t p0, bool verify, bool mtp = false);
     long long tp_graph_key(int T, bool verify, bool mtp) const;
-    bool tp_graph_run(int T, int64_t p0, bool verify, bool mtp = false, const float* seeds = nullptr);
+    bool tp_graph_run(int T, int64_t p0, bool verify, bool mtp = false, const float* seeds = nullptr,
+                      bool capture_only = false);
     bool tp_check = false;
     bool tp_attn_rows = q36tp::enabled("STRATA_Q36_TP_ATTN_ROWS");
     bool tp_head_q8 = q36tp::enabled("STRATA_Q36_TP_HEAD_Q8");
     bool tp_moe_join = q36tp::enabled("STRATA_Q36_TP_MOE_JOIN");
+    bool tp_fuse2_conv_ab = q36tp::enabled("STRATA_Q36_TP_FUSE2_CONV_AB");
+    bool tp_fuse2_gdn_q8 = q36tp::enabled("STRATA_Q36_TP_FUSE2_GDN_Q8");
+    bool tp_fuse2_router = q36tp::enabled("STRATA_Q36_TP_FUSE2_ROUTER");
+    bool tp_fuse2_join_norm = q36tp::enabled("STRATA_Q36_TP_FUSE2_JOIN_NORM");
+    bool tp_fuse2_moe_norm = q36tp::enabled("STRATA_Q36_TP_FUSE2_MOE_NORM");
+    bool tp_launch_stats = q36tp::enabled("STRATA_Q36_TP_LAUNCH_STATS");
+    unsigned* tp_route_done[2] = {};
+    bool tp_stats_capturing = false;
+    int tp_stats_conv_ab[2] = {}, tp_stats_router[2] = {};
+    int tp_stats_gdn_q8[2] = {};
+    int tp_stats_join_norm[2] = {}, tp_stats_moe_norm[2] = {};
     long long tp_checks = 0;
     void tp_check_residual(int T, bool mtp);
