@@ -27,6 +27,8 @@
 #include "strata/prefill/moe_mmq.hpp"
 #include "strata/qwen35/engine.hpp"
 #include "q36_kernels.cuh"
+#include "q36_decode.cuh"
+#include "q36_experts.hpp"
 #if defined(STRATA_Q36_CPU_POOL)
 #include "strata/kernels/cpu/native_expert.hpp"
 #include "strata/kernels/cpu/pool.hpp"
@@ -1813,6 +1815,8 @@ struct Engine {
         set_delta(0);
     }
 
+#include "q36_decode_hooks.inl"
+
     /// y [T][n_out] = W x [T][n_in] on the native MMVQ, 8 columns per launch.
     void mm(const Mat& w, const float* xin, float* out, int T) {
         prep(xin, w.n_in, T, q8);
@@ -1867,6 +1871,7 @@ struct Engine {
     bool verify_k = std::getenv("STRATA_Q36_VERIFY") != nullptr;
     float* vbuf = nullptr;                       // verify scratch
     long long v_calls = 0, v_bad = 0;
+    std::map<std::string, long long> v_checked;
     std::map<std::string, long long> v_by;   // mismatches per check
     void verify_cmp(const char* what, const float* a, const float* b, size_t n, const std::string& tag = "") {
         CK(cudaStreamSynchronize(st));
@@ -1874,6 +1879,7 @@ struct Engine {
         CK(cudaMemcpy(ha.data(), a, n * 4, cudaMemcpyDeviceToHost));
         CK(cudaMemcpy(hb.data(), b, n * 4, cudaMemcpyDeviceToHost));
         ++v_calls;
+        ++v_checked[what];
         if (std::memcmp(ha.data(), hb.data(), n * 4) != 0) {
             ++v_bad;
             size_t i = 0;
@@ -1965,8 +1971,8 @@ struct Engine {
         if (fast_k && T <= kGemmT) {
             if (verify_k) {
                 if (!vx_) {
-                    CK(cudaMalloc((void**) &vx_, (size_t) 8 * 2048 * 4));
-                    CK(cudaMalloc((void**) &vh_, (size_t) 8 * 2048 * 4));
+                    CK(cudaMalloc((void**) &vx_, (size_t) kGemmT * m->g.n_embd * sizeof(float)));
+                    CK(cudaMalloc((void**) &vh_, (size_t) kGemmT * m->g.n_embd * sizeof(float)));
                 }
                 CK(cudaMemcpyAsync(vx_, x, (size_t) T * N * 4, cudaMemcpyDeviceToDevice, st));
                 k_add_rms<<<T, kThreads, 0, st>>>(vx_, y, L.post_norm, vh_, N, m->eps);
@@ -1984,6 +1990,7 @@ struct Engine {
     }
     /// The shared expert's gate + up + SwiGLU + q8_1 image (into q8) for T <= 4 rows in one launch (q36k::k_sh_gu), else false.
     bool shared_gu(const Layer& L, int T) {
+        if (decode_shared(L, T)) return true;
         const int FS = (int) m->g.n_ff_shexp;
         const Mat &a = L.sh_gate, &b = L.sh_up;
         if (!fast_k || T < 1 || T > 4 || a.type != 8 || b.type != 8 || a.n_in != b.n_in || a.n_out != FS || b.n_out != FS ||
@@ -2126,18 +2133,21 @@ struct Engine {
     /// The MoE block's end (k_moe_out) for T rows.
     void moe_end(int T, const int32_t* prow, const float* shared, const float* sgate, const float* wn, float* hout, int sgs = 1) {
         const int N = (int) m->g.n_embd, Kp = (int) m->top_k;
-        const bool small = fast_k && T <= 8 && N <= 2048 && N % 256 == 0 && Kp <= 15;
+        const bool wide = decode_wide_ok(T, N, Kp);
+        const bool small = wide || (fast_k && T <= 8 && N <= 2048 && N % 256 == 0 && Kp <= 15);
         if (small && verify_k) {
             if (!vx_) {
-                CK(cudaMalloc((void**) &vx_, (size_t) 8 * 2048 * 4));
-                CK(cudaMalloc((void**) &vh_, (size_t) 8 * 2048 * 4));
+                CK(cudaMalloc((void**) &vx_, (size_t) kGemmT * m->g.n_embd * sizeof(float)));
+                CK(cudaMalloc((void**) &vh_, (size_t) kGemmT * m->g.n_embd * sizeof(float)));
             }
             CK(cudaMemcpyAsync(vx_, x, (size_t) T * N * 4, cudaMemcpyDeviceToDevice, st));
             k_moe_out<<<T, kThreads, 0, st>>>(vx_, eparts, prow, ewts, Kp, shared, sgate, sgs, wn, vh_, N, m->eps);
         }
         if (small) {
             const bool mkq = wn != nullptr && hout == h;   // the next layer's input, quantized here
-            q36k::k_moe_out_small<<<T, 1024, 0, st>>>(x, eparts, prow, ewts, Kp, shared, sgate, sgs, wn, hout, N, m->eps,
+            if (wide) q36decode::moe_wide<<<T, 1024, q36decode::moe_lds(N, Kp), st>>>(
+                x, eparts, prow, ewts, Kp, shared, sgate, sgs, wn, hout, N, m->eps, mkq ? (q36k::QB*) xq : nullptr);
+            else q36k::k_moe_out_small<<<T, 1024, 0, st>>>(x, eparts, prow, ewts, Kp, shared, sgate, sgs, wn, hout, N, m->eps,
                                                       mkq ? (q36k::QB*) xq : nullptr);
             xq_ready = mkq;
             if (verify_k) {
@@ -2152,6 +2162,7 @@ struct Engine {
     }
     /// y [T][n_out] = W x from x's q8_1 image, 8 columns per launch.
     void mmq(const Mat& w, const void* q, float* out, int T) {
+        if (decode_mmvq(w, q, out, T)) return;
         if (q8_small(w, q, out, T)) return;
         const size_t qb = K::native_q8_1_bytes(w.n_in, 1);
         for (int c0 = 0; c0 < T; c0 += 8) {
@@ -2177,15 +2188,17 @@ struct Engine {
             float* al_b = verify ? v_alpha[li] : alpha;
             float* be_b = verify ? v_beta[li] : beta;
             prep_in(T);
-            apply(L.qkv, xq, qkv_b, T);
-            apply(L.zg, xq, z, T);
-            if (T <= kGemmT) {
-                k_gdn_ab<<<dim3(rows8(2 * HV), T), kThreads, 0, st>>>(L.alpha, L.beta, h, L.dt, L.ssm_a, al_b, be_b, N,
-                                                                      HV);
-            } else {
-                f32mm(L.alpha, h, al_b, N, HV, T);
-                f32mm(L.beta, h, be_b, N, HV, T);
-                k_gdn_gb<<<grid1((int64_t) HV * T), kThreads, 0, st>>>(al_b, L.dt, L.ssm_a, be_b, HV, T);
+            if (!decode_projections(L, T, qkv_b, al_b, be_b)) {
+                apply(L.qkv, xq, qkv_b, T);
+                apply(L.zg, xq, z, T);
+                if (T <= kGemmT) {
+                    k_gdn_ab<<<dim3(rows8(2 * HV), T), kThreads, 0, st>>>(L.alpha, L.beta, h, L.dt, L.ssm_a, al_b, be_b, N,
+                                                                          HV);
+                } else {
+                    f32mm(L.alpha, h, al_b, N, HV, T);
+                    f32mm(L.beta, h, be_b, N, HV, T);
+                    k_gdn_gb<<<grid1((int64_t) HV * T), kThreads, 0, st>>>(al_b, L.dt, L.ssm_a, be_b, HV, T);
+                }
             }
             if (rows_mode) {   // batch rows: a slot's rows (one, or a verify window's two) in sequence on its own state
                 k_conv_seq<<<dim3(C / 128, rows_G), 128, 0, st>>>(nullptr, qkv_b, L.conv, hc_b, C, 2 * HK, m->eps, 1,
@@ -2214,9 +2227,11 @@ struct Engine {
             mm(L.ssm_out, gdn_y, y, T);
         } else {
             prep_in(T);
-            apply(L.wq, xq, qg, T);
-            apply(L.wk, xq, kx, T);
-            apply(L.wv, xq, vx, T);
+            if (!decode_projections(L, T)) {
+                apply(L.wq, xq, qg, T);
+                apply(L.wk, xq, kx, T);
+                apply(L.wv, xq, vx, T);
+            }
             RowSel rs;
             if (rows_mode) {
                 rs.cell = d_rcell;
@@ -2375,8 +2390,9 @@ struct Engine {
         } else {
             group_entries(L, nullptr, T);
             if (!xq_post) quant(h, N, T, xq);   // the experts' and the shared expert's input
-            K::native_expert_grouped(L.L, grp_ptr, grp_start, n_groups, ent_dst, ent_tok,
-                                     std::min<int64_t>(n_ent, g.n_expert), n_ent, xq, escr, eparts, st);
+            if (!decode_experts(L, T, std::min<int64_t>(n_ent, g.n_expert), n_ent))
+                K::native_expert_grouped(L.L, grp_ptr, grp_start, n_groups, ent_dst, ent_tok,
+                                         std::min<int64_t>(n_ent, g.n_expert), n_ent, xq, escr, eparts, st);
         }
         // the shared expert, scaled by sigmoid(w . h)
         if (T > kGemmT) k_to_f16<<<grid1((int64_t) N * T), kThreads, 0, st>>>(h, x16, (int64_t) N * T);
@@ -2409,12 +2425,12 @@ struct Engine {
         if (map_on) k_put_rows<<<T, kThreads, 0, st>>>(x, d_img, d_map, N);   // a picture's cells take its rows
         if (n_dev > 1) split_enter(T);   // the inputs and the embedded rows to the other devices, the first layer's active
         if (main_hybrid && T > hybrid_t && use_mmq) stream_dev();
-        k_rms<<<T, kThreads, 0, st>>>(x, m->layers[0].attn_norm, h, N, m->eps);   // later layers: from k_moe_out
+        input_norm(m->layers[0].attn_norm, T);   // later layers: from k_moe_out
         const size_t nl = m->layers.size();
         for (size_t l = 0; l < nl;) {
             if (dev_of[l] != cur_dev) {   // the next device's layers: the residual goes over, its norm is taken there
                 split_cross(dev_of[l], T);
-                k_rms<<<T, kThreads, 0, st>>>(x, m->layers[l].attn_norm, h, N, m->eps);
+                input_norm(m->layers[l].attn_norm, T);
                 if (main_hybrid && T > hybrid_t && use_mmq) stream_dev();
             }
             size_t e = l;   // this device's run of layers [l, e)
@@ -2431,7 +2447,7 @@ struct Engine {
             // a layer split: a device's run of layers (and the head) as one graph per window shape when no layer of it
             // takes the host's part (STRATA_Q36_SEG_GRAPHS=0: eager)
             static const bool seg_off = [] { const char* v = std::getenv("STRATA_Q36_SEG_GRAPHS"); return v && v[0] == '0'; }();
-            bool can = n_dev > 1 && !seg_off && T <= kVerify && !rows_mode && !mtab_now && !map_on;
+            bool can = n_dev > 1 && !seg_off && !verify_k && T <= kVerify && !rows_mode && !mtab_now && !map_on;
             for (size_t k = l; k < e && can; ++k) can = !lhy(k);
             if (can) {
                 const long long key = (((long long) cur * 64 + (long long) l) * 16 + T) * 16 + heads * 2 + (verify ? 1 : 0);
@@ -2564,7 +2580,7 @@ struct Engine {
         k_rms_ld<<<T, kThreads, 0, st>>>(y, N, m->mtp_enorm, mtp_cat, 2 * N, N, m->eps);              // [e | ...]
         k_rms_ld<<<T, kThreads, 0, st>>>(seeds, N, m->mtp_hnorm, mtp_cat + N, 2 * N, N, m->eps);      // [... | h]
         mm(m->eh_proj, mtp_cat, x, T);
-        k_rms<<<T, kThreads, 0, st>>>(x, m->mtp.attn_norm, h, N, m->eps);
+        input_norm(m->mtp.attn_norm, T);
         layer(m->mtp, m->layers.size(), T, p0, pos0_m, graph_mode, false, m->mtp_shnorm, hmtp);
         draft_pos = p0 + T;
         if (draft) head_draft(hmtp + (size_t) (T - 1) * N);
@@ -2864,7 +2880,7 @@ struct Engine {
     }
 
     template <class F> void graph_run(cudaGraphExec_t& gx, F body) {
-        if (!use_graph) { body(); return; }
+        if (!use_graph || verify_k) { body(); return; }
         if (!gx) {
             cudaGraph_t graph = nullptr;
             CK(cudaStreamBeginCapture(st, cudaStreamCaptureModeThreadLocal));
@@ -5104,6 +5120,7 @@ int strata::qwen35::run(int argc, char** argv) {
         std::fprintf(stderr, "strata-q36: %s\n", err.c_str());
         return 1;
     }
+    E.decode_init();
     struct Report {
         Engine& E;
         ~Report() {
@@ -5111,6 +5128,9 @@ int strata::qwen35::run(int argc, char** argv) {
             if (E.verify_k)
                 for (const auto& kv : E.v_by)
                     std::fprintf(stderr, "strata-q36 VERIFY   %s: %lld mismatches\n", kv.first.c_str(), kv.second);
+            if (E.verify_k)
+                for (const auto& kv : E.v_checked)
+                    std::fprintf(stderr, "strata-q36 VERIFY checked %s: %lld comparisons\n", kv.first.c_str(), kv.second);
             if (!E.m->hybrid) return;
             const long long n = E.hy_cpu + E.hy_gpu;
             std::fprintf(stderr, "strata-q36: hybrid experts: %lld of %lld batch entries on the GPU (%.1f%%), %lld on the "
