@@ -4039,6 +4039,52 @@ void launch_down(dim3 grid, cudaStream_t s, const unsigned long long* grp_ptr, c
     else native_down_multi_kernel<TD, true><<<grid, 256, 0, s>>>(grp_ptr, grp_start, n_groups, ent_dst, hq, L, out);
 }
 
+#include "../../qwen35/q36_tpx_expert.cuh"
+
+template<int T>
+bool launch_tpx_gu_type(const NativeExpertLayout& L, dim3 grid, cudaStream_t s,
+                        const unsigned long long* grp_ptr, const int32_t* grp_start, const int32_t* n_groups,
+                        const int32_t* ent_tok, const block_q8_1* xq, float* gate, float* up) {
+    if ((L.n_embd / Fmt<T>::qk) * Fmt<T>::ipb < 16) return false;
+    const dim3 tg((unsigned) ((2 * L.n_ff + 15) / 16), grid.y);
+    tpx_gu_half_kernel<T><<<tg, 256, 0, s>>>(grp_ptr, grp_start, n_groups, ent_tok, xq, L, gate, up);
+    return true;
+}
+bool launch_tpx_gu(const NativeExpertLayout& L, dim3 grid, cudaStream_t s,
+                   const unsigned long long* grp_ptr, const int32_t* grp_start, const int32_t* n_groups,
+                   const int32_t* ent_tok, const block_q8_1* xq, float* gate, float* up) {
+    if (!tpx_switch(g_tpx_gu, "STRATA_Q36_TPX_GU16")) return false;
+    if (L.n_embd % 256 || L.n_ff % 16) return false;
+#define TPX_GU(T) case T: return launch_tpx_gu_type<T>(L, grid, s, grp_ptr, grp_start, n_groups, ent_tok, xq, gate, up)
+    switch (L.gu_type) {
+        TPX_GU(16); TPX_GU(18); TPX_GU(19); TPX_GU(22); TPX_GU(23); TPX_GU(11); TPX_GU(12); TPX_GU(8);
+        default: return false;
+    }
+#undef TPX_GU
+}
+
+template<int T>
+bool launch_tpx_down_type(const NativeExpertLayout& L, dim3 grid, cudaStream_t s,
+                          const unsigned long long* grp_ptr, const int32_t* grp_start, const int32_t* n_groups,
+                          const int32_t* ent_dst, const block_q8_1* hq, float* out) {
+    if ((L.n_ff / Fmt<T>::qk) * Fmt<T>::ipb < 16) return false;
+    const dim3 td((unsigned) ((L.n_embd + 15) / 16), grid.y);
+    tpx_down_half_kernel<T><<<td, 256, 0, s>>>(grp_ptr, grp_start, n_groups, ent_dst, hq, L, out);
+    return true;
+}
+bool launch_tpx_down(const NativeExpertLayout& L, dim3 grid, cudaStream_t s,
+                     const unsigned long long* grp_ptr, const int32_t* grp_start, const int32_t* n_groups,
+                     const int32_t* ent_dst, const block_q8_1* hq, float* out) {
+    if (!tpx_switch(g_tpx_down, "STRATA_Q36_TPX_DOWN16") || L.n_ff % 256 || L.n_embd % 16) return false;
+#define TPX_DOWN(T) case T: return launch_tpx_down_type<T>(L, grid, s, grp_ptr, grp_start, n_groups, ent_dst, hq, out)
+    switch (L.d_type) {
+        TPX_DOWN(16); TPX_DOWN(18); TPX_DOWN(19); TPX_DOWN(22); TPX_DOWN(23);
+        TPX_DOWN(11); TPX_DOWN(12); TPX_DOWN(8);
+        default: return false;
+    }
+#undef TPX_DOWN
+}
+
 }  // namespace
 
 void iq_set_old_kernels(bool old) { g_old_kernels = old; }
@@ -5081,6 +5127,11 @@ void native_expert_set_mode(int mode, int phase) {
     g_exp_phase = phase;
 }
 
+void native_expert_tpx_tune(int gu, int down) {
+    g_tpx_gu = gu;
+    g_tpx_down = down;
+}
+
 namespace {
 bool g_grouped_v1 = env_on("STRATA_GROUPED_V1");
 }  // namespace
@@ -5201,7 +5252,8 @@ void native_expert_grouped(const NativeExpertLayout& L, const unsigned long long
 #endif
 #endif
 #if STRATA_EXP_LAYOUTS
-    const bool fused_gu = em0 == 8 && ((kExpLds16 && L.gu_type == 16) || L.gu_type == 18 || L.gu_type == 21 || L.gu_type == 22 || L.gu_type == 23) &&
+    const bool tpx_gu_done = g_exp_phase != 2 && launch_tpx_gu(L, ggu, s, grp_ptr, grp_start, n_groups, ent_tok, X, gate, up);
+    const bool fused_gu = !tpx_gu_done && em0 == 8 && ((kExpLds16 && L.gu_type == 16) || L.gu_type == 18 || L.gu_type == 21 || L.gu_type == 22 || L.gu_type == 23) &&
                           L.n_ff % 32 == 0;
     if (fused_gu && g_exp_phase != 2) {
         const dim3 gl((unsigned) (L.n_ff / 32), (unsigned) cap_groups);
@@ -5232,9 +5284,10 @@ void native_expert_grouped(const NativeExpertLayout& L, const unsigned long long
     // 147-verify STRATA_GU_SWIGLU=1: gate/up + SwiGLU + q8_1 in one launch where the CUDA layout's 16-lane kernel would run
     bool gs_done = false;
 #if STRATA_EXP_LAYOUTS
-    const bool gs_layout = !fused_gu && em0 == 0;
+    const bool gs_layout = !fused_gu && !tpx_gu_done && em0 == 0;
 #else
-    const bool gs_layout = true;
+    const bool tpx_gu_done = g_exp_phase != 2 && launch_tpx_gu(L, ggu, s, grp_ptr, grp_start, n_groups, ent_tok, X, gate, up);
+    const bool gs_layout = !tpx_gu_done;
 #endif
     if (gs_layout && g_exp_phase == 0 && !v1 && gu_swiglu_on() && !(expdec_mode() && !g_old_kernels && expdec_gu_ok(L))) {
         switch (L.gu_type) {
@@ -5246,9 +5299,9 @@ void native_expert_grouped(const NativeExpertLayout& L, const unsigned long long
         if (gs_done) check("native_expert_grouped/gu+swiglu");
     }
 #if STRATA_EXP_LAYOUTS
-    if (g_exp_phase != 2 && !fused_gu && !gs_done) {
+    if (g_exp_phase != 2 && !fused_gu && !gs_done && !tpx_gu_done) {
 #else
-    if (g_exp_phase != 2 && !gs_done) {
+    if (g_exp_phase != 2 && !gs_done && !tpx_gu_done) {
 #endif
 #if STRATA_EXP_LAYOUTS
     const bool lds_gu = (em0 == 5 || em0 == 6 || em0 == 7 || em0 == 8) && ((kExpLds16 && L.gu_type == 16) || L.gu_type == 18 || L.gu_type == 21 || L.gu_type == 22 || L.gu_type == 23);
@@ -5313,6 +5366,10 @@ void native_expert_grouped(const NativeExpertLayout& L, const unsigned long long
     check("native_expert_grouped/swiglu");
     }
     if (g_exp_phase == 1) return;
+    if (launch_tpx_down(L, dim3(1, (unsigned) gy), s, grp_ptr, grp_start, n_groups, ent_dst, hq, out)) {
+        check("native_expert_grouped/down (tpx)");
+        return;
+    }
 #if defined(__HIPCC__)
     static const bool exp_down = [] { const char* v = std::getenv("STRATA_EXP_DOWN"); return v && v[0] == '1'; }();
     if (exp_down && L.d_type == 42 && L.n_embd == 2560 && L.n_ff == 640 &&

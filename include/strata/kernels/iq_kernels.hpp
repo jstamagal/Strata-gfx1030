@@ -87,6 +87,10 @@ void native_grouped_set_v1(bool v1);
 /// The bench only: the AMD kernel layout (STRATA_EXP_MODE values; -1 = the environment's) and the phase
 /// (0 all, 1 gate/up + SwiGLU + quantize, 2 down).
 void native_expert_set_mode(int mode, int phase);
+/// TP half-expert lab override: -1 reads STRATA_Q36_TPX_GU16 / STRATA_Q36_TPX_DOWN16,
+/// 0 forces the old launch, 1 selects the opt-in 16-lane layout where the shape fits.
+/// Set before graph capture; captured graphs retain their selected kernels.
+void native_expert_tpx_tune(int gu, int down);
 
 /// APR (prism.hadamard): y = H_block (signs * x) per block of `block` values of each of `rows` rows of `width`
 /// (x == y allowed).  `signs`: a device vector of `width` signs, or nullptr (identity).  The same floats as the CPU's
