@@ -75,6 +75,8 @@ namespace MMQ = strata::prefill::mmq;
         }                                                                                                              \
     } while (0)
 
+#include "q36_layer_dump.cuh"
+
 using Clock = std::chrono::steady_clock;
 double ms_since(Clock::time_point t) { return std::chrono::duration<double, std::milli>(Clock::now() - t).count(); }
 
@@ -1414,6 +1416,11 @@ struct ImgKey {
 };
 
 struct Engine {
+    q36dump::Layers layer_dump;
+    void dump_begin(int T, int64_t p0, bool verify, bool mtp = false) {
+        if (layer_dump.enabled()) layer_dump.begin((int)m->g.n_embd, (int)m->layers.size(), T, p0, verify, mtp, cur,
+            warming, mtp ? tok_m : tok, rows_mode ? d_rcell : nullptr, rows_mode ? d_rslot : nullptr, st);
+    }
     const Model* m = nullptr;
     cudaStream_t st = nullptr;
     int ctx = 32768, tmax = 512;
@@ -2338,6 +2345,7 @@ struct Engine {
         }
         if (tp_phase == 1) return;
         add_rms_post(L, T);
+        if (!tp || cur_dev == home) layer_dump.mixer(x, st);
         // routed experts (one token: the router and the shared expert's gate in one product, the gate its last row)
         const bool one = T == 1;
         // a decode batch of up to 8 rows takes the router and the shared expert's gate in one product too (rows of 257) when the fused
@@ -2440,6 +2448,7 @@ struct Engine {
         if (hy_rows) moe_hybrid_cpu(li, T);   // the CPU pool's experts (while the GPU runs the rest), merged
         // the combine, the shared expert's gate, the residual add and the next norm in one launch
         moe_end(T, prow, sy, ext ? logits_r + g.n_expert : sgate, wn, hout, ext ? (int) g.n_expert + 1 : 1);
+        if (!tp) layer_dump.finish(li, x, st);
     }
 
     /// The main model over T rows (device `tok`, positions p0 .. p0 + T - 1, also at *pos0): hmain gets every row's
@@ -2447,6 +2456,7 @@ struct Engine {
     /// their greedy picks (`pick`).  `verify`: a verify window (the GDN state left for commit()).
     void forward(int T, int64_t p0, int heads, bool graph_mode, bool verify) {
         if (tp) { tp_forward(T, p0, heads, verify); return; }
+        dump_begin(T, p0, verify);
         const auto& g = m->g;
         const int N = (int) g.n_embd;
         K::iq_embed_rows(m->embd_type, embd_d, m->embd_row, tok, T, N, x, st);
@@ -2475,7 +2485,7 @@ struct Engine {
             // a layer split: a device's run of layers (and the head) as one graph per window shape when no layer of it
             // takes the host's part (STRATA_Q36_SEG_GRAPHS=0: eager)
             static const bool seg_off = [] { const char* v = std::getenv("STRATA_Q36_SEG_GRAPHS"); return v && v[0] == '0'; }();
-            bool can = n_dev > 1 && !seg_off && T <= kVerify && !rows_mode && !mtab_now && !map_on;
+            bool can = n_dev > 1 && !seg_off && !layer_dump.enabled() && T <= kVerify && !rows_mode && !mtab_now && !map_on;
             for (size_t k = l; k < e && can; ++k) can = !lhy(k);
             if (can) {
                 const long long key = (((long long) cur * 64 + (long long) l) * 16 + T) * 16 + heads * 2 + (verify ? 1 : 0);
@@ -2601,6 +2611,7 @@ struct Engine {
     /// hmtp gets each row's normed output.  `draft`: logits of the last row and its pick (`pick_m`).
     void forward_mtp(int T, int64_t p0, const float* seeds, bool draft, bool graph_mode) {
         if (tp) { tp_forward_mtp(T, p0, seeds, draft); return; }
+        dump_begin(T, p0, false, true);
         const auto& g = m->g;
         const int N = (int) g.n_embd;
         if (main_hybrid && lhy(m->layers.size()) && T > hybrid_t && use_mmq) stream_begin({(int) m->layers.size()});
@@ -2909,7 +2920,7 @@ struct Engine {
     }
 
     template <class F> void graph_run(cudaGraphExec_t& gx, F body) {
-        if (!use_graph) { body(); return; }
+        if (!use_graph || layer_dump.enabled()) { body(); return; }
         if (!gx) {
             cudaGraph_t graph = nullptr;
             CK(cudaStreamBeginCapture(st, cudaStreamCaptureModeThreadLocal));
@@ -3176,6 +3187,7 @@ struct Engine {
                 tp_head(T, T, true, false, logits_mr, pick_mr);
                 return;
             }
+            dump_begin(T, pmax, false, true);
             K::iq_embed_rows(m->embd_type, embd_d, m->embd_row, tok_m, T, N, y, st);
             k_rms_ld<<<T, kThreads, 0, st>>>(y, N, m->mtp_enorm, mtp_cat, 2 * N, N, m->eps);                 // [e | ...]
             k_rms_ld<<<T, kThreads, 0, st>>>(mtp_seed(), N, m->mtp_hnorm, mtp_cat + N, 2 * N, N, m->eps);   // [... | h]

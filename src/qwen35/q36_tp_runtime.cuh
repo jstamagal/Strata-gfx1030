@@ -119,6 +119,7 @@ void Engine::tp_moe_end(int T, const int32_t* prow, const float* shared, const f
 }
 
 void Engine::tp_forward(int T, int64_t p0, int heads, bool verify) {
+    dump_begin(T, p0, verify);
     tp_enter(T);
     if (tp_graph_run(T, p0, verify)) { tp_head(T, heads); return; }
     const int N = (int)m->g.n_embd;
@@ -166,11 +167,13 @@ bool place_experts_tp(Model& a, Model& b, Engine& E, std::string& err) {
         if (m.has_mtp) need += m.mtp.stride * m.g.n_expert + kMmqTail;
         CK(cudaMemGetInfo(&fr, &total));
         const size_t reserve = (size_t)256 << 20;
-        if (need + reserve > fr && !m.packed.empty()) {
+        const bool drop_packed = q36tp::enabled("STRATA_Q36_DROP_PACKED");
+        if ((drop_packed || need + reserve > fr) && !m.packed.empty()) {
             for (const auto& p : m.packed) { K::native_q8_0_packed_unregister(std::get<0>(p)); CK(cudaFree(std::get<1>(p))); }
             m.packed.clear(); m.packed_dev.clear();
             CK(cudaMemGetInfo(&fr, &total));
-            std::fprintf(stderr, "strata-q36: TP device %d: released packed dense copies to fit expert shards\n", d);
+            std::fprintf(stderr, "strata-q36: TP device %d: released packed dense copies (%s)\n", d,
+                         drop_packed ? "STRATA_Q36_DROP_PACKED=1" : "to fit expert shards");
         }
         if (need + reserve > fr) {
             err = "TP device " + std::to_string(d) + " needs " + std::to_string(need >> 20) +

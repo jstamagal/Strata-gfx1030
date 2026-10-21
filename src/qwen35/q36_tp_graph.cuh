@@ -4,7 +4,7 @@ long long Engine::tp_graph_key(int T, bool verify, bool mtp) const {
              (kVerify+1) + T) * 2 + (int)verify) * 2 + (int)mtp;
 }
 bool Engine::tp_graph_run(int T, int64_t p0, bool verify, bool mtp, const float* seeds) {
-    if (!tp_graph || verify_k || T > kVerify || map_on || mtab_now) return false;
+    if (!tp_graph || layer_dump.enabled() || verify_k || T > kVerify || map_on || mtab_now) return false;
     // Main callers always stage MTP seeds here. Other seed addresses use eager execution, never a stale capture.
     use_dev(home);
     if (mtp && seeds != mtp_seed()) return false;

@@ -40,4 +40,9 @@ void Engine::tp_layer_pair(size_t li, int T, int64_t p0, bool verify, bool mtp) 
             k_add_rms<<<T, kThreads, 0, st>>>(x, moe_out, wn, mtp ? hmtp : last ? hmain : h, (int)m->g.n_embd, m->eps);
         }
     }
+    // A host wait inside rank zero's MoE epilogue would deadlock its join: submit rank one first.
+    if (layer_dump.active()) {
+        use_dev(home);
+        layer_dump.finish(li, x, st);
+    }
 }
