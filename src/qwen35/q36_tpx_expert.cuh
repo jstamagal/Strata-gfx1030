@@ -12,6 +12,37 @@ inline bool tpx_switch(int override_value, const char* name) {
     const char* v = std::getenv(name);
     return v && v[0] == '1' && v[1] == '\0';
 }
+inline void tpx_expert_trace(const char* phase, const NativeExpertLayout& L, bool selected) {
+    if (!tpx_switch(-1, "STRATA_Q36_TPX_TRACE")) return;
+    static std::map<std::tuple<int, int64_t, int64_t, bool>, bool> seen;
+    const int type = phase[0] == 'g' ? L.gu_type : L.d_type;
+    if (!seen.emplace(std::make_tuple(type + (phase[0] == 'd' ? 1000 : 0), L.n_embd, L.n_ff, selected), true).second) return;
+    std::fprintf(stderr, "strata-q36 TPX expert: %s type=%d K=%lld FF=%lld %s\n",
+                 phase, type, (long long) L.n_embd, (long long) L.n_ff, selected ? "selected" : "fallback");
+}
+
+// Diagnostic graph node: compare a real grouped call with the old gate/up
+// kernel, then restore its outputs so the rest of the decode uses reference
+// values.  h/hq are idle scratch until SwiGLU/quantize below this call.
+__global__ void tpx_gu_compare_restore(float* gate, float* up, const float* old_gate,
+                                        const float* old_up, size_t n, int type) {
+    if (threadIdx.x == 0) {
+        for (size_t i = 0; i < n; ++i) {
+            if (__float_as_uint(gate[i]) != __float_as_uint(old_gate[i]) ||
+                __float_as_uint(up[i]) != __float_as_uint(old_up[i])) {
+                printf("strata-q36 TPX GU mismatch: type=%d index=%llu gate=%08x/%08x up=%08x/%08x\n",
+                       type, (unsigned long long) i, __float_as_uint(gate[i]), __float_as_uint(old_gate[i]),
+                       __float_as_uint(up[i]), __float_as_uint(old_up[i]));
+                break;
+            }
+        }
+    }
+    __syncthreads();
+    for (size_t i = threadIdx.x; i < n; i += blockDim.x) {
+        gate[i] = old_gate[i];
+        up[i] = old_up[i];
+    }
+}
 
 template<int TY, bool STAGE_GRID, bool USE_SPLIT = kSplit<TY> && TY != 12 && TY != 8>
 struct TpxPart;
