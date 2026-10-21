@@ -59,15 +59,15 @@ bool Engine::tp_graph_run(int T, int64_t p0, bool verify, bool mtp, const float*
 #endif
             }
             if (tp_stats_capturing && T == 1) {
-                const int saved = tp_stats_conv_ab[d] + tp_stats_gdn_q8[d] + tp_stats_router[d] +
+                const int saved = tp_stats_conv_ab[d] + tp_stats_gdn_q8[d] + tp_stats_gdn_all[d] + tp_stats_shared[d] + tp_stats_router[d] +
                                   tp_stats_join_norm[d] + tp_stats_moe_norm[d];
                 std::fprintf(stderr,
                     "strata-q36 TP_LAUNCH_STATS %s T=1 rank %d: graph kernels %zu active, %zu baseline; "
-                    "saved %d (conv+alpha/beta %d, GDN+Q8 %d, router+group %d, mixer join+norm %d, MoE join+norm %d); "
+                    "saved %d (conv+alpha/beta %d, GDN+Q8 %d, GDN all %d, shared %d, router+group %d, mixer join+norm %d, MoE join+norm %d); "
                     "graph copies %zu; T=1 heads=1 forward has %zu explicit kernels including head "
                     "(input and split-head copies run outside graph)\n",
                     mtp ? "MTP" : "main", d, kernels, kernels + saved, saved,
-                    tp_stats_conv_ab[d], tp_stats_gdn_q8[d], tp_stats_router[d],
+                    tp_stats_conv_ab[d], tp_stats_gdn_q8[d], tp_stats_gdn_all[d], tp_stats_shared[d], tp_stats_router[d],
                     tp_stats_join_norm[d], tp_stats_moe_norm[d], copies,
                     kernels + (d == home ? 4 : 2));
             } else {
@@ -80,8 +80,9 @@ bool Engine::tp_graph_run(int T, int64_t p0, bool verify, bool mtp, const float*
         CK(cudaGraphDestroy(graph));
     }
     // Capture both first: no running rendezvous kernel can block allocations needed to instantiate its peer.
-    if (!capture_only)
+    if (!capture_only) {
         for (int d = 0; d < 2; ++d) { use_dev(d); CK(cudaGraphLaunch(seg_graphs[key], st)); }
-    else use_dev(home);
+        if (tp_launch_stats && T <= kVerify) ++tp_graph_replays[mtp ? 2 : verify ? 1 : 0][T];
+    } else use_dev(home);
     return true;
 }

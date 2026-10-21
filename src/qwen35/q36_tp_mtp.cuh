@@ -4,6 +4,7 @@ void Engine::tp_forward_mtp(int T, int64_t p0, const float* seeds, bool draft) {
     tp_enter(T, true, seeds);
     draft_pos = p0 + T;
     if (tp_graph_run(T, p0, false, true, seeds)) { tp_head(T, draft ? 1 : 0, true, draft); return; }
+    if (tp_launch_stats && !tp_stats_warmup && T <= kVerify) ++tp_eager_calls[2][T];
     const int N = (int)m->g.n_embd;
     for (int d = 0; d < 2; ++d) {
         use_dev(d);

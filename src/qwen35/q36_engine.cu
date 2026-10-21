@@ -31,6 +31,7 @@
 #include "q36_tp_collective.cuh"
 #include "q36_tp_moe_join.cuh"
 #include "q36_tp_fuse2.cuh"
+#include "q36_tp_fuse3.cuh"
 #include "q36_decode.cuh"
 #include "q36_experts.hpp"
 #include "q36_mtp_policy.h"
@@ -65,6 +66,8 @@
 #include <tuple>
 #include <type_traits>
 #include <vector>
+
+#include "q36_tp_launch_stats.cuh"
 
 namespace {
 
@@ -2262,6 +2265,7 @@ struct Engine {
         const int HK = (int) g.ssm_k_heads, HV = (int) g.ssm_v_heads, D = (int) g.ssm_state_size;
         const int C = (int) g.ssm_conv_channels;
         const int H = (int) g.n_head, HKV = (int) g.n_head_kv, HD = (int) g.head_dim;
+        if (tp && tp_phase != 2) tp_gdn_defer_hist[cur_dev] = nullptr;
         const bool fused_mixer_norm = tp && tp_fuse2_join_norm && fast_k && !verify_k &&
                                       T >= 1 && T <= 4 && N % 32 == 0;
         if (tp_phase != 2) {
@@ -2271,16 +2275,22 @@ struct Engine {
             float* al_b = verify ? v_alpha[li] : alpha;
             float* be_b = verify ? v_beta[li] : beta;
             bool ab_pending = false;
+            const bool fused_gdn_all = tp && tp_fuse3_gdn_all && !tp_moe_join && !rows_mode &&
+                                       T >= 1 && T <= 4 && g.ssm_d_conv == 4 && D == 128 &&
+                                       C == (2 * HK + HV) * D && g.ssm_value_dim == (int64_t) HV * D &&
+                                       L.ssm_out.n_in == g.ssm_value_dim && N % 4 == 0 &&
+                                       g.ssm_v_heads >= g.ssm_k_heads;
             const bool fused_gdn_q8 = tp && tp_fuse2_gdn_q8 && !rows_mode && T >= 1 && T <= 4 &&
                                       g.ssm_state_size == 128 && g.ssm_value_dim == (int64_t) HV * 128 &&
                                       L.ssm_out.n_in == g.ssm_value_dim;
             prep_in(T);
-            if (!decode_projections(L, T, qkv_b, al_b, be_b)) {
+            const bool fused_projection = decode_projections(L, T, qkv_b, al_b, be_b);
+            if (!fused_projection) {
                 apply(L.qkv, xq, qkv_b, T);
                 apply(L.zg, xq, z, T);
                 if (T <= kGemmT) {
-                    ab_pending = tp && tp_fuse2_conv_ab && !rows_mode && T <= 4 && C % 128 == 0 && N % 4 == 0;
-                    if (!ab_pending)
+                    ab_pending = !fused_gdn_all && tp && tp_fuse2_conv_ab && !rows_mode && T <= 4 && C % 128 == 0 && N % 4 == 0;
+                    if (!ab_pending && !fused_gdn_all)
                         k_gdn_ab<<<dim3(rows8(2 * HV), T), kThreads, 0, st>>>(L.alpha, L.beta, h, L.dt, L.ssm_a, al_b, be_b, N,
                                                                               HV);
                 } else {
@@ -2289,7 +2299,57 @@ struct Engine {
                     k_gdn_gb<<<grid1((int64_t) HV * T), kThreads, 0, st>>>(al_b, L.dt, L.ssm_a, be_b, HV, T);
                 }
             }
-            if (rows_mode) {   // batch rows: a slot's rows (one, or a verify window's two) in sequence on its own state
+            if (fused_gdn_all) {
+                if (tp_stats_capturing) tp_stats_gdn_all[cur_dev] += fused_projection ? 2 : 3;
+                if (!verify) {
+                    tp_gdn_defer_hist[cur_dev] = conv[li];
+                    tp_gdn_defer_qkv[cur_dev] = qkv_b;
+                    tp_gdn_defer_C[cur_dev] = C;
+                    tp_gdn_defer_HK[cur_dev] = HK;
+                }
+                float *ref = nullptr, *ref_hist = nullptr, *ref_state = nullptr, *ref_hc = nullptr;
+                float *ref_alpha = nullptr, *ref_beta = nullptr, *ref_y = nullptr;
+                void* ref_q = nullptr;
+                if (verify_k) {
+                    const size_t nh = (size_t) 3 * C, ns = (size_t) HV * D * D;
+                    const size_t nc = (size_t) T * C, na = (size_t) T * HV, ny = (size_t) T * HV * D;
+                    CK(cudaMalloc((void**) &ref, (nh + ns + nc + 2 * na + ny) * sizeof(float)));
+                    ref_hist = ref;
+                    ref_state = ref_hist + nh;
+                    ref_hc = ref_state + ns;
+                    ref_alpha = ref_hc + nc;
+                    ref_beta = ref_alpha + na;
+                    ref_y = ref_beta + na;
+                    CK(cudaMalloc(&ref_q, K::native_q8_1_bytes((int) g.ssm_value_dim, T)));
+                    CK(cudaMemcpyAsync(ref_hist, conv[li], nh * sizeof(float), cudaMemcpyDeviceToDevice, st));
+                    CK(cudaMemcpyAsync(ref_state, S[li], ns * sizeof(float), cudaMemcpyDeviceToDevice, st));
+                }
+                q36tp_fuse3::conv_ab_gdn_q<<<HV, dim3(128, 4), 0, st>>>(
+                    conv[li], qkv_b, L.conv, hc_b, C, HK, L.alpha, L.beta, h, L.dt,
+                    L.ssm_a, al_b, be_b, N, fused_projection, S[li], z, L.ssm_norm,
+                    m->eps, gdn_y, (q36k::QB*) q8, HV, T, !verify);
+                if (verify_k) {
+                    if (fused_projection) {
+                        CK(cudaMemcpyAsync(ref_alpha, al_b, (size_t) T * HV * sizeof(float), cudaMemcpyDeviceToDevice, st));
+                        CK(cudaMemcpyAsync(ref_beta, be_b, (size_t) T * HV * sizeof(float), cudaMemcpyDeviceToDevice, st));
+                    } else k_gdn_ab<<<dim3(rows8(2 * HV), T), kThreads, 0, st>>>(
+                        L.alpha, L.beta, h, L.dt, L.ssm_a, ref_alpha, ref_beta, N, HV);
+                    k_conv_seq<<<C / 128, 128, 0, st>>>(ref_hist, qkv_b, L.conv, ref_hc, C, 2 * HK, m->eps, T, !verify);
+                    k_gdn_seq<<<HV, dim3(128, 4), 0, st>>>(ref_state, ref_hc, C, ref_alpha, ref_beta, z,
+                        L.ssm_norm, m->eps, ref_y, HK, HV, T, !verify);
+                    K::native_quantize_q8_1(ref_y, ref_q, (int) g.ssm_value_dim * T, 1, st);
+                    verify_cmp("fuse3 conv", hc_b, ref_hc, (size_t) T * C);
+                    verify_cmp("fuse3 alpha", al_b, ref_alpha, (size_t) T * HV);
+                    verify_cmp("fuse3 beta", be_b, ref_beta, (size_t) T * HV);
+                    verify_cmp("fuse3 GDN", gdn_y, ref_y, (size_t) T * HV * D);
+                    verify_cmp("fuse3 Q8", (const float*) q8, (const float*) ref_q,
+                        K::native_q8_1_bytes((int) g.ssm_value_dim, T) / sizeof(float));
+                    if (!verify) verify_cmp("fuse3 GDN state", S[li], ref_state, (size_t) HV * D * D);
+                    CK(cudaFree(ref_q));
+                    if (!verify) { tp_gdn_ref_alloc[cur_dev] = ref; tp_gdn_ref_hist[cur_dev] = ref_hist; }
+                    else CK(cudaFree(ref));
+                }
+            } else if (rows_mode) {   // batch rows: a slot's rows (one, or a verify window's two) in sequence on its own state
                 k_conv_seq<<<dim3(C / 128, rows_G), 128, 0, st>>>(nullptr, qkv_b, L.conv, hc_b, C, 2 * HK, m->eps, 1,
                                                                   !verify, d_conv_tab + li * n_sess, d_gslot, d_grow0, d_gcnt);
                 k_gdn_seq<<<dim3(HV, rows_G), dim3(128, 4), 0, st>>>(nullptr, hc_b, C, al_b, be_b, z, L.ssm_norm, m->eps,
@@ -2351,7 +2411,7 @@ struct Engine {
                                                                T, !verify);
                 }
             }
-            if (fused_gdn_q8) apply(L.ssm_out, q8, y, T);
+            if (fused_gdn_all || fused_gdn_q8) apply(L.ssm_out, q8, y, T);
             else mm(L.ssm_out, gdn_y, y, T);
         } else {
             prep_in(T);
@@ -3622,6 +3682,9 @@ struct Engine {
     std::vector<DevSet> devs;   // devs[d]: device d's buffers while another device is active (the active one's: empty)
     /// Device d's buffers become the members (one device: nothing to do).
     void use_dev(int d) {
+#if defined(STRATA_Q36_HIP_LAUNCH_WRAP)
+        if (tp_launch_stats) q36tp_stats::device = d;
+#endif
         if (d == cur_dev || devs.empty()) return;
         const bool had_mtab = mtab_now != nullptr;
         if (tp) tp_swap(cur_dev, d);
@@ -5355,6 +5418,14 @@ int strata::qwen35::run(int argc, char** argv) {
     struct Report {
         Engine& E;
         ~Report() {
+            if (E.tp && E.tp_launch_stats) {
+                for (int kind = 0; kind < 3; ++kind) for (int t = 1; t <= E.kVerify; ++t) {
+                    const long long graph = E.tp_graph_replays[kind][t], eager = E.tp_eager_calls[kind][t];
+                    if (graph || eager) std::fprintf(stderr,
+                        "strata-q36 TP_LAUNCH_STATS used %s T=%d: %lld graph replays, %lld eager forwards\n",
+                        kind == 2 ? "MTP" : kind == 1 ? "verify" : "main", t, graph, eager);
+                }
+            }
             if (E.tp && E.tp_check) std::fprintf(stderr, "strata-q36 TP_CHECK: %lld bit-equal replica comparisons\n", E.tp_checks);
             if (E.verify_k) std::fprintf(stderr, "strata-q36 VERIFY: %lld comparisons, %lld mismatches\n", E.v_calls, E.v_bad);
             if (E.verify_k)
