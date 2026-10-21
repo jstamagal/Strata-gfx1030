@@ -27,6 +27,7 @@
 #include "strata/prefill/moe_mmq.hpp"
 #include "strata/qwen35/engine.hpp"
 #include "q36_kernels.cuh"
+#include "q36_mtp_policy.h"
 #if defined(STRATA_Q36_CPU_POOL)
 #include "strata/kernels/cpu/native_expert.hpp"
 #include "strata/kernels/cpu/pool.hpp"
@@ -1040,7 +1041,11 @@ struct Model {
     bool has_mtp = false;
     Layer mtp;
     Mat eh_proj;
+    Mat mtp_head;                 // optional nextn.shared_head_head; otherwise the main head
     const float *mtp_enorm = nullptr, *mtp_hnorm = nullptr, *mtp_shnorm = nullptr;
+    const uint8_t* mtp_embd = nullptr; // optional nextn.embed_tokens; otherwise the main table
+    int mtp_embd_type = -1;
+    size_t mtp_embd_row = 0;
     int64_t top_k = 8;
     float eps = 1e-6f, rope_base = 1e7f;
     int n_rot = 64;
@@ -1321,10 +1326,26 @@ bool load(const std::string& path, Model& m, std::string& err, bool want_mtp, co
         m.eh_proj = mat(L(l, "nextn.eh_proj.weight"));
         m.mtp_enorm = f32(L(l, "nextn.enorm.weight"));
         m.mtp_hnorm = f32(L(l, "nextn.hnorm.weight"));
-        m.mtp_shnorm = f32(L(l, "nextn.shared_head_norm.weight"));
+        const std::string norm_name = L(l, "nextn.shared_head_norm.weight");
+        if (gm.find(norm_name)) m.mtp_shnorm = f32(norm_name);
+        const std::string head_name = L(l, "nextn.shared_head_head.weight");
+        if (gm.find(head_name)) m.mtp_head = mat(head_name);
+        const std::string emb_name = L(l, "nextn.embed_tokens.weight");
+        size_t s = 0;
+        if (const strata::TensorInfo* t = gm.find(emb_name, &s)) {
+            m.mtp_embd_type = (int) t->type;
+            m.mtp_embd_row = row_bytes(m.mtp_embd_type, (int64_t) t->shape[0]);
+            const uint64_t nb = strata::tensor_payload_bytes(*t);
+            uint8_t* d = nullptr;
+            CK(cudaMalloc(&d, nb));
+            CK(cudaMemcpy(d, gm.shard(s).tensor_data(*t), nb, cudaMemcpyHostToDevice));
+            m.mtp_embd = d;
+            bytes += nb;
+        }
     }
     m.out_norm = f32("output_norm.weight");
     m.head = mat("output.weight");
+    if (m.has_mtp && !m.mtp_shnorm) m.mtp_shnorm = m.out_norm;
     {
         size_t s = 0;
         const strata::TensorInfo* t = find("token_embd.weight", s);
@@ -1426,6 +1447,8 @@ struct Engine {
     __half* x16 = nullptr;
     bool use_graph = true;
     int mtp_d = 0;   // MTP drafts per speculative step (0: none; greedy requests only)
+    strata::qwen35::mtp::Stats mtp_stats;
+    bool mtp_adapt = false, mtp_ngram = false;
 
     // ---- sessions: the conversation states.  One for a single-request engine; --batch N keeps N, each with its own
     // recurrent state and KV cache, so N requests run at once: their rows share one decode window (forward_rows).  The
@@ -2524,11 +2547,11 @@ struct Engine {
     void head_draft(const float* hn) {
         const auto& g = m->g;
         const int N = (int) g.n_embd;
-        const Mat& hd = m->head;
+        const Mat& hd = m->mtp_head.d ? m->mtp_head : m->head;
         // (N / 32 blocks per row: 64 for Qwen3.6-35B-A3B, 96 for Qwen3.5-122B-A10B / Ornith 1.5)
         if (!fast_k || draft_n <= 0 || draft_n >= g.n_vocab || draft_n % 8 != 0 || hd.type != 8 || hd.n_in != N ||
             (N / 32 != 64 && N / 32 != 96)) {
-            mm(m->head, hn, logits_m, 1);
+            mm(hd, hn, logits_m, 1);
             draft_hooks((int) g.n_vocab);
             k_argmax<<<dim3(kArgBlocks, 1), kThreads, 0, st>>>(logits_m, (int) g.n_vocab, pick_m, amv, ami, false);
             k_argmax<<<dim3(1, 1), kThreads, 0, st>>>(logits_m, kArgBlocks, pick_m, amv, ami, true);
@@ -2559,7 +2582,9 @@ struct Engine {
         const auto& g = m->g;
         const int N = (int) g.n_embd;
         if (main_hybrid && lhy(m->layers.size()) && T > hybrid_t && use_mmq) stream_begin({(int) m->layers.size()});
-        K::iq_embed_rows(m->embd_type, embd_d, m->embd_row, tok_m, T, N, y, st);
+        K::iq_embed_rows(m->mtp_embd ? m->mtp_embd_type : m->embd_type,
+                         m->mtp_embd ? m->mtp_embd : embd_d,
+                         m->mtp_embd ? m->mtp_embd_row : m->embd_row, tok_m, T, N, y, st);
         if (map_on) k_put_rows<<<T, kThreads, 0, st>>>(y, d_img, d_map, N);
         k_rms_ld<<<T, kThreads, 0, st>>>(y, N, m->mtp_enorm, mtp_cat, 2 * N, N, m->eps);              // [e | ...]
         k_rms_ld<<<T, kThreads, 0, st>>>(seeds, N, m->mtp_hnorm, mtp_cat + N, 2 * N, N, m->eps);      // [... | h]
@@ -2951,9 +2976,17 @@ struct Engine {
             // a prompt cell of a picture request (its rotary position is in the table, its row a picture's) runs eagerly
             if (mtab_now || map_on) forward(1, pos, 1, false, false);
             else graph_run(gs().g1, [&] { forward(1, pos, 1, use_graph, false); });
+            rows_deferred = false;
+            // The main forward above does not fill the MTP block's KV cache. A one-token
+            // prompt extension must catch up that row before the next draft attends to it.
+            if (m->has_mtp && mtp_d > 0) {
+                CK(cudaMemcpyAsync(mtp_seed(), hlast, (size_t) N * 4, cudaMemcpyDeviceToDevice, st));
+                CK(cudaMemcpyAsync(tok_m, hpin, 4, cudaMemcpyHostToDevice, st));
+                CK(cudaMemcpyAsync(pos0_m, hpin + 1, 4, cudaMemcpyHostToDevice, st));
+                forward_mtp(1, pos, mtp_seed(), false, false);
+            }
             mtab_now = nullptr;
             map_on = false;
-            rows_deferred = false;
             CK(cudaMemcpyAsync(hlast, hmain, (size_t) N * 4, cudaMemcpyDeviceToDevice, st));
             pos += 1;
             after_rows(1);
@@ -3126,13 +3159,15 @@ struct Engine {
         rows_G = T;
         rows_deferred = true;
         run_graph_key(3000 + T, [&] {
-            K::iq_embed_rows(m->embd_type, embd_d, m->embd_row, tok_m, T, N, y, st);
+            K::iq_embed_rows(m->mtp_embd ? m->mtp_embd_type : m->embd_type,
+                             m->mtp_embd ? m->mtp_embd : embd_d,
+                             m->mtp_embd ? m->mtp_embd_row : m->embd_row, tok_m, T, N, y, st);
             k_rms_ld<<<T, kThreads, 0, st>>>(y, N, m->mtp_enorm, mtp_cat, 2 * N, N, m->eps);                 // [e | ...]
             k_rms_ld<<<T, kThreads, 0, st>>>(mtp_seed(), N, m->mtp_hnorm, mtp_cat + N, 2 * N, N, m->eps);   // [... | h]
             mm(m->eh_proj, mtp_cat, x, T);
             k_rms<<<T, kThreads, 0, st>>>(x, m->mtp.attn_norm, h, N, m->eps);
             layer(m->mtp, m->layers.size(), T, pmax, pos0_m, use_graph, false, m->mtp_shnorm, hmtp);
-            mm(m->head, hmtp, logits_mr, T);
+            mm(m->mtp_head.d ? m->mtp_head : m->head, hmtp, logits_mr, T);
             k_argmax<<<dim3(kArgBlocks, T), kThreads, 0, st>>>(logits_mr, (int) g.n_vocab, pick_mr, amv, ami, false);
             k_argmax<<<dim3(1, T), kThreads, 0, st>>>(logits_mr, kArgBlocks, pick_mr, amv, ami, true);
         });
@@ -3198,11 +3233,12 @@ struct Engine {
     /// stopped mid-answer leaves the state at the tokens it has shown: a conversation that continues from them (the server's
     /// hand-over of a stopped request to a batch slot) reuses it instead of reading them again.
     int spec_step(int x_tok, const std::vector<int32_t>& fix, int D, std::vector<int32_t>& drafts, int32_t* picks,
-                  const std::atomic<bool>* cancel = nullptr) {
-        D = spec_verify(x_tok, fix, D, drafts);
+                  const std::atomic<bool>* cancel = nullptr, const std::vector<int32_t>* lookup = nullptr) {
+        D = spec_verify(x_tok, fix, D, drafts, lookup);
         int a = 0;
         while (a < D && hpin[2 + a] == drafts[(size_t) a]) ++a;
         if (cancel != nullptr && cancel->load()) a = 0;
+        if (!warming) mtp_stats.record(D, a);
         for (int i = 0; i <= a; ++i) picks[i] = hpin[2 + i];
         spec_commit(a);
         return a;
@@ -4739,6 +4775,7 @@ struct Serve {
             return;
         }
         std::mt19937_64 rng(smp.seed);
+        E.mtp_stats.clear();
         std::vector<int32_t> hist = ids;
         const auto d0 = Clock::now();
         long long produced = 0, offered = 0, accepted = 0;
@@ -4751,6 +4788,7 @@ struct Serve {
         bool have_nx = false;   // a sampled speculative step decided the next token already
         const uint64_t gseed = rng();   // the coupled drafts' noise for this request
         std::vector<int32_t> fix, drafts;
+        strata::qwen35::mtp::Adaptive adapt{E.mtp_adapt};
         int32_t picks[16];
         int nx = smp.needs_logits() ? -1 : E.greedy();
         if (adm) {
@@ -4817,7 +4855,7 @@ struct Serve {
                 E.g_seed = gseed;
                 E.g_inv_t = gum ? 1.f / smp.temperature : 1.f;
                 E.g_top_k = smp.top_k > 0 ? smp.top_k : 64;
-                const int D = E.spec_verify(nx, fix, E.mtp_d, drafts, lkd.empty() ? nullptr : &lkd);
+                const int D = E.spec_verify(nx, fix, adapt.choose(E.mtp_d), drafts, lkd.empty() ? nullptr : &lkd);
                 E.gumbel_on = false;
                 E.pen_on = false;
                 float* rows_lg = E.host_logits_rows(D + 1);
@@ -4846,6 +4884,8 @@ struct Serve {
                 }
                 if (stop.load()) a = 0;
                 E.spec_commit(a);
+                E.mtp_stats.record(D, a);
+                adapt.record(D, a);
                 offered += D;
                 accepted += a;
                 ss.live.push_back(nx);
@@ -4860,8 +4900,12 @@ struct Serve {
                 continue;
             }
             if (spec && n_active == 0 && E.pos + E.mtp_d + 1 <= E.ctx) {
-                const int a = E.spec_step(nx, fix, E.mtp_d, drafts, picks, &stop);
-                offered += E.mtp_d;
+                const int want = adapt.choose(E.mtp_d);
+                if (E.mtp_ngram) strata::qwen35::mtp::lookup(hist, lkd, Engine::kVerify - 1);
+                const int a = E.spec_step(nx, fix, want, drafts, picks, &stop,
+                                          E.mtp_ngram && !lkd.empty() ? &lkd : nullptr);
+                adapt.record((int) drafts.size(), a);
+                offered += (E.mtp_adapt || E.mtp_ngram || E.mtp_stats.enabled) ? drafts.size() : (size_t) E.mtp_d;
                 accepted += a;
                 // the state now holds x and every accepted draft, whether or not the answer ends inside them (an end of
                 // answer, max_new): the held tokens say so, so a later request that continues this conversation matches them
@@ -4889,6 +4933,8 @@ struct Serve {
         std::printf("DONE %lld %zu %.1f %.1f %s %lld %lld %zu 0 0 0 0 0.0 %lld 0\n", produced, ids.size(), prompt_ms,
                     decode_ms, finish, accepted, offered, reuse, (long long) fresh);
         std::fflush(stdout);
+        E.mtp_stats.print("request");
+        E.mtp_stats.clear();
         std::fprintf(stderr, "strata serve: session %d: prompt %zu tokens = %zu reused + %lld read in %.0f ms (%.1f tok/s), "
                      "%lld generated in %.0f ms (%.1f tok/s), drafts accepted %lld of %lld (%s)\n", s, ids.size(), reuse,
                      (long long) fresh, prompt_ms, prompt_ms > 0 ? 1000.0 * (double) fresh / prompt_ms : 0.0, produced,
@@ -5111,6 +5157,7 @@ int strata::qwen35::run(int argc, char** argv) {
             if (E.verify_k)
                 for (const auto& kv : E.v_by)
                     std::fprintf(stderr, "strata-q36 VERIFY   %s: %lld mismatches\n", kv.first.c_str(), kv.second);
+            E.mtp_stats.print("total");
             if (!E.m->hybrid) return;
             const long long n = E.hy_cpu + E.hy_gpu;
             std::fprintf(stderr, "strata-q36: hybrid experts: %lld of %lld batch entries on the GPU (%.1f%%), %lld on the "
@@ -5123,6 +5170,17 @@ int strata::qwen35::run(int argc, char** argv) {
     } report{E};
     E.reset();
     E.mtp_d = m.has_mtp ? mtp_d : 0;
+    const auto on = [](const char* name) { const char* v = std::getenv(name); return v && std::strcmp(v, "1") == 0; };
+    E.mtp_stats.enabled = on("STRATA_Q36_MTP_STATS");
+    E.mtp_adapt = on("STRATA_Q36_MTP_ADAPT");
+    E.mtp_ngram = on("STRATA_Q36_MTP_NGRAM");
+    if (E.mtp_stats.enabled) std::fprintf(stderr, "strata-q36: STRATA_Q36_MTP_STATS=1 (acceptance by draft position)\n");
+    if (E.mtp_adapt) std::fprintf(stderr, "strata-q36: STRATA_Q36_MTP_ADAPT=1 (recent conditional acceptance)\n");
+    if (E.mtp_ngram) std::fprintf(stderr, "strata-q36: STRATA_Q36_MTP_NGRAM=1 (greedy lookup drafts)\n");
+    if (draft_vocab < 0 && on("STRATA_Q36_MTP_VOCAB")) {
+        draft_vocab = (int) std::min<int64_t>(65536, m.g.n_vocab);
+        std::fprintf(stderr, "strata-q36: STRATA_Q36_MTP_VOCAB=1 (first %d draft head rows)\n", draft_vocab);
+    }
     if (draft_vocab < 0 && std::getenv("STRATA_Q36_DRAFT_VOCAB") != nullptr) draft_vocab = std::atoi(std::getenv("STRATA_Q36_DRAFT_VOCAB"));
     E.draft_n = std::max(0, draft_vocab);
     E.spec_min_p = spec_min_p;
@@ -5177,14 +5235,19 @@ int strata::qwen35::run(int argc, char** argv) {
     const auto t1 = Clock::now();
     if (E.mtp_d > 0 && forced.empty() && !ff) {
         long long offered = 0, accepted = 0;
+        strata::qwen35::mtp::Adaptive adapt{E.mtp_adapt};
         std::vector<int32_t> fix, drafts;
+        std::vector<int32_t> lkd;
         int32_t picks[16];
         int nx = E.greedy();
         while ((int) gen.size() < n_gen) {
             gen.push_back(nx);
             if ((int) gen.size() >= n_gen) break;
-            const int a = E.spec_step(nx, fix, E.mtp_d, drafts, picks);
-            offered += E.mtp_d;
+            if (E.mtp_ngram) strata::qwen35::mtp::lookup(gen, lkd, Engine::kVerify - 1);
+            const int a = E.spec_step(nx, fix, adapt.choose(E.mtp_d), drafts, picks, nullptr,
+                                      E.mtp_ngram && !lkd.empty() ? &lkd : nullptr);
+            adapt.record((int) drafts.size(), a);
+            offered += (E.mtp_adapt || E.mtp_ngram || E.mtp_stats.enabled) ? drafts.size() : (size_t) E.mtp_d;
             accepted += a;
             fix.assign(drafts.begin(), drafts.begin() + a);
             for (int i = 0; i < a && (int) gen.size() < n_gen; ++i) gen.push_back(drafts[(size_t) i]);
