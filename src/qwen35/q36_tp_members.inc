@@ -17,3 +17,4 @@
                     const float* wn, float* hout, int sgs);
     void tp_forward(int T, int64_t p0, int heads, bool verify);
     void tp_head(int T, int heads, bool mtp = false, bool draft = false, float* output = nullptr, int32_t* picks = nullptr);
+    void tp_forward_mtp(int T, int64_t p0, const float* seeds, bool draft);

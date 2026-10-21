@@ -2597,6 +2597,7 @@ struct Engine {
     /// seeds[t] (the main model's normed hidden of the position before, or the block's own for a chained draft);
     /// hmtp gets each row's normed output.  `draft`: logits of the last row and its pick (`pick_m`).
     void forward_mtp(int T, int64_t p0, const float* seeds, bool draft, bool graph_mode) {
+        if (tp) { tp_forward_mtp(T, p0, seeds, draft); return; }
         const auto& g = m->g;
         const int N = (int) g.n_embd;
         if (main_hybrid && lhy(m->layers.size()) && T > hybrid_t && use_mmq) stream_begin({(int) m->layers.size()});
@@ -2624,7 +2625,7 @@ struct Engine {
                 k_gdn_seq<<<HV, dim3(128, 4), 0, st>>>(S[l], v_hc[l], C, v_alpha[l], v_beta[l], z, L.ssm_norm, m->eps,
                                                        nullptr, HK, HV, n_keep, true);
             }
-            if (n_dev > 1 && d != home) CK(cudaStreamSynchronize(st));
+            if (!tp && n_dev > 1 && d != home) CK(cudaStreamSynchronize(st));
         });
     }
 
@@ -3167,6 +3168,11 @@ struct Engine {
         rows_G = T;
         rows_deferred = true;
         run_graph_key(3000 + T, [&] {
+            if (tp) {
+                tp_forward_mtp(T, pmax, mtp_seed(), false);
+                tp_head(T, T, true, false, logits_mr, pick_mr);
+                return;
+            }
             K::iq_embed_rows(m->embd_type, embd_d, m->embd_row, tok_m, T, N, y, st);
             k_rms_ld<<<T, kThreads, 0, st>>>(y, N, m->mtp_enorm, mtp_cat, 2 * N, N, m->eps);                 // [e | ...]
             k_rms_ld<<<T, kThreads, 0, st>>>(mtp_seed(), N, m->mtp_hnorm, mtp_cat + N, 2 * N, N, m->eps);   // [... | h]
@@ -3524,6 +3530,7 @@ struct Engine {
 };
 
 #include "q36_tp_runtime.cuh"
+#include "q36_tp_mtp.cuh"
 
 // ------------------------------------------------------------------------------------------------ expert placement
 /// The routed experts after the engine's buffers: all in VRAM when they fit in `vram_gib` (< 0: the free VRAM less a
@@ -5080,8 +5087,8 @@ int strata::qwen35::run(int argc, char** argv) {
     if (tensor_split && (expert_slots > 0 || expert_vram >= 0)) {
         std::fprintf(stderr, "strata-q36: TP requires all expert shards resident; CPU/hybrid expert limits are unsupported\n"); return 2;
     }
-    if (tensor_split && (mtp_d > 0 || chunk > Engine::kVerify || bench_pp > Engine::kVerify)) {
-        std::fprintf(stderr, "strata-q36: this TP stage supports decode only (--mtp 0 --chunk 8)\n"); return 2;
+    if (tensor_split && (chunk > Engine::kVerify || bench_pp > Engine::kVerify)) {
+        std::fprintf(stderr, "strata-q36: this TP stage supports chunks up to eight tokens (--chunk 8)\n"); return 2;
     }
     if (tensor_split && chunk == 0) chunk = Engine::kVerify;
     Model m, tp_peer;

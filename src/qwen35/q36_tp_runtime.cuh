@@ -148,8 +148,9 @@ void Engine::tp_head(int T, int heads, bool mtp, bool draft, float* output, int3
         CK(cudaMemcpyAsync(dst + (size_t)r * V, tp_logits[0] + (size_t)r * half, (size_t)half * 4, cudaMemcpyDeviceToDevice, st));
         CK(cudaMemcpyPeerAsync(dst + (size_t)r * V + half, home, tp_logits[1] + (size_t)r * half, 1, (size_t)half * 4, st));
     }
-    if (draft) draft_hooks(V);
-    k_argmax<<<dim3(kArgBlocks, heads), kThreads, 0, st>>>(dst, V, pk, amv, ami, false);
+    const int sample_v = draft && draft_n > 0 ? std::min(draft_n, V) : V;
+    if (draft) draft_hooks(sample_v);
+    k_argmax<<<dim3(kArgBlocks, heads), kThreads, 0, st>>>(dst, sample_v, pk, amv, ami, false);
     k_argmax<<<dim3(1, heads), kThreads, 0, st>>>(dst, kArgBlocks, pk, amv, ami, true);
 }
 
