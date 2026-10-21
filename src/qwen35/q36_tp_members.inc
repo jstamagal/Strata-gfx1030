@@ -7,6 +7,7 @@
         float* hlast = nullptr;
     } tp_state[2];
     float *tp_host[2] = {}, *tp_mapped[2][2] = {}, *tp_logits[2] = {};
+    float *tp_row_host[2] = {}, *tp_row_mapped[2][2] = {};
     unsigned *tp_flags_host[2] = {}, *tp_flags[2][2] = {}, *tp_token[2] = {};
     cudaEvent_t tp_event[2] = {};
     void tp_swap(int from, int to);
@@ -14,7 +15,7 @@
     void tp_prepare_launch_stats(int requested_mtp);
     void tp_enter(int T, bool mtp = false, const float* seeds = nullptr);
     void tp_join(float* partial, int T);
-    void tp_join_norm(float* partial, const float* w, float* hout, int T, bool quantized);
+    void tp_join_norm(float* partial, const float* w, float* hout, int T, bool quantized, bool published = false);
     void tp_moe_end(int T, const int32_t* prow, const float* shared, const float* sgate,
                     const float* wn, float* hout, int sgs);
     void tp_forward(int T, int64_t p0, int heads, bool verify);
@@ -25,11 +26,16 @@
     bool tp_copy_used = false, tp_graph = true;
     void tp_copy_join(int T, bool moe);
     void tp_layer_pair(size_t li, int T, int64_t p0, bool verify, bool mtp = false);
-    long long tp_graph_key(int T, bool verify, bool mtp) const;
+    long long tp_graph_key(int T, bool verify, bool mtp, bool short_attn) const;
     bool tp_graph_run(int T, int64_t p0, bool verify, bool mtp = false, const float* seeds = nullptr,
                       bool capture_only = false);
     bool tp_check = false;
     bool tp_attn_rows = q36tp::enabled("STRATA_Q36_TP_ATTN_ROWS");
+    bool tp_attn_graph_rows = q36tp::enabled("STRATA_Q36_TP_ATTN_GRAPH_ROWS");
+    bool tp_join_row = q36tp::enabled("STRATA_Q36_TP_JOIN_ROW");
+    bool tp_join_peer_first = q36tp::enabled("STRATA_Q36_TP_JOIN_PEER_FIRST");
+    bool tp_join_fast_submit = q36tp::enabled("STRATA_Q36_TP_JOIN_FAST_SUBMIT");
+    bool tp_join_moe_publish = q36tp::enabled("STRATA_Q36_TP_JOIN_MOE_PUBLISH");
     bool tp_head_q8 = q36tp::enabled("STRATA_Q36_TP_HEAD_Q8");
     bool tp_moe_join = q36tp::enabled("STRATA_Q36_TP_MOE_JOIN");
     bool tp_fuse2_conv_ab = q36tp::enabled("STRATA_Q36_TP_FUSE2_CONV_AB");
