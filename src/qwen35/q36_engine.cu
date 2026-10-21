@@ -29,6 +29,7 @@
 #include "q36_kernels.cuh"
 #include "q36_tp_plan.hpp"
 #include "q36_tp_collective.cuh"
+#include "q36_tp_moe_join.cuh"
 #include "q36_decode.cuh"
 #include "q36_experts.hpp"
 #include "q36_mtp_policy.h"
@@ -1200,6 +1201,8 @@ bool load(const std::string& path, Model& m, std::string& err, bool want_mtp, co
     if (const strata::MetaValue* v = gm.meta().get(p + "rope.freq_base")) m.rope_base = (float) v->num();
     if (const strata::MetaValue* v = gm.meta().get(p + "rope.dimension_count")) m.n_rot = (int) v->u;
     uint64_t bytes = 0;
+    const bool tp_router_alias = tp_rank >= 0 && q36tp::enabled("STRATA_Q36_TP_ROUTER_ALIAS");
+    uint64_t tp_saved = 0;
     auto find = [&](const std::string& name, size_t& s) -> const strata::TensorInfo* {
         const strata::TensorInfo* t = gm.find(name, &s);
         if (!t) {
@@ -1319,6 +1322,13 @@ bool load(const std::string& path, Model& m, std::string& err, bool want_mtp, co
         CK(cudaMemcpy(y.router_ext + (size_t) g.n_expert * g.n_embd, y.sh_gate_inp, (size_t) g.n_embd * 4,
                       cudaMemcpyDeviceToDevice));
         bytes += (size_t) (g.n_expert + 1) * g.n_embd * 4;
+        if (tp_router_alias) {
+            const size_t nb = (size_t) g.n_expert * g.n_embd * sizeof(float);
+            CK(cudaFree((void*) y.router));
+            y.router = y.router_ext; // its first n_expert rows are the original F32 router, byte for byte
+            bytes -= nb;
+            tp_saved += nb;
+        }
         // the routed experts: [gate | up | down] per expert, the native expert layout
         size_t sg = 0, su = 0, sd = 0;
         const strata::TensorInfo* tg = find(L(l, "ffn_gate_exps.weight"), sg);
@@ -1399,6 +1409,9 @@ bool load(const std::string& path, Model& m, std::string& err, bool want_mtp, co
     std::fprintf(stderr, "strata-q36: %s: %zu tensors (layout checked), %.2f GiB on the GPU in %.1f s (the routed "
                  "experts are placed after the engine's buffers)\n", path.c_str(), checked, (double) bytes / (1 << 30),
                  ms_since(t0) / 1000.0);
+    if (tp_router_alias)
+        std::fprintf(stderr, "strata-q36: TP rank %d: STRATA_Q36_TP_ROUTER_ALIAS=1 saved %.1f MiB of dense VRAM\n",
+                     tp_rank, tp_saved / 1048576.0);
     return true;
 }
 
@@ -2365,7 +2378,10 @@ struct Engine {
                     const float* vl = rows_mode ? nullptr : vc[li];
                     const float a_scale = 1.0f / sqrtf((float) HD);
                     const int slots = std::min(nc, 32);   // GQA blocks per row: each takes every 32nd chunk
-                    if (!gqa_off && HD == 256 && H == 16 * HKV)
+                    if (tp && tp_attn_rows && p0 + t0 + nt <= kChunkCells * 4)
+                        k_attn_part<<<dim3(nc, nt * H), kChunkCells, 0, st>>>(q, kl, vl, dpos, t0, H, HKV, ctx, a_scale,
+                                                                             n_chunk, pacc, pm, pl, rs);
+                    else if (!gqa_off && HD == 256 && H == 16 * HKV)
                         k_attn_part_gqa<16><<<dim3(slots, nt * HKV), kThreads, 0, st>>>(q, kl, vl, dpos, t0, H, HKV, ctx, a_scale,
                                                                                     n_chunk, pacc, pm, pl, rs);
                     else if (!gqa_off && HD == 256 && H == 8 * HKV)

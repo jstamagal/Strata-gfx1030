@@ -26,5 +26,8 @@
     long long tp_graph_key(int T, bool verify, bool mtp) const;
     bool tp_graph_run(int T, int64_t p0, bool verify, bool mtp = false, const float* seeds = nullptr);
     bool tp_check = false;
+    bool tp_attn_rows = q36tp::enabled("STRATA_Q36_TP_ATTN_ROWS");
+    bool tp_head_q8 = q36tp::enabled("STRATA_Q36_TP_HEAD_Q8");
+    bool tp_moe_join = q36tp::enabled("STRATA_Q36_TP_MOE_JOIN");
     long long tp_checks = 0;
     void tp_check_residual(int T, bool mtp);

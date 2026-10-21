@@ -73,6 +73,8 @@ void Engine::tp_init(const Model& a, const Model& b, int context, int chunk, int
     });
     use_mmq = dev_mmq[0] && dev_mmq[1];
     if (tp_check) std::fprintf(stderr, "strata-q36: STRATA_Q36_TP_CHECK=1: compare both residual replicas at each forward boundary (host readback)\n");
+    for (const char* flag : {"STRATA_Q36_TP_ATTN_ROWS", "STRATA_Q36_TP_HEAD_Q8", "STRATA_Q36_TP_MOE_JOIN"})
+        if (q36tp::enabled(flag)) std::fprintf(stderr, "strata-q36: %s=1 (experimental TP decode)\n", flag);
     std::fprintf(stderr, "strata-q36: STRATA_Q36_TP=1: two equal tensor shards, all experts on both GPUs; "
                          "mapped-host decode joins, copy-engine prompt joins, replicated residual, %s; CPU/hybrid experts unsupported\n",
                          tp_graph && !verify_k ? "per-device graphs" : "eager streams");
@@ -110,10 +112,14 @@ void Engine::tp_join(float* partial, int T) {
 void Engine::tp_moe_end(int T, const int32_t* prow, const float* shared, const float* sgate,
                          const float* wn, float* hout, int sgs) {
     const int N = (int)m->g.n_embd;
-    q36tp::partial_moe<<<T, kThreads, 0, st>>>(moe_out, eparts, prow, ewts, (int)m->top_k, shared, sgate, sgs, N);
+    if (tp_moe_join && T <= kVerify)
+        q36tp::moe_join<<<q36tp::join_blocks, kThreads, 0, st>>>(moe_out, eparts, prow, ewts, (int)m->top_k,
+            shared, sgate, sgs, N, T, tp_mapped[cur_dev][cur_dev], tp_mapped[cur_dev][1-cur_dev],
+            tp_flags[cur_dev][cur_dev], tp_flags[cur_dev][1-cur_dev], tp_token[cur_dev], cur_dev);
+    else q36tp::partial_moe<<<T, kThreads, 0, st>>>(moe_out, eparts, prow, ewts, (int)m->top_k, shared, sgate, sgs, N);
     xq_ready = false;
     if (T > kVerify) return; // prompt epilogue follows the copy-engine join
-    tp_join(moe_out, T);
+    if (!tp_moe_join) tp_join(moe_out, T);
     if (wn) k_add_rms<<<T, kThreads, 0, st>>>(x, moe_out, wn, hout, N, m->eps);
     else k_add<<<grid1((int64_t)T * N), kThreads, 0, st>>>(x, moe_out, (int64_t)T * N);
 }
@@ -137,7 +143,14 @@ void Engine::tp_head(int T, int heads, bool mtp, bool draft, float* output, int3
     const int N = (int)m->g.n_embd, V = (int)m->g.n_vocab, half = m->head.n_out;
     for (int d = 0; d < 2; ++d) {
         use_dev(d);
-        if (heads) mm(m->head, (mtp ? hmtp : hmain) + (size_t)(T-heads) * N, tp_logits[d], heads);
+        if (heads) {
+            const float* src = (mtp ? hmtp : hmain) + (size_t)(T-heads) * N;
+            if (tp_head_q8 && decode_q8_ok(m->head, heads)) {
+                prep(src, m->head.n_in, heads, q8);
+                q36decode::project(decode_mat(m->head, tp_logits[d]), {}, {}, q8, {}, heads, st);
+                decode_check_mat("tp head q8", m->head, q8, tp_logits[d], heads);
+            } else mm(m->head, src, tp_logits[d], heads);
+        }
         CK(cudaEventRecord(tp_event[d], st));
     }
     use_dev(home);

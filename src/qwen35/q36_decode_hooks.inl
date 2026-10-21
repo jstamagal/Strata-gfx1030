@@ -7,7 +7,7 @@ std::vector<bool> decode_rdna2;
 std::vector<size_t> decode_lds;
 std::vector<int> decode_tiles;
 void decode_init() {
-    if (!(rdna2_mmvq || moe_out_wide || decode_fuse || expert_fuse)) return;
+    if (!(rdna2_mmvq || moe_out_wide || decode_fuse || expert_fuse || tp_head_q8)) return;
     for (const char* flag : {"STRATA_Q36_RDNA2_MMVQ", "STRATA_Q36_MOE_OUT_WIDE", "STRATA_Q36_FUSE", "STRATA_Q36_FUSE_EXPERT"})
         if (q36decode::enabled(flag)) std::fprintf(stderr, "strata-q36: %s=1 (experimental, verify on device)\n", flag);
     decode_rdna2.resize(n_dev, false);
