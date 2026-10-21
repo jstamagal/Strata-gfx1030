@@ -5287,8 +5287,12 @@ int strata::qwen35::run(int argc, char** argv) {
     E.mtp_d = m.has_mtp ? mtp_d : 0;
     const auto on = [](const char* name) { const char* v = std::getenv(name); return v && std::strcmp(v, "1") == 0; };
     if (on("STRATA_Q36_TPX_GU16")) std::fprintf(stderr, "strata-q36: STRATA_Q36_TPX_GU16=1 (TP gate/up 16-lane rows)\n");
+    if (on("STRATA_Q36_TPX_GU16_OTHER")) std::fprintf(stderr, "strata-q36: STRATA_Q36_TPX_GU16_OTHER=1 (include other GU formats)\n");
+    if (on("STRATA_Q36_TPX_GU_CHECK")) std::fprintf(stderr, "strata-q36: STRATA_Q36_TPX_GU_CHECK=1 (compare and restore old GU values)\n");
+    if (on("STRATA_Q36_TPX_TRACE")) std::fprintf(stderr, "strata-q36: STRATA_Q36_TPX_TRACE=1 (print captured TPX kernel shapes)\n");
     if (on("STRATA_Q36_TPX_DOWN16")) std::fprintf(stderr, "strata-q36: STRATA_Q36_TPX_DOWN16=1 (TP down 16-lane rows)\n");
     if (on("STRATA_Q36_TPX_Q8_ROW")) std::fprintf(stderr, "strata-q36: STRATA_Q36_TPX_Q8_ROW=1 (TP Q8_0 dense row waves)\n");
+    if (on("STRATA_Q36_TPX_Q8_HEAD_ROW")) std::fprintf(stderr, "strata-q36: STRATA_Q36_TPX_Q8_HEAD_ROW=1 (TP Q8_0 head row waves)\n");
     if (on("STRATA_Q36_TPX_K_ROW")) std::fprintf(stderr, "strata-q36: STRATA_Q36_TPX_K_ROW=1 (TP IQ4_XS/Q4_K/Q5_K dense row waves)\n");
     E.mtp_stats.enabled = on("STRATA_Q36_MTP_STATS");
     E.mtp_adapt = on("STRATA_Q36_MTP_ADAPT");

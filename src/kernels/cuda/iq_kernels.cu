@@ -4054,7 +4054,15 @@ bool launch_tpx_gu(const NativeExpertLayout& L, dim3 grid, cudaStream_t s,
                    const unsigned long long* grp_ptr, const int32_t* grp_start, const int32_t* n_groups,
                    const int32_t* ent_tok, const block_q8_1* xq, float* gate, float* up) {
     if (!tpx_switch(g_tpx_gu, "STRATA_Q36_TPX_GU16")) return false;
-    if (L.n_embd % 256 || L.n_ff % 16) return false;
+    if (L.n_embd % 256 || L.n_ff % 16) { tpx_expert_trace("gu", L, false); return false; }
+    // The first TP engine run faulted with GU16 while the synthetic lab passed.  The
+    // lab's measured wins were IQ3_XXS and IQ4_XS; keep the other special format
+    // decoders on their proven engine path until they are checked with real blobs.
+    // A lab override still tests every format.  The opt-in below permits engine
+    // isolation of the remaining formats without changing GU16's safe set.
+    if (g_tpx_gu < 0 && L.gu_type != 18 && L.gu_type != 23 &&
+        !tpx_switch(-1, "STRATA_Q36_TPX_GU16_OTHER")) { tpx_expert_trace("gu", L, false); return false; }
+    tpx_expert_trace("gu", L, true);
 #define TPX_GU(T) case T: return launch_tpx_gu_type<T>(L, grid, s, grp_ptr, grp_start, n_groups, ent_tok, xq, gate, up)
     switch (L.gu_type) {
         TPX_GU(16); TPX_GU(18); TPX_GU(19); TPX_GU(22); TPX_GU(23); TPX_GU(11); TPX_GU(12); TPX_GU(8);
@@ -4075,7 +4083,9 @@ bool launch_tpx_down_type(const NativeExpertLayout& L, dim3 grid, cudaStream_t s
 bool launch_tpx_down(const NativeExpertLayout& L, dim3 grid, cudaStream_t s,
                      const unsigned long long* grp_ptr, const int32_t* grp_start, const int32_t* n_groups,
                      const int32_t* ent_dst, const block_q8_1* hq, float* out) {
-    if (!tpx_switch(g_tpx_down, "STRATA_Q36_TPX_DOWN16") || L.n_ff % 256 || L.n_embd % 16) return false;
+    if (!tpx_switch(g_tpx_down, "STRATA_Q36_TPX_DOWN16")) return false;
+    if (L.n_ff % 256 || L.n_embd % 16) { tpx_expert_trace("down", L, false); return false; }
+    tpx_expert_trace("down", L, true);
 #define TPX_DOWN(T) case T: return launch_tpx_down_type<T>(L, grid, s, grp_ptr, grp_start, n_groups, ent_dst, hq, out)
     switch (L.d_type) {
         TPX_DOWN(16); TPX_DOWN(18); TPX_DOWN(19); TPX_DOWN(22); TPX_DOWN(23);
@@ -4083,6 +4093,21 @@ bool launch_tpx_down(const NativeExpertLayout& L, dim3 grid, cudaStream_t s,
         default: return false;
     }
 #undef TPX_DOWN
+}
+
+void tpx_gu_check(const NativeExpertLayout& L, dim3 grid, cudaStream_t s,
+                  const unsigned long long* grp_ptr, const int32_t* grp_start, const int32_t* n_groups,
+                  const int32_t* ent_tok, const block_q8_1* xq, float* gate, float* up,
+                  float* old_gate, float* old_up, size_t entries) {
+    if (!tpx_switch(-1, "STRATA_Q36_TPX_GU_CHECK")) return;
+#define TPX_GU_REF(T) case T: launch_gu<T>(grid, s, grp_ptr, grp_start, n_groups, ent_tok, xq, L, old_gate, old_up); break
+    switch (L.gu_type) {
+        TPX_GU_REF(16); TPX_GU_REF(18); TPX_GU_REF(19); TPX_GU_REF(22);
+        TPX_GU_REF(23); TPX_GU_REF(11); TPX_GU_REF(12); TPX_GU_REF(8);
+        default: return;
+    }
+#undef TPX_GU_REF
+    tpx_gu_compare_restore<<<1, 256, 0, s>>>(gate, up, old_gate, old_up, entries * L.n_ff, L.gu_type);
 }
 
 }  // namespace
@@ -5289,6 +5314,8 @@ void native_expert_grouped(const NativeExpertLayout& L, const unsigned long long
     const bool tpx_gu_done = g_exp_phase != 2 && launch_tpx_gu(L, ggu, s, grp_ptr, grp_start, n_groups, ent_tok, X, gate, up);
     const bool gs_layout = !tpx_gu_done;
 #endif
+    if (tpx_gu_done) tpx_gu_check(L, ggu, s, grp_ptr, grp_start, n_groups, ent_tok, X,
+                                  gate, up, h, (float*) hq, (size_t) cap_entries);
     if (gs_layout && g_exp_phase == 0 && !v1 && gu_swiglu_on() && !(expdec_mode() && !g_old_kernels && expdec_gu_ok(L))) {
         switch (L.gu_type) {
 #define STRATA_GS(T) case T: gs_done = launch_gu_swiglu<T>(L, gy, s, grp_ptr, grp_start, n_groups, ent_tok, X, hq); break;
