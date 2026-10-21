@@ -60,6 +60,7 @@ struct Adaptive {
         ++steps;
         if ((int) recent.size() < n) recent.resize(n);
         for (int i = 0; i < n; ++i) {
+            if (i > kept) break;
             auto& r = recent[i];
             if (r.size() == window) r.erase(r.begin());
             r.push_back(i < kept);
