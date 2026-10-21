@@ -4047,7 +4047,17 @@ bool launch_tpx_gu_type(const NativeExpertLayout& L, dim3 grid, cudaStream_t s,
                         const int32_t* ent_tok, const block_q8_1* xq, float* gate, float* up) {
     if ((L.n_embd / Fmt<T>::qk) * Fmt<T>::ipb < 16) return false;
     const dim3 tg((unsigned) ((2 * L.n_ff + 15) / 16), grid.y);
-    tpx_gu_half_kernel<T><<<tg, 256, 0, s>>>(grp_ptr, grp_start, n_groups, ent_tok, xq, L, gate, up);
+    // Match launch_gu's decode table choice, so changing the row layout does
+    // not also change IQ3_XXS's sign/codebook decoder on real weights.
+    if constexpr (T == 18) {
+        if (stage_tables_on()) tpx_gu_half_kernel<T, true><<<tg, 256, 0, s>>>(grp_ptr, grp_start, n_groups, ent_tok, xq, L, gate, up);
+        else tpx_gu_half_kernel<T, false><<<tg, 256, 0, s>>>(grp_ptr, grp_start, n_groups, ent_tok, xq, L, gate, up);
+    } else if constexpr (kStageIqGrid<T>) {
+        if (g_stage_grid) tpx_gu_half_kernel<T, true><<<tg, 256, 0, s>>>(grp_ptr, grp_start, n_groups, ent_tok, xq, L, gate, up);
+        else tpx_gu_half_kernel<T, false><<<tg, 256, 0, s>>>(grp_ptr, grp_start, n_groups, ent_tok, xq, L, gate, up);
+    } else {
+        tpx_gu_half_kernel<T, false><<<tg, 256, 0, s>>>(grp_ptr, grp_start, n_groups, ent_tok, xq, L, gate, up);
+    }
     return true;
 }
 bool launch_tpx_gu(const NativeExpertLayout& L, dim3 grid, cudaStream_t s,
@@ -4098,8 +4108,13 @@ bool launch_tpx_down(const NativeExpertLayout& L, dim3 grid, cudaStream_t s,
 void tpx_gu_check(const NativeExpertLayout& L, dim3 grid, cudaStream_t s,
                   const unsigned long long* grp_ptr, const int32_t* grp_start, const int32_t* n_groups,
                   const int32_t* ent_tok, const block_q8_1* xq, float* gate, float* up,
-                  float* old_gate, float* old_up, size_t entries) {
+                  float* old_gate, float* down_out, size_t groups, size_t entries) {
     if (!tpx_switch(-1, "STRATA_Q36_TPX_GU_CHECK")) return;
+    // The q8_1 region is only 36/128 of the bytes needed for an FP32
+    // gate/up reference.  The down output has cap_entries*n_embd floats and
+    // is unused until after SwiGLU; use it for old up, while h holds old gate.
+    if (L.n_embd < L.n_ff) return;
+    float* old_up = down_out;
 #define TPX_GU_REF(T) case T: launch_gu<T>(grid, s, grp_ptr, grp_start, n_groups, ent_tok, xq, L, old_gate, old_up); break
     switch (L.gu_type) {
         TPX_GU_REF(16); TPX_GU_REF(18); TPX_GU_REF(19); TPX_GU_REF(22);
@@ -4107,7 +4122,8 @@ void tpx_gu_check(const NativeExpertLayout& L, dim3 grid, cudaStream_t s,
         default: return;
     }
 #undef TPX_GU_REF
-    tpx_gu_compare_restore<<<1, 256, 0, s>>>(gate, up, old_gate, old_up, entries * L.n_ff, L.gu_type);
+    tpx_gu_compare_restore<<<1, 256, 0, s>>>(gate, up, old_gate, old_up, grp_start, n_groups,
+                                             ent_tok, (int) groups, (int) entries, (int) L.n_ff, L.gu_type);
 }
 
 }  // namespace
@@ -5315,7 +5331,7 @@ void native_expert_grouped(const NativeExpertLayout& L, const unsigned long long
     const bool gs_layout = !tpx_gu_done;
 #endif
     if (tpx_gu_done) tpx_gu_check(L, ggu, s, grp_ptr, grp_start, n_groups, ent_tok, X,
-                                  gate, up, h, (float*) hq, (size_t) cap_entries);
+                                  gate, up, h, out, (size_t) cap_groups, (size_t) cap_entries);
     if (gs_layout && g_exp_phase == 0 && !v1 && gu_swiglu_on() && !(expdec_mode() && !g_old_kernels && expdec_gu_ok(L))) {
         switch (L.gu_type) {
 #define STRATA_GS(T) case T: gs_done = launch_gu_swiglu<T>(L, gy, s, grp_ptr, grp_start, n_groups, ent_tok, X, hq); break;
