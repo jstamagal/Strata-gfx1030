@@ -109,6 +109,7 @@ bool decode_experts(const Layer& L, int T, int64_t cap_groups, int64_t cap_entri
         float* ref = nullptr;
         const size_t n = (size_t) cap_entries * L.L.n_embd;
         CK(cudaMalloc((void**) &ref, n * sizeof(float)));
+        if (m->hybrid) CK(cudaMemsetAsync(ref, 0, n * sizeof(float), st));
         K::native_expert_grouped(L.L, grp_ptr, grp_start, n_groups, ent_dst, ent_tok,
             cap_groups, cap_entries, xq, escr, ref, st);
         verify_cmp("rdna2 experts", eparts, ref, n,
@@ -116,6 +117,20 @@ bool decode_experts(const Layer& L, int T, int64_t cap_groups, int64_t cap_entri
         CK(cudaFree(ref));
     }
     return true;
+}
+void verify_tpx_experts(const Layer& L, int64_t cap_groups, int64_t cap_entries) {
+    if (!verify_k || !(q36tp::enabled("STRATA_Q36_TPX_GU16") || q36tp::enabled("STRATA_Q36_TPX_DOWN16"))) return;
+    const size_t n = (size_t)cap_entries * L.L.n_embd;
+    float* ref = nullptr;
+    CK(cudaMalloc((void**)&ref, n * sizeof(float)));
+    if (m->hybrid) CK(cudaMemsetAsync(ref, 0, n * sizeof(float), st));
+    K::native_expert_tpx_tune(0, 0);
+    K::native_expert_grouped(L.L, grp_ptr, grp_start, n_groups, ent_dst, ent_tok,
+                             cap_groups, cap_entries, xq, escr, ref, st);
+    K::native_expert_tpx_tune(-1, -1);
+    verify_cmp("tpx experts", eparts, ref, n,
+               " gu " + std::to_string(L.L.gu_type) + " down " + std::to_string(L.L.d_type));
+    CK(cudaFree(ref));
 }
 bool decode_wide_ok(int T, int N, int Kp) const {
     return moe_out_wide && T >= 1 && T <= kGemmT && N > 0 && N % 32 == 0 && Kp > 0 &&

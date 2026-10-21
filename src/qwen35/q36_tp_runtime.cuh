@@ -12,6 +12,7 @@ void Engine::tp_swap(int from, int to) {
         }
     };
     swap(tp_state[from]); swap(tp_state[to]);
+    std::swap(hy, tp_hy[from]); std::swap(hy, tp_hy[to]);
     m = tp_models[to];
 }
 
@@ -83,8 +84,8 @@ void Engine::tp_init(const Model& a, const Model& b, int context, int chunk, int
         std::fprintf(stderr, "strata-q36 TP_LAUNCH_STATS: T=1 heads=1 submits 4 transfer calls "
                              "(token, position, two vocab halves), or 5 for MTP with peer seed; "
                              "MTP seed staging adds device copies; ordinary TP forward has no host stream wait\n");
-    std::fprintf(stderr, "strata-q36: STRATA_Q36_TP=1: two equal tensor shards, all experts on both GPUs; "
-                         "mapped-host decode joins, copy-engine prompt joins, replicated residual, %s; CPU/hybrid experts unsupported\n",
+    std::fprintf(stderr, "strata-q36: STRATA_Q36_TP=1: two equal tensor shards; "
+                         "mapped-host decode joins, copy-engine prompt joins, replicated residual, %s\n",
                          tp_graph && !verify_k ? "per-device graphs" : "eager streams");
 }
 
@@ -191,11 +192,14 @@ void Engine::tp_head(int T, int heads, bool mtp, bool draft, float* output, int3
         use_dev(d);
         if (heads) {
             const float* src = (mtp ? hmtp : hmain) + (size_t)(T-heads) * N;
-            if (tp_head_q8 && decode_q8_ok(m->head, heads)) {
-                prep(src, m->head.n_in, heads, q8);
-                q36decode::project(decode_mat(m->head, tp_logits[d]), {}, {}, q8, {}, heads, st);
-                decode_check_mat("tp head q8", m->head, q8, tp_logits[d], heads);
-            } else mm(m->head, src, tp_logits[d], heads);
+            const Mat& head = mtp && m->mtp_head.d &&
+                              (q36tp::enabled("STRATA_Q36_TP_HYBRID") || q36tp::enabled("STRATA_Q36_TP_MTP_HEAD")) ?
+                              m->mtp_head : m->head;
+            if (tp_head_q8 && decode_q8_ok(head, heads)) {
+                prep(src, head.n_in, heads, q8);
+                q36decode::project(decode_mat(head, tp_logits[d]), {}, {}, q8, {}, heads, st);
+                decode_check_mat("tp head q8", head, q8, tp_logits[d], heads);
+            } else mm(head, src, tp_logits[d], heads);
         }
         CK(cudaEventRecord(tp_event[d], st));
     }
@@ -215,53 +219,7 @@ void Engine::tp_head(int T, int heads, bool mtp, bool draft, float* output, int3
     k_argmax<<<dim3(1, heads), kThreads, 0, st>>>(dst, kArgBlocks, pk, amv, ami, true);
 }
 
-bool place_experts_tp(Model& a, Model& b, Engine& E, std::string& err) {
-    Model* models[2] = {&a, &b};
-    // Preflight BOTH cards before allocating any expert, so failure is clean and never starts hybrid offload.
-    for (int d = 0; d < 2; ++d) {
-        E.use_dev(d);
-        Model& m = *models[d];
-        size_t need = 0, fr = 0, total = 0;
-        for (const Layer& L : m.layers) need += L.stride * m.g.n_expert + kMmqTail;
-        if (m.has_mtp) need += m.mtp.stride * m.g.n_expert + kMmqTail;
-        CK(cudaMemGetInfo(&fr, &total));
-        const size_t reserve = (size_t)256 << 20;
-        const bool drop_packed = q36tp::enabled("STRATA_Q36_DROP_PACKED");
-        if ((drop_packed || need + reserve > fr) && !m.packed.empty()) {
-            for (const auto& p : m.packed) { K::native_q8_0_packed_unregister(std::get<0>(p)); CK(cudaFree(std::get<1>(p))); }
-            m.packed.clear(); m.packed_dev.clear();
-            CK(cudaMemGetInfo(&fr, &total));
-            std::fprintf(stderr, "strata-q36: TP device %d: released packed dense copies (%s)\n", d,
-                         drop_packed ? "STRATA_Q36_DROP_PACKED=1" : "to fit expert shards");
-        }
-        if (need + reserve > fr) {
-            err = "TP device " + std::to_string(d) + " needs " + std::to_string(need >> 20) +
-                  " MiB for expert shards plus 256 MiB reserve; free " + std::to_string(fr >> 20) +
-                  " MiB. CPU/hybrid experts are unsupported in TP; reduce --chunk, --max-context or --batch.";
-            E.use_dev(E.home); return false;
-        }
-    }
-    for (int d = 0; d < 2; ++d) {
-        E.use_dev(d);
-        Model& m = *models[d];
-        std::vector<Layer*> layers;
-        for (Layer& L : m.layers) layers.push_back(&L);
-        if (m.has_mtp) layers.push_back(&m.mtp);
-        size_t bytes = 0;
-        for (Layer* L : layers) {
-            const size_t nb = L->stride * m.g.n_expert + kMmqTail;
-            CK(cudaMalloc((void**)&L->blobs, nb)); CK(cudaMemset(L->blobs, 0, nb));
-            std::vector<uint8_t> blob(L->stride, 0);
-            for (int64_t e = 0; e < m.g.n_expert; ++e) {
-                expert_blob(*L, e, blob.data());
-                CK(cudaMemcpy(L->blobs + e * L->stride, blob.data(), L->stride, cudaMemcpyHostToDevice));
-            }
-            L->n_slots = (int)m.g.n_expert; bytes += nb;
-        }
-        std::fprintf(stderr, "strata-q36: TP device %d: %.2f GiB expert shards, half of every expert resident\n", d, bytes / double(1ull << 30));
-    }
-    E.use_dev(E.home); return true;
-}
+#include "q36_tp_hybrid.cuh"
 
 // Diagnostic only, at call boundaries: never inserts a host wait between layers.
 void Engine::tp_check_residual(int T, bool mtp) {

@@ -6,6 +6,8 @@
         std::vector<float*> conv, S, kc, vc, v_qkv, v_hc, v_alpha, v_beta;
         float* hlast = nullptr;
     } tp_state[2];
+    std::vector<Hy> tp_hy[2]; // inactive rank's expert slots; the active rank is in hy
+    bool tp_rebalancing = false;
     float *tp_host[2] = {}, *tp_mapped[2][2] = {}, *tp_logits[2] = {};
     unsigned *tp_flags_host[2] = {}, *tp_flags[2][2] = {}, *tp_token[2] = {};
     cudaEvent_t tp_event[2] = {};

@@ -64,6 +64,8 @@ struct Plan {
         if (key == "ffn_gate_shexp.weight" || key == "ffn_up_shexp.weight") return seg(1, g.n_ff_shexp);
         if (key == "ffn_down_shexp.weight") return seg(0, g.n_ff_shexp);
         if (key == "output.weight") return seg(1, g.n_vocab);
+        if (key == "nextn.shared_head_head.weight" &&
+            (enabled("STRATA_Q36_TP_HYBRID") || enabled("STRATA_Q36_TP_MTP_HEAD"))) return seg(1, g.n_vocab);
         return {};                      // norms, embedding, router and MTP input projection
     }
 };
