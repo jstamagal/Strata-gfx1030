@@ -27,6 +27,7 @@
 #include "strata/prefill/moe_mmq.hpp"
 #include "strata/qwen35/engine.hpp"
 #include "q36_kernels.cuh"
+#include "q36_pack.hpp"
 #if defined(STRATA_Q36_CPU_POOL)
 #include "strata/kernels/cpu/native_expert.hpp"
 #include "strata/kernels/cpu/pool.hpp"
@@ -1025,10 +1026,16 @@ struct Layer {
     const uint8_t *src_g = nullptr, *src_u = nullptr, *src_d = nullptr;
     size_t src_gsz = 0, src_dsz = 0;
     uint8_t* hblobs = nullptr;  // hybrid mode: every expert's blob in host memory, `stride` apart
+    q36pack::Cache* cache = nullptr;
+    size_t cache_layer = 0;
+    std::vector<int> initial_rank;
+    bool use_initial_rank = false;
     int n_slots = 0;            // hybrid mode: the experts resident in VRAM
 };
 
 struct Model {
+    std::shared_ptr<q36pack::Cache> expert_cache;
+    mutable q36pack::Trace expert_trace; // observational counters; weights stay const
     strata::core::ModelGeometry g;
     std::shared_ptr<strata::GgufModel> file;   // kept mapped: the experts are placed after the engine's buffers
     bool hybrid = false;                       // not every expert fits in VRAM: slots + the CPU pool
@@ -1350,12 +1357,19 @@ bool load(const std::string& path, Model& m, std::string& err, bool want_mtp, co
     return true;
 }
 
+int initial_expert(const Layer& L, size_t e) {
+    return L.use_initial_rank ? L.initial_rank.at(e) : int(e);
+}
+
 /// Expert e of layer L as its native blob [gate | up | down] (L.L.bytes) at dst (host memory).
 void expert_blob(const Layer& L, int64_t e, uint8_t* dst) {
+    e = initial_expert(L, size_t(e));
     std::memcpy(dst, L.src_g + (size_t) e * L.src_gsz, L.src_gsz);
     std::memcpy(dst + L.L.up_off, L.src_u + (size_t) e * L.src_gsz, L.src_gsz);
     std::memcpy(dst + L.L.down_off, L.src_d + (size_t) e * L.src_dsz, L.src_dsz);
 }
+
+#include "q36_pack_runtime.cuh"
 
 // ------------------------------------------------------------------------------------------------ the engine
 float* dalloc(size_t n) {
@@ -2311,6 +2325,10 @@ struct Engine {
         const bool mmq_rows = !hy_rows && T > kGemmT && use_mmq;
         if (!(!mmq_rows && route_group(L, hy_rows ? hy[li].slot_of_d : nullptr, T, ext ? (int) g.n_expert + 1 : (int) g.n_expert)))
             K::native_router_topk(logits_r, ids, ewts, (int) g.n_expert, Kp, T, st);
+        if (m->expert_trace.active() && !warming) {
+            trace_experts(m->expert_trace, li, ids, size_t(T) * Kp, st);
+            if (li + 1 == size_t(g.n_layers)) m->expert_trace.save();
+        }
         const int64_t n_ent = (int64_t) T * Kp;
         const int32_t* prow = nullptr;
         if (hy_rows) {
@@ -3554,15 +3572,10 @@ bool place_experts(Model& m, Engine& E, double vram_gib, int threads, int hybrid
         }
     }
     if (slots <= 0 && total <= budget2 && total + ((size_t) 256 << 20) <= fr) {
-        std::vector<uint8_t> blob;
         for (Layer* L : all) {
             CK(cudaMalloc(&L->blobs, L->stride * (size_t) ne + kMmqTail));
             CK(cudaMemset(L->blobs, 0, L->stride * (size_t) ne + kMmqTail));
-            blob.assign(L->L.bytes, 0);
-            for (int64_t e = 0; e < ne; ++e) {
-                expert_blob(*L, e, blob.data());
-                CK(cudaMemcpy(L->blobs + (size_t) e * L->stride, blob.data(), L->L.bytes, cudaMemcpyHostToDevice));
-            }
+            upload_initial_experts(*L, (size_t) ne);
             L->n_slots = (int) ne;
         }
         std::fprintf(stderr, "strata-q36: every routed expert in VRAM (%.2f GiB) in %.1f s\n", (double) total / (1 << 30),
@@ -3639,42 +3652,24 @@ bool place_experts(Model& m, Engine& E, double vram_gib, int threads, int hybrid
         if (mtp_only && &L != &m.mtp) {   // a main layer: every expert in VRAM, as in the all-in-VRAM placement
             CK(cudaMalloc(&L.blobs, L.stride * (size_t) ne + kMmqTail));
             CK(cudaMemset(L.blobs, 0, L.stride * (size_t) ne + kMmqTail));
-            std::vector<uint8_t> blob(L.L.bytes, 0);
-            for (int64_t e = 0; e < ne; ++e) {
-                expert_blob(L, e, blob.data());
-                CK(cudaMemcpy(L.blobs + (size_t) e * L.stride, blob.data(), L.L.bytes, cudaMemcpyHostToDevice));
-            }
+            upload_initial_experts(L, (size_t) ne);
             L.n_slots = (int) ne;
             continue;
         }
+        select_initial_order(L, S, ne);
         L.hblobs = arena + off;
         off += L.stride * (size_t) (ne - S) + kMmqTail;
         std::memset(L.hblobs, 0, L.stride * (size_t) (ne - S) + kMmqTail);
-        for (int64_t e = S; e < ne; ++e) expert_blob(L, e, L.hblobs + (size_t) (e - S) * L.stride);
+        if (L.cache) cached_experts(L, S, ne - S, L.hblobs);
+        else for (int64_t e = S; e < ne; ++e) expert_blob(L, e, L.hblobs + (size_t) (e - S) * L.stride);
         L.n_slots = S;
         if (S > 0) {
             CK(cudaMalloc(&L.blobs, L.stride * (size_t) S + kMmqTail));
             CK(cudaMemset(L.blobs, 0, L.stride * (size_t) S + kMmqTail));
-            std::vector<uint8_t> blob(L.L.bytes, 0);
-            for (int64_t e = 0; e < S; ++e) {
-                expert_blob(L, e, blob.data());
-                CK(cudaMemcpy(L.blobs + (size_t) e * L.stride, blob.data(), L.L.bytes, cudaMemcpyHostToDevice));
-            }
+            upload_initial_experts(L, (size_t) S);
         }
         Engine::Hy& H = E.hy[li];
-        H.slot_of.assign((size_t) ne, -1);
-        H.exp_in_slot.assign((size_t) S, 0);
-        H.hpos.assign((size_t) ne, -1);
-        H.host_exp.assign((size_t) (ne - S), 0);
-        for (int s = 0; s < S; ++s) {
-            H.slot_of[(size_t) s] = s;
-            H.exp_in_slot[(size_t) s] = s;
-        }
-        for (int64_t e = S; e < ne; ++e) {
-            H.hpos[(size_t) e] = (int) (e - S);
-            H.host_exp[(size_t) (e - S)] = (int) e;
-        }
-        H.score.assign((size_t) ne, 0.0);
+        initial_tables(L, H, (size_t) ne, S);
         CK(cudaMalloc(&H.slot_of_d, (size_t) ne * 4));
         CK(cudaMemcpy(H.slot_of_d, H.slot_of.data(), (size_t) ne * 4, cudaMemcpyHostToDevice));
         H.fill_vmap(S);
@@ -3854,6 +3849,7 @@ bool place_experts_split(Model& m, Engine& E, int threads, int hybrid_t, std::st
     // layer's slots through one pinned staging copy
     const int nthr = std::max(1, std::min(16, (int) std::thread::hardware_concurrency()));
     auto assemble = [&](const Layer& L, int64_t e0, int64_t e1, uint8_t* dst) {
+        if (L.cache) { cached_experts(L, e0, e1 - e0, dst); return; }
         std::vector<std::thread> th;
         for (int t = 0; t < nthr; ++t)
             th.emplace_back([&, t] {
@@ -3873,6 +3869,7 @@ bool place_experts_split(Model& m, Engine& E, int threads, int hybrid_t, std::st
             Layer& L = *all[li];
             Engine::Hy& H = E.hy[li];
             L.n_slots = S;
+            select_initial_order(L, S, ne);
             CK(cudaMalloc(&L.blobs, L.stride * (size_t) S + kMmqTail));
             CK(cudaMemset(L.blobs, 0, L.stride * (size_t) S + kMmqTail));
             if (S > 0) {
@@ -3880,24 +3877,12 @@ bool place_experts_split(Model& m, Engine& E, int threads, int hybrid_t, std::st
                 assemble(L, 0, S, stg);
                 CK(cudaMemcpy(L.blobs, stg, L.stride * (size_t) S, cudaMemcpyHostToDevice));
             }
-            H.slot_of.assign((size_t) ne, -1);
-            H.exp_in_slot.assign((size_t) S, 0);
-            H.hpos.assign((size_t) ne, -1);
-            H.host_exp.assign((size_t) (ne - S), 0);
-            H.score.assign((size_t) ne, 0.0);
-            for (int s_ = 0; s_ < S; ++s_) {
-                H.slot_of[(size_t) s_] = s_;
-                H.exp_in_slot[(size_t) s_] = s_;
-            }
+            initial_tables(L, H, (size_t) ne, S);
             if (S < ne) {
                 L.hblobs = arena + off;
                 off += L.stride * (size_t) (ne - S) + kMmqTail;
                 std::memset(L.hblobs, 0, L.stride * (size_t) (ne - S) + kMmqTail);
                 assemble(L, S, ne, L.hblobs);
-                for (int64_t e = S; e < ne; ++e) {
-                    H.hpos[(size_t) e] = (int) (e - S);
-                    H.host_exp[(size_t) (e - S)] = (int) e;
-                }
                 if (!C::native_fmt(L.L.gu_type, L.L.d_type, g.n_embd, g.n_ff, H.fmt, err)) return false;
                 if (H.fmt.up_off != L.L.up_off || H.fmt.down_off != L.L.down_off || H.fmt.bytes != L.L.bytes) {
                     err = "the CPU and GPU expert layouts differ";
@@ -4954,6 +4939,8 @@ int serve(Engine& E) {
 
 int strata::qwen35::run(int argc, char** argv) {
     std::string model, tokens, force, dump_full, emb_file;
+    std::string pack = std::getenv("STRATA_Q36_PACK") ? std::getenv("STRATA_Q36_PACK") : "";
+    std::string expert_profile, expert_trace;
     int ctx = 32768, chunk = 0, n_gen = 64, bench_pp = 0, bench_tg = 0, mtp_d = 0, cpu_threads = 0, hybrid_rows = 128;
     double expert_vram = -1.0;
     bool warm = true;
@@ -4969,6 +4956,9 @@ int strata::qwen35::run(int argc, char** argv) {
         };
         // strata's names where they mean the same thing (the family switch passes strata's command line on)
         if (a == "--model" || a == "--native") model = next();
+        else if (a == "--pack") pack = next();
+        else if (a == "--expert-profile") expert_profile = next();
+        else if (a == "--trace-experts") expert_trace = next();
         else if (a == "--max-new") n_gen = std::atoi(next().c_str());
         else if (a == "--no-token-graph") graph = false;
         else if (a == "--pool-workers") cpu_threads = std::atoi(next().c_str());
@@ -5013,6 +5003,7 @@ int strata::qwen35::run(int argc, char** argv) {
         } else {
             std::fprintf(stderr,
                          "usage: strata-q36 --model GGUF [--max-context 32768] [--chunk 512] [--no-graph]\n"
+                         "       [--pack DIR] [--expert-profile FILE] [--trace-experts FILE]\n"
                          "       (--serve | --tokens IDS [--n 64] [--force IDS] [--dump-full-logits F] | --bench-pp N "
                          "--bench-tg N)\n");
             return 2;
@@ -5039,12 +5030,19 @@ int strata::qwen35::run(int argc, char** argv) {
         const int n_dev = dev_of.empty() ? 1 : dev_of.back() + 1;
         if (!dev_of.empty()) CK(cudaSetDevice(0));
         if (!load(model, m, err, mtp_d > 0, dev_of, n_dev)) { std::fprintf(stderr, "strata-q36: %s\n", err.c_str()); return 1; }
+        if (!pack.empty() || !expert_profile.empty()) prepare_expert_storage(m, pack, expert_profile);
+        if (!expert_trace.empty()) {
+            m.expert_trace.open(expert_trace, size_t(m.g.n_layers + m.g.n_mtp_layers), size_t(m.g.n_expert));
+            graph = false;
+            std::fprintf(stderr, "strata-q36: --trace-experts %s: routing counts enabled, graphs disabled\n", expert_trace.c_str());
+        }
     } catch (const std::exception& e) {
         std::fprintf(stderr, "strata-q36: %s\n", e.what());
         return 1;
     }
     Engine E;
     E.use_graph = graph;
+    if (m.expert_trace.active()) E.mtp_graph = false;
     if (!dev_of.empty()) {
         E.n_dev = dev_of.back() + 1;
         E.home = E.n_dev - 1;
@@ -5099,14 +5097,21 @@ int strata::qwen35::run(int argc, char** argv) {
                          fr / 1073741824.0, fr_raw / 1073741824.0, packed / 1073741824.0, experts / 1073741824.0, chunk);
     }
     E.init(m, ctx, chunk, batch, vision);
-    if (E.n_dev > 1 ? !place_experts_split(m, E, cpu_threads, hybrid_rows, err)
-                    : !place_experts(m, E, expert_vram, cpu_threads, hybrid_rows, expert_slots, err)) {
-        std::fprintf(stderr, "strata-q36: %s\n", err.c_str());
+    try {
+        if (E.n_dev > 1 ? !place_experts_split(m, E, cpu_threads, hybrid_rows, err)
+                        : !place_experts(m, E, expert_vram, cpu_threads, hybrid_rows, expert_slots, err)) {
+            std::fprintf(stderr, "strata-q36: %s\n", err.c_str());
+            return 1;
+        }
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "strata-q36: %s\n", e.what());
         return 1;
     }
     struct Report {
         Engine& E;
         ~Report() {
+            try { E.m->expert_trace.save(); }
+            catch (const std::exception& e) { std::fprintf(stderr, "strata-q36: %s\n", e.what()); }
             if (E.verify_k) std::fprintf(stderr, "strata-q36 VERIFY: %lld comparisons, %lld mismatches\n", E.v_calls, E.v_bad);
             if (E.verify_k)
                 for (const auto& kv : E.v_by)
