@@ -31,6 +31,7 @@
 #include "q36_tp_collective.cuh"
 #include "q36_tp_moe_join.cuh"
 #include "q36_tp_fuse2.cuh"
+#include "q36_tp_join_row.cuh"
 #include "q36_tp_fuse3.cuh"
 #include "q36_decode.cuh"
 #include "q36_experts.hpp"
@@ -2486,8 +2487,8 @@ struct Engine {
                     const float* vl = rows_mode ? nullptr : vc[li];
                     const float a_scale = 1.0f / sqrtf((float) HD);
                     const int slots = std::min(nc, 32);   // GQA blocks per row: each takes every 32nd chunk
-                    if (tp && tp_attn_rows && p0 + t0 + nt <= kChunkCells * 4)
-                        k_attn_part<<<dim3(nc, nt * H), kChunkCells, 0, st>>>(q, kl, vl, dpos, t0, H, HKV, ctx, a_scale,
+                    if (tp && (tp_attn_rows || tp_attn_graph_rows) && p0 + t0 + nt <= kChunkCells * 4)
+                        k_attn_part<<<dim3(graph_mode ? std::min(n_chunk, 4) : nc, nt * H), kChunkCells, 0, st>>>(q, kl, vl, dpos, t0, H, HKV, ctx, a_scale,
                                                                              n_chunk, pacc, pm, pl, rs);
                     else if (!gqa_off && HD == 256 && H == 16 * HKV)
                         k_attn_part_gqa<16><<<dim3(slots, nt * HKV), kThreads, 0, st>>>(q, kl, vl, dpos, t0, H, HKV, ctx, a_scale,

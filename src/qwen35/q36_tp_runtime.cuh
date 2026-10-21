@@ -64,17 +64,30 @@ void Engine::tp_init(const Model& a, const Model& b, int context, int chunk, int
         CK(cudaHostAlloc((void**)&tp_flags_host[d], q36tp::join_blocks * q36tp::flag_stride * sizeof(unsigned),
                          cudaHostAllocPortable | cudaHostAllocMapped));
         std::memset(tp_flags_host[d], 0, q36tp::join_blocks * q36tp::flag_stride * sizeof(unsigned));
+        if (tp_join_row && g.n_embd % 32 == 0) {
+            const size_t stride = (size_t) g.n_embd + 16;
+            CK(cudaHostAlloc((void**)&tp_row_host[d], (size_t) kVerify * stride * sizeof(float),
+                             cudaHostAllocPortable | cudaHostAllocMapped));
+            for (int row = 0; row < kVerify; ++row) {
+                unsigned* flag = (unsigned*)(tp_row_host[d] + (size_t) row * stride);
+                flag[0] = flag[1] = 0;
+            }
+        }
     }
     for_devs([&](int d) {
         for (int r = 0; r < 2; ++r) {
             CK(cudaHostGetDevicePointer((void**)&tp_mapped[d][r], tp_host[r], 0));
             CK(cudaHostGetDevicePointer((void**)&tp_flags[d][r], tp_flags_host[r], 0));
+            if (tp_row_host[r]) CK(cudaHostGetDevicePointer((void**)&tp_row_mapped[d][r], tp_row_host[r], 0));
         }
         CK(cudaDeviceSynchronize());
     });
     use_mmq = dev_mmq[0] && dev_mmq[1];
     if (tp_check) std::fprintf(stderr, "strata-q36: STRATA_Q36_TP_CHECK=1: compare both residual replicas at each forward boundary (host readback)\n");
-    for (const char* flag : {"STRATA_Q36_TP_ATTN_ROWS", "STRATA_Q36_TP_HEAD_Q8", "STRATA_Q36_TP_MOE_JOIN",
+    for (const char* flag : {"STRATA_Q36_TP_ATTN_ROWS", "STRATA_Q36_TP_ATTN_GRAPH_ROWS",
+                             "STRATA_Q36_TP_JOIN_ROW", "STRATA_Q36_TP_JOIN_PEER_FIRST", "STRATA_Q36_TP_JOIN_FAST_SUBMIT",
+                             "STRATA_Q36_TP_JOIN_MOE_PUBLISH",
+                             "STRATA_Q36_TP_HEAD_Q8", "STRATA_Q36_TP_MOE_JOIN",
                              "STRATA_Q36_TP_FUSE2_CONV_AB", "STRATA_Q36_TP_FUSE2_GDN_Q8", "STRATA_Q36_TP_FUSE2_ROUTER",
                              "STRATA_Q36_TP_FUSE2_JOIN_NORM", "STRATA_Q36_TP_FUSE2_MOE_NORM",
                              "STRATA_Q36_TP_FUSE3_GDN_ALL", "STRATA_Q36_TP_FUSE3_SHARED",
@@ -198,9 +211,22 @@ void Engine::tp_join(float* partial, int T) {
         tp_mapped[cur_dev][1-cur_dev], (size_t) T * m->g.n_embd, tp_flags[cur_dev][cur_dev],
         tp_flags[cur_dev][1-cur_dev], tp_token[cur_dev], cur_dev);
 }
-void Engine::tp_join_norm(float* partial, const float* w, float* hout, int T, bool quantized) {
+void Engine::tp_join_norm(float* partial, const float* w, float* hout, int T, bool quantized, bool published) {
     const int N = (int) m->g.n_embd;
-    if (quantized)
+    if (tp_join_row && T <= 4 && N % 32 == 0) {
+        float* mine = tp_row_mapped[cur_dev][cur_dev];
+        const float* peer = tp_row_mapped[cur_dev][1-cur_dev];
+        unsigned* token = tp_token[cur_dev];
+        if (quantized)
+            q36tp_row::join_norm<true, false><<<T, kThreads, 0, st>>>(
+                partial, mine, peer, token, cur_dev, x, w, hout, (q36k::QB*) xq, N, m->eps);
+        else if (published)
+            q36tp_row::join_norm<false, true><<<T, kThreads, 0, st>>>(
+                partial, mine, peer, token, cur_dev, x, w, hout, nullptr, N, m->eps);
+        else
+            q36tp_row::join_norm<false, false><<<T, kThreads, 0, st>>>(
+                partial, mine, peer, token, cur_dev, x, w, hout, nullptr, N, m->eps);
+    } else if (quantized)
         q36tp_fuse2::join_norm<true><<<q36tp::join_blocks, kThreads, 0, st>>>(
             partial, tp_mapped[cur_dev][cur_dev], tp_mapped[cur_dev][1-cur_dev], (size_t) T * N,
             tp_flags[cur_dev][cur_dev], tp_flags[cur_dev][1-cur_dev], tp_token[cur_dev], cur_dev,
@@ -214,6 +240,8 @@ void Engine::tp_join_norm(float* partial, const float* w, float* hout, int T, bo
 void Engine::tp_moe_end(int T, const int32_t* prow, const float* shared, const float* sgate,
                          const float* wn, float* hout, int sgs) {
     const int N = (int)m->g.n_embd;
+    const bool fused_norm = tp_fuse2_moe_norm && !tp_moe_join && !verify_k && wn && T <= 4 && N % 32 == 0;
+    const bool direct_publish = fused_norm && tp_join_row && tp_join_moe_publish && !tp_gdn_defer_hist[cur_dev];
     if (tp_moe_join && T <= kVerify)
         q36tp::moe_join<<<q36tp::join_blocks, kThreads, 0, st>>>(moe_out, eparts, prow, ewts, (int)m->top_k,
             shared, sgate, sgs, N, T, tp_mapped[cur_dev][cur_dev], tp_mapped[cur_dev][1-cur_dev],
@@ -229,13 +257,16 @@ void Engine::tp_moe_end(int T, const int32_t* prow, const float* shared, const f
             tp_gdn_ref_alloc[cur_dev] = tp_gdn_ref_hist[cur_dev] = nullptr;
         }
         tp_gdn_defer_hist[cur_dev] = nullptr;
-    } else q36tp::partial_moe<<<T, kThreads, 0, st>>>(moe_out, eparts, prow, ewts, (int)m->top_k, shared, sgate, sgs, N);
+    } else if (direct_publish)
+        q36tp_row::partial_moe_publish<<<T, kThreads, 0, st>>>(moe_out, tp_row_mapped[cur_dev][cur_dev],
+            eparts, prow, ewts, (int)m->top_k, shared, sgate, sgs, N,
+            tp_token[cur_dev]);
+    else q36tp::partial_moe<<<T, kThreads, 0, st>>>(moe_out, eparts, prow, ewts, (int)m->top_k, shared, sgate, sgs, N);
     xq_ready = false;
     if (T > kVerify) return; // prompt epilogue follows the copy-engine join
-    const bool fused_norm = tp_fuse2_moe_norm && !tp_moe_join && !verify_k && wn && T <= 4 && N % 32 == 0;
     if (fused_norm) {
         if (tp_stats_capturing) ++tp_stats_moe_norm[cur_dev];
-        tp_join_norm(moe_out, wn, hout, T, false);
+        tp_join_norm(moe_out, wn, hout, T, false, direct_publish);
         return;
     }
     if (!tp_moe_join) tp_join(moe_out, T);

@@ -1,15 +1,16 @@
 // Whole-device decode graphs. Call tokens are device memory, so capture/replay cannot reuse a host sequence number.
-long long Engine::tp_graph_key(int T, bool verify, bool mtp) const {
+long long Engine::tp_graph_key(int T, bool verify, bool mtp, bool short_attn) const {
     return (((((long long)cur * 2 + (int)rows_mode) * (kVerify+1) + (rows_mode ? rows_G : 0)) *
-             (kVerify+1) + T) * 2 + (int)verify) * 2 + (int)mtp;
+             (kVerify+1) + T) * 2 + (int)verify) * 4 + (int)mtp * 2 + (int)short_attn;
 }
 bool Engine::tp_graph_run(int T, int64_t p0, bool verify, bool mtp, const float* seeds, bool capture_only) {
     if (!tp_graph || layer_dump.enabled() || verify_k || T > kVerify || map_on || mtab_now ||
-        (tp_attn_rows && p0 + T <= kChunkCells * 4)) return false;
+        (tp_attn_rows && !tp_attn_graph_rows && p0 + T <= kChunkCells * 4)) return false;
     // Main callers always stage MTP seeds here. Other seed addresses use eager execution, never a stale capture.
     use_dev(home);
     if (mtp && seeds != mtp_seed()) return false;
-    const long long key = tp_graph_key(T, verify, mtp);
+    const bool short_attn = tp_attn_graph_rows && p0 + T <= kChunkCells * 4;
+    const long long key = tp_graph_key(T, verify, mtp, short_attn);
     const int N = (int)m->g.n_embd;
     for (int d = 0; d < 2; ++d) {
         use_dev(d);
@@ -81,7 +82,24 @@ bool Engine::tp_graph_run(int T, int64_t p0, bool verify, bool mtp, const float*
     }
     // Capture both first: no running rendezvous kernel can block allocations needed to instantiate its peer.
     if (!capture_only) {
-        for (int d = 0; d < 2; ++d) { use_dev(d); CK(cudaGraphLaunch(seg_graphs[key], st)); }
+        if (tp_join_fast_submit) {
+            cudaGraphExec_t graph[2];
+            cudaStream_t stream[2];
+            for (int d = 0; d < 2; ++d) {
+                use_dev(d); graph[d] = seg_graphs[key]; stream[d] = st;
+            }
+            // Only the HIP device switch sits between the two graph submits.
+            for (int i = 0; i < 2; ++i) {
+                const int d = tp_join_peer_first ? 1 - i : i;
+                CK(cudaSetDevice(d)); CK(cudaGraphLaunch(graph[d], stream[d]));
+            }
+            use_dev(home);
+        } else {
+            for (int i = 0; i < 2; ++i) {
+                const int d = tp_join_peer_first ? 1 - i : i;
+                use_dev(d); CK(cudaGraphLaunch(seg_graphs[key], st));
+            }
+        }
         if (tp_launch_stats && T <= kVerify) ++tp_graph_replays[mtp ? 2 : verify ? 1 : 0][T];
     } else use_dev(home);
     return true;

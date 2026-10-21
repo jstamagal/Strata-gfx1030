@@ -25,7 +25,8 @@ void Engine::tp_layer_pair(size_t li, int T, int64_t p0, bool verify, bool mtp) 
     const long long before1 = count_layer ? q36tp_stats::eager[1] : 0;
 #endif
     auto run = [&](int phase) {
-        for (int d = 0; d < 2; ++d) {
+        for (int i = 0; i < 2; ++i) {
+            const int d = tp_join_peer_first && T <= kVerify ? 1 - i : i;
             use_dev(d);
             const bool last = li + 1 == m->layers.size();
             const float* wn = mtp ? m->mtp_shnorm : last ? m->out_norm : m->layers[li+1].attn_norm;
