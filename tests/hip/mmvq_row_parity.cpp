@@ -70,9 +70,105 @@ int main(int argc, char** argv) {
     setvbuf(stdout, nullptr, _IONBF, 0);
     using namespace strata::kernels;
     const bool bench = argc > 1 && std::string(argv[1]) == "--bench";
+    const bool tpx = argc > 1 && std::string(argv[1]) == "--tpx";
     hipStream_t stream;
     CHECK(hipStreamCreateWithFlags(&stream, hipStreamNonBlocking));
     const int kR[] = {1, 2, 4}, kW[] = {1, 2, 4, 8};
+
+    if (tpx) {
+        native_mmvq_row_tune(0, 0);
+        const Shape cases[] = {{23, 3072, 1536, "TP IQ4 small"}, {23, 3072, 4096, "TP IQ4 dense"},
+                               {12, 3072, 1536, "TP Q4 small"}, {12, 3072, 4096, "TP Q4 dense"},
+                               {13, 3072, 4096, "TP Q5 dense"}, {8, 3072, 4096, "TP Q8 dense"},
+                               {8, 3072, 62080, "TP head subset"}, {8, 3072, 124160, "TP full head"}};
+        bool pass = true;
+        for (const auto& sh : cases) {
+            const auto tune = [&](int rows) {
+                if (sh.type == 8) native_mmvq_tpx_q8_tune(rows);
+                else native_mmvq_tpx_k_tune(rows);
+            };
+            const auto hw = make_weights(type_of(sh.type), sh.n_in, sh.n_out);
+            const int copies = std::max(2, std::min(16, (int) (((size_t) 256 << 20) / hw.size())));
+            std::vector<void*> dw;
+            for (int i = 0; i < copies; ++i) dw.push_back(to_device(hw.data(), hw.size()));
+            std::vector<void*> packed_dev;
+            if (sh.type == 8) {
+                std::vector<uint8_t> packed(hw.size());
+                native_q8_0_pack_host(hw.data(), packed.data(), sh.n_in, sh.n_out);
+                for (void* w : dw) {
+                    void* p = to_device(packed.data(), packed.size());
+                    native_q8_0_packed_register(w, p, sh.n_in, sh.n_out);
+                    packed_dev.push_back(p);
+                }
+            }
+            std::vector<float> hx((size_t) 4 * sh.n_in);
+            std::normal_distribution<float> nd(0.0f, 1.0f);
+            for (float& v : hx) v = nd(rng);
+            void* dx = to_device(hx.data(), hx.size() * 4);
+            void* dq = nullptr;
+            CHECK(hipMalloc(&dq, native_q8_1_bytes(sh.n_in, 4)));
+            native_quantize_q8_1((const float*) dx, dq, sh.n_in, 4, stream);
+            float *y0 = nullptr, *y1 = nullptr;
+            CHECK(hipMalloc((void**) &y0, (size_t) 4 * sh.n_out * 4));
+            CHECK(hipMalloc((void**) &y1, (size_t) 4 * sh.n_out * 4));
+            for (int T = 1; T <= 4; ++T) {
+                tune(0);
+                native_mmvq(sh.type, dw[0], dq, y0, sh.n_in, sh.n_out, T, stream);
+                CHECK(hipStreamSynchronize(stream));
+                const size_t bytes = (size_t) T * sh.n_out * 4;
+                std::vector<uint8_t> ref(bytes), got(bytes);
+                CHECK(hipMemcpy(ref.data(), y0, bytes, hipMemcpyDeviceToHost));
+                auto time_us = [&](int rows) {
+                    tune(rows);
+                    hipGraph_t graph;
+                    hipGraphExec_t exec;
+                    CHECK(hipStreamBeginCapture(stream, hipStreamCaptureModeThreadLocal));
+                    for (int i = 0; i < 32; ++i)
+                        native_mmvq(sh.type, dw[(size_t) i % copies], dq, y1, sh.n_in, sh.n_out, T, stream);
+                    CHECK(hipStreamEndCapture(stream, &graph));
+                    CHECK(hipGraphInstantiate(&exec, graph, nullptr, nullptr, 0));
+                    hipEvent_t a, b;
+                    CHECK(hipEventCreate(&a)); CHECK(hipEventCreate(&b));
+                    double best = 1e30;
+                    for (int rep = 0; rep < 8; ++rep) {
+                        CHECK(hipEventRecord(a, stream));
+                        CHECK(hipGraphLaunch(exec, stream));
+                        CHECK(hipEventRecord(b, stream));
+                        CHECK(hipEventSynchronize(b));
+                        float ms = 0;
+                        CHECK(hipEventElapsedTime(&ms, a, b));
+                        if (rep >= 2) best = std::min(best, (double) ms * 1000.0 / 32.0);
+                    }
+                    hipEventDestroy(a); hipEventDestroy(b);
+                    hipGraphExecDestroy(exec); hipGraphDestroy(graph);
+                    return best;
+                };
+                const double old_us = time_us(0);
+                std::printf("%-15s T=%d %.1f MB old %.1f us %.0f GB/s", sh.what, T, hw.size() / 1e6,
+                            old_us, hw.size() / old_us / 1e3);
+                for (int rows : {1, 2, 4}) {
+                    tune(rows);
+                    native_mmvq(sh.type, dw[0], dq, y1, sh.n_in, sh.n_out, T, stream);
+                    CHECK(hipStreamSynchronize(stream));
+                    CHECK(hipMemcpy(got.data(), y1, bytes, hipMemcpyDeviceToHost));
+                    const bool same = got == ref;
+                    pass &= same;
+                    const double us = time_us(rows);
+                    std::printf(" | r%d %.1f us %.0f GB/s %s", rows, us, hw.size() / us / 1e3,
+                                same ? "bits=OK" : "bits=FAIL");
+                }
+                std::printf("\n");
+            }
+            for (void* w : dw) if (sh.type == 8) native_q8_0_packed_unregister(w);
+            for (void* w : dw) hipFree(w);
+            for (void* p : packed_dev) hipFree(p);
+            hipFree(dx); hipFree(dq); hipFree(y0); hipFree(y1);
+        }
+        native_mmvq_tpx_q8_tune(-1);
+        native_mmvq_tpx_k_tune(-1);
+        native_mmvq_row_tune(-1, -1);
+        return pass ? 0 : 1;
+    }
 
     if (!bench) {
         // every type on a decode shape and on two awkward ones (rows that do not fill the last block, a short row)

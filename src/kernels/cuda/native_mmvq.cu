@@ -1918,6 +1918,8 @@ void wave_launch(const void* weights, const void* x_q8_1, float* y, int n_in, in
 // one-column kernels (which share the multi-column layout's thread mapping).  W wavefronts per block, each with its
 // own R rows.
 int g_row_r = -1, g_row_w = -1;   // native_mmvq_row_tune (tests, benchmarks): -1 = the environment / the table
+int g_tpx_q8_rows = -1;           // -1 = exact environment switch, 0 = default, 1/2/4 = lab rows
+int g_tpx_k_rows = -1;
 int mmvq_row_env(const char* name, int dflt) {
     const char* v = std::getenv(name);
     return v != nullptr && v[0] != '\0' ? std::atoi(v) : dflt;
@@ -2015,6 +2017,42 @@ template<typename F>
 bool row_launch(const void* weights, const void* x_q8_1, float* y, int n_in, int n_out, int ncols, void* stream) {
     static const int env_on = mmvq_row_env("STRATA_MMVQ_ROW", 0);
     static const int env_r = mmvq_row_env("STRATA_MMVQ_ROW_R", 0), env_w = mmvq_row_env("STRATA_MMVQ_ROW_W", 0);
+    if constexpr (std::is_same_v<F, SmallTraits<Q80Block, 8>>) {
+        static const bool tpx_env = [] {
+            const char* v = std::getenv("STRATA_Q36_TPX_Q8_ROW");
+            return v && v[0] == '1' && v[1] == '\0';
+        }();
+        const int tpx_rows = g_tpx_q8_rows >= 0 ? g_tpx_q8_rows : (tpx_env ? 2 : 0);
+        if (tpx_rows && n_in >= 1024 && n_in % 32 == 0 && n_out >= 2048 && ncols >= 1 && ncols <= 4 && g_multi_exact) {
+            const int r = tpx_rows >= 4 ? 4 : tpx_rows >= 2 ? 2 : 1;
+            const auto s = static_cast<cudaStream_t>(stream);
+            switch (ncols) {
+                case 1: row_launch_n<F, 1>(weights, x_q8_1, y, n_in, n_out, r, 4, s); break;
+                case 2: row_launch_n<F, 2>(weights, x_q8_1, y, n_in, n_out, r, 4, s); break;
+                case 3: row_launch_n<F, 3>(weights, x_q8_1, y, n_in, n_out, r, 4, s); break;
+                default: row_launch_n<F, 4>(weights, x_q8_1, y, n_in, n_out, r, 4, s); break;
+            }
+            return true;
+        }
+    }
+    if constexpr (std::is_same_v<F, IQ4XSTraits> || std::is_same_v<F, Q4KTraits> || std::is_same_v<F, Q5KTraits>) {
+        static const bool tpx_env = [] {
+            const char* v = std::getenv("STRATA_Q36_TPX_K_ROW");
+            return v && v[0] == '1' && v[1] == '\0';
+        }();
+        const int tpx_rows = g_tpx_k_rows >= 0 ? g_tpx_k_rows : (tpx_env ? (ncols <= 2 ? 1 : 2) : 0);
+        if (tpx_rows && n_in >= 1024 && n_in % 256 == 0 && n_out >= 1024 && ncols >= 1 && ncols <= 4 && g_multi_exact) {
+            const int r = tpx_rows >= 4 ? 4 : tpx_rows >= 2 ? 2 : 1;
+            const auto s = static_cast<cudaStream_t>(stream);
+            switch (ncols) {
+                case 1: row_launch_n<F, 1>(weights, x_q8_1, y, n_in, n_out, r, 1, s); break;
+                case 2: row_launch_n<F, 2>(weights, x_q8_1, y, n_in, n_out, r, 1, s); break;
+                case 3: row_launch_n<F, 3>(weights, x_q8_1, y, n_in, n_out, r, 1, s); break;
+                default: row_launch_n<F, 4>(weights, x_q8_1, y, n_in, n_out, r, 1, s); break;
+            }
+            return true;
+        }
+    }
     if (g_row_r == 0 || (g_row_r < 0 && env_on == 0)) return false;
     if (ncols < 1 || ncols > MAX_NCOLS) return false;
     const int kind = RowTable<F>::kind;
@@ -2660,6 +2698,20 @@ void native_mmvq_row_tune(int rows, int warps) {
     (void) rows; (void) warps;
 #endif
 }
+void native_mmvq_tpx_q8_tune(int rows) {
+#if defined(__HIPCC__) && !defined(STRATA_HIP_GFX906)
+    g_tpx_q8_rows = rows;
+#else
+    (void) rows;
+#endif
+}
+void native_mmvq_tpx_k_tune(int rows) {
+#if defined(__HIPCC__) && !defined(STRATA_HIP_GFX906)
+    g_tpx_k_rows = rows;
+#else
+    (void) rows;
+#endif
+}
 void native_mmvq_set_tune(int on) {
 #if defined(__HIPCC__) && !defined(STRATA_HIP_GFX906)
     g_row_set = on;
@@ -3159,7 +3211,16 @@ bool native_mmvq_pair(int ggml_type, const void* w1, const void* w2, const void*
 
 void native_q8_0_mmvq(const void* weights, const void* x_q8_1, float* y,
                        int n_in, int n_out, int ncols, void* stream) {
-    if (q8_packed_mmvq(weights, x_q8_1, y, n_in, n_out, ncols, stream)) return;   // STRATA_Q8_PACKED=1 tensors
+    bool tpx_q8 = false;
+#if defined(__HIPCC__) && !defined(STRATA_HIP_GFX906)
+    static const bool tpx_env = [] {
+        const char* v = std::getenv("STRATA_Q36_TPX_Q8_ROW");
+        return v && v[0] == '1' && v[1] == '\0';
+    }();
+    tpx_q8 = (g_tpx_q8_rows >= 0 ? g_tpx_q8_rows != 0 : tpx_env) && g_multi_exact &&
+             n_in >= 1024 && n_in % 32 == 0 && n_out >= 2048 && ncols >= 1 && ncols <= 4;
+#endif
+    if (!tpx_q8 && q8_packed_mmvq(weights, x_q8_1, y, n_in, n_out, ncols, stream)) return;
     small_mmvq<Q80Block, 8>(weights, x_q8_1, y, n_in, n_out, ncols, stream);
 }
 

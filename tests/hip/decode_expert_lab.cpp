@@ -43,7 +43,8 @@ template<typename T> T* dalloc(size_t n) {
 }
 const char* name_of(int t) {
     switch (t) {
-        case 18: return "IQ3_XXS"; case 20: return "IQ4_NL"; case 21: return "IQ3_S"; case 22: return "IQ2_S";
+        case 11: return "Q3_K"; case 16: return "IQ2_XXS"; case 18: return "IQ3_XXS"; case 19: return "IQ1_S";
+        case 20: return "IQ4_NL"; case 21: return "IQ3_S"; case 22: return "IQ2_S";
         case 23: return "IQ4_XS"; case 42: return "Q2_0"; case 12: return "Q4_K"; case 13: return "Q5_K";
         case 7: return "Q5_1"; case 8: return "Q8_0"; case 2: return "Q4_0"; default: return "?";
     }
@@ -59,7 +60,7 @@ std::vector<uint8_t> random_rows(int t, int64_t rows, int64_t n, std::mt19937& r
     for (size_t o = 0; o < w.size(); o += bs) {
         const int e = (t == 12 || t == 13) ? 1 + ex(rng) % 4 : ex(rng);
         const uint16_t h = (uint16_t) ((sgn(rng) ? 0x8000 : 0) | (e << 10) | man(rng));
-        std::memcpy(&w[o], &h, 2);
+        std::memcpy(&w[o + (t == 11 ? 108 : 0)], &h, 2);
         if (t == 12 || t == 13 || t == 7) {
             const int em = (t == 7) ? ex(rng) : 1 + ex(rng) % 4;
             const uint16_t m = (uint16_t) ((sgn(rng) ? 0x8000 : 0) | (em << 10) | man(rng));
@@ -267,6 +268,7 @@ std::vector<int> shape(int T) {
 
 int main(int argc, char** argv) {
     const bool hash = argc > 1 && std::string(argv[1]) == "--hash";
+    const bool tpx_compare = argc > 1 && std::string(argv[1]) == "--tpx-compare";
     int only_gu = -1, only_d = -1, only_T = 0;
     for (int i = 1; i + 1 < argc; ++i) {
         if (std::string(argv[i]) == "--pair") { std::sscanf(argv[i + 1], "%d/%d", &only_gu, &only_d); }
@@ -275,7 +277,59 @@ int main(int argc, char** argv) {
     cudaStream_t s;
     ck(cudaStreamCreate(&s), "stream");
     const int pairs[][2] = {{18, 20}, {22, 20}, {21, 20}, {22, 42}, {18, 42}, {21, 42}, {23, 20}, {12, 7}, {12, 8}, {13, 8},
-                            {18, 23}, {23, 23}, {18, 18}, {12, 12}, {12, 13}, {13, 13}, {23, 12}, {2, 2}, {3, 3}, {2, 3}};   // (+ Ornith 1.5's)
+                            {18, 23}, {23, 23}, {18, 18}, {12, 12}, {12, 13}, {13, 13}, {23, 12}, {2, 2}, {3, 3}, {2, 3},
+                            {16, 23}, {19, 23}, {22, 23}, {11, 23}, {8, 8}};   // (+ Ornith 1.5's)
+    if (tpx_compare) {
+        bool pass = true;
+        for (const auto& pr : pairs) {
+            if (only_gu >= 0 && (pr[0] != only_gu || pr[1] != only_d)) continue;
+            if (!k::native_expert_supported(pr[0], pr[1], kE, kF)) continue;
+            std::mt19937 rng(1234u + (unsigned) pr[0] * 100u + (unsigned) pr[1]);
+            for (int T = 1; T <= 4; ++T) {
+                if (only_T && T != only_T) continue;
+                Lab lab(pr[0], pr[1], T, T * kK, rng, s);
+                lab.plan(shape(T), rng);
+                k::native_expert_tpx_tune(0, 0);
+                auto old_gu = lab.graph(s, 1, kLayers), old_down = lab.graph(s, 2, kLayers), old_all = lab.graph(s, 0, kLayers);
+                k::native_expert_tpx_tune(1, 0);
+                auto new_gu = lab.graph(s, 1, kLayers);
+                k::native_expert_tpx_tune(0, 1);
+                auto new_down = lab.graph(s, 2, kLayers);
+                k::native_expert_tpx_tune(1, 1);
+                auto new_all = lab.graph(s, 0, kLayers);
+                const float gu0 = median_us(s, old_gu), gu1 = median_us(s, new_gu);
+                // Both down graphs read hq from the last complete expert call.
+                const float d0 = median_us(s, old_down), d1 = median_us(s, new_down);
+                ck(cudaGraphLaunch(old_all, s), "old graph");
+                ck(cudaStreamSynchronize(s), "old sync");
+                std::vector<float> old_out((size_t) lab.cap * kE);
+                ck(cudaMemcpy(old_out.data(), lab.out, old_out.size() * 4, cudaMemcpyDeviceToHost), "old out");
+                const size_t fa = ((size_t) lab.cap * kF * 4 + 255) & ~(size_t) 255;
+                std::vector<uint8_t> old_hq((size_t) lab.cap * (kF / 32) * 36);
+                ck(cudaMemcpy(old_hq.data(), lab.scr + 3 * fa, old_hq.size(), cudaMemcpyDeviceToHost), "old hq");
+                ck(cudaGraphLaunch(new_all, s), "new graph");
+                ck(cudaStreamSynchronize(s), "new sync");
+                std::vector<float> new_out(old_out.size());
+                std::vector<uint8_t> new_hq(old_hq.size());
+                ck(cudaMemcpy(new_out.data(), lab.out, new_out.size() * 4, cudaMemcpyDeviceToHost), "new out");
+                ck(cudaMemcpy(new_hq.data(), lab.scr + 3 * fa, new_hq.size(), cudaMemcpyDeviceToHost), "new hq");
+                const bool same_out = std::memcmp(old_out.data(), new_out.data(), old_out.size() * 4) == 0;
+                const bool same_hq = std::memcmp(old_hq.data(), new_hq.data(), old_hq.size()) == 0;
+                pass &= same_out && same_hq;
+                const double gu_mb = shape(T).size() * (double) lab.L.down_off / 1e6;
+                const double d_mb = shape(T).size() * (double) (lab.L.bytes - lab.L.down_off) / 1e6;
+                std::printf("%-8s/%-7s T=%d groups=%zu GU %.1f -> %.1f us (%.0f -> %.0f GB/s) "
+                            "down %.1f -> %.1f us (%.0f -> %.0f GB/s) bits %s/%s\n",
+                            name_of(pr[0]), name_of(pr[1]), T, shape(T).size(), gu0, gu1,
+                            gu_mb / gu0 * 1e3, gu_mb / gu1 * 1e3, d0, d1,
+                            d_mb / d0 * 1e3, d_mb / d1 * 1e3, same_hq ? "hq=OK" : "hq=FAIL",
+                            same_out ? "out=OK" : "out=FAIL");
+                for (auto g : {old_gu, old_down, old_all, new_gu, new_down, new_all}) cudaGraphExecDestroy(g);
+            }
+        }
+        k::native_expert_tpx_tune(-1, -1);
+        return pass ? 0 : 1;
+    }
     if (hash) {
         for (const auto& pr : pairs) {
             if (only_gu >= 0 && (pr[0] != only_gu || pr[1] != only_d)) continue;
