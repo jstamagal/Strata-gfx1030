@@ -24,15 +24,25 @@ inline void tpx_expert_trace(const char* phase, const NativeExpertLayout& L, boo
 // Diagnostic graph node: compare a real grouped call with the old gate/up
 // kernel, then restore its outputs so the rest of the decode uses reference
 // values.  h/hq are idle scratch until SwiGLU/quantize below this call.
+__device__ unsigned tpx_gu_mismatch_seen[64] = {};
 __global__ void tpx_gu_compare_restore(float* gate, float* up, const float* old_gate,
-                                        const float* old_up, size_t n, int type) {
+                                        const float* old_up, const int32_t* grp_start, const int32_t* n_groups,
+                                        const int32_t* ent_tok, int cap_groups, int cap_entries, int n_ff, int type) {
+    const int groups = *n_groups;
+    const int entries = groups >= 0 && groups <= cap_groups ? grp_start[groups] : 0;
+    const size_t n = (size_t) max(0, min(entries, cap_entries)) * n_ff;
     if (threadIdx.x == 0) {
         for (size_t i = 0; i < n; ++i) {
             if (__float_as_uint(gate[i]) != __float_as_uint(old_gate[i]) ||
                 __float_as_uint(up[i]) != __float_as_uint(old_up[i])) {
-                printf("strata-q36 TPX GU mismatch: type=%d index=%llu gate=%08x/%08x up=%08x/%08x\n",
-                       type, (unsigned long long) i, __float_as_uint(gate[i]), __float_as_uint(old_gate[i]),
-                       __float_as_uint(up[i]), __float_as_uint(old_up[i]));
+                const int entry = (int) (i / n_ff);
+                int group = 0;
+                while (group + 1 < groups && grp_start[group + 1] <= entry) ++group;
+                if (type >= 0 && type < 64 && atomicAdd(&tpx_gu_mismatch_seen[type], 1u) < 8)
+                    printf("strata-q36 TPX GU mismatch: type=%d groups=%d entry=%d token=%d group=%d row=%d gate=%08x/%08x up=%08x/%08x\n",
+                           type, groups, entry, ent_tok[entry], group, (int) (i % n_ff),
+                           __float_as_uint(gate[i]), __float_as_uint(old_gate[i]),
+                           __float_as_uint(up[i]), __float_as_uint(old_up[i]));
                 break;
             }
         }
@@ -94,7 +104,7 @@ __device__ __forceinline__ void tpx_dot_parts(const uint8_t* row, const block_q8
     }
 }
 
-template<int TY>
+template<int TY, bool STAGE_GRID>
 __global__ void __launch_bounds__(256) tpx_gu_half_kernel(const unsigned long long* __restrict__ grp_ptr,
     const int32_t* __restrict__ grp_start, const int32_t* __restrict__ n_groups,
     const int32_t* __restrict__ ent_tok, const block_q8_1* __restrict__ xq,
@@ -102,8 +112,8 @@ __global__ void __launch_bounds__(256) tpx_gu_half_kernel(const unsigned long lo
     const int ng = *n_groups;
     if (blockIdx.y >= ng) return;
     const int t = threadIdx.x & 15;
-    STRATA_SHARED_ALIGN16_U32(s_grid_buf, IqGridWords<TY, kStageIqGrid<TY>>::value);
-    const uint32_t* s_grid = stage_iq_grid<TY, kStageIqGrid<TY>>(s_grid_buf, threadIdx.x, 256);
+    STRATA_SHARED_ALIGN16_U32(s_grid_buf, IqGridWords<TY, STAGE_GRID>::value);
+    const uint32_t* s_grid = stage_iq_grid<TY, STAGE_GRID>(s_grid_buf, threadIdx.x, 256);
     const int row = blockIdx.x * 16 + (threadIdx.x >> 4);
     if (row >= 2 * L.n_ff) return;
     const bool is_up = row >= L.n_ff;
@@ -122,7 +132,7 @@ __global__ void __launch_bounds__(256) tpx_gu_half_kernel(const unsigned long lo
 #pragma unroll
             for (int c = 0; c < GRP_NC; ++c) xoff[c] = ent_tok[e + min(c, count - 1)] * xb;
             float sum[GRP_NC] = {};
-            tpx_dot_parts<TY, GRP_NC, kStageIqGrid<TY>>(wr, xq, xoff, count, parts, t, sum, s_grid);
+            tpx_dot_parts<TY, GRP_NC, STAGE_GRID>(wr, xq, xoff, count, parts, t, sum, s_grid);
             if (t < count) dst[(size_t) (e + t) * L.n_ff + r] = sum[t] * sc;
         }
     }
