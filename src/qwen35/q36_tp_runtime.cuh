@@ -292,9 +292,14 @@ void Engine::tp_forward(int T, int64_t p0, int heads, bool verify) {
 
 void Engine::tp_head(int T, int heads, bool mtp, bool draft, float* output, int32_t* picks) {
     const int N = (int)m->g.n_embd, V = (int)m->g.n_vocab, half = m->head.n_out;
+    // A limited draft vocabulary entirely on rank zero needs neither rank one's
+    // head projection nor a full-vocabulary peer copy. The target still verifies it.
+    const bool short_draft = mtp && draft && mtp_short_head && draft_n > 0 && draft_n < V &&
+        draft_n <= half && !m->mtp_head.d && m->head.type == 8 && m->head.n_in == N &&
+        draft_n % 8 == 0 && N % 32 == 0 && (N / 32 == 64 || N / 32 == 96) && fast_k;
     for (int d = 0; d < 2; ++d) {
         use_dev(d);
-        if (heads) {
+        if (heads && !short_draft) {
             const float* src = (mtp ? hmtp : hmain) + (size_t)(T-heads) * N;
             if (tp_head_q8 && decode_q8_ok(m->head, heads)) {
                 prep(src, m->head.n_in, heads, q8);
@@ -308,6 +313,7 @@ void Engine::tp_head(int T, int heads, bool mtp, bool draft, float* output, int3
     CK(cudaStreamWaitEvent(st, tp_event[1], 0));
     if (tp_check) tp_check_residual(T, mtp);
     if (!heads) return;
+    if (short_draft) { head_draft(hmtp + (size_t)(T - 1) * N); return; }
     float* dst = output ? output : mtp ? logits_m : logits;
     int32_t* pk = picks ? picks : mtp ? pick_m : pick;
     for (int r = 0; r < heads; ++r) {
@@ -318,6 +324,7 @@ void Engine::tp_head(int T, int heads, bool mtp, bool draft, float* output, int3
     if (draft) draft_hooks(sample_v);
     k_argmax<<<dim3(kArgBlocks, heads), kThreads, 0, st>>>(dst, sample_v, pk, amv, ami, false);
     k_argmax<<<dim3(1, heads), kThreads, 0, st>>>(dst, kArgBlocks, pk, amv, ami, true);
+    if (draft) draft_picked_prob(sample_v);
 }
 
 bool place_experts_tp(Model& a, Model& b, Engine& E, std::string& err) {

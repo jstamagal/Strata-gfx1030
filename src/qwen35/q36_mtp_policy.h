@@ -11,9 +11,13 @@ namespace strata::qwen35::mtp {
 struct Stats {
     bool enabled = false;
     std::vector<long long> offered, reached, accepted;
+    long long steps = 0, kept = 0, verify_rows = 0;
 
     void record(int n, int kept) {
         if (!enabled) return;
+        ++steps;
+        this->kept += kept;
+        verify_rows += n + 1;
         if ((int) offered.size() < n) { offered.resize(n); reached.resize(n); accepted.resize(n); }
         for (int i = 0; i < n; ++i) {
             ++offered[i];
@@ -24,13 +28,16 @@ struct Stats {
 
     void print(const char* label) const {
         if (!enabled) return;
+        if (steps)
+            std::fprintf(stderr, "strata-q36: MTP %s: %lld steps, %.3f tokens/step, %.3f verify rows/step\n",
+                         label, steps, 1.0 + (double) kept / steps, (double) verify_rows / steps);
         for (size_t i = 0; i < offered.size(); ++i)
             std::fprintf(stderr, "strata-q36: MTP %s draft %zu: %lld/%lld offered (%.1f%%), %lld/%lld reached (%.1f%%)\n",
                          label, i + 1, accepted[i], offered[i], offered[i] ? 100.0 * accepted[i] / offered[i] : 0.0,
                          accepted[i], reached[i], reached[i] ? 100.0 * accepted[i] / reached[i] : 0.0);
     }
 
-    void clear() { offered.clear(); reached.clear(); accepted.clear(); }
+    void clear() { offered.clear(); reached.clear(); accepted.clear(); steps = kept = verify_rows = 0; }
 };
 
 // Try the full window periodically so a change of topic can restore its length.

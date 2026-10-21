@@ -684,6 +684,8 @@ __global__ void __launch_bounds__(1024) k_gumbel(float* x, int n, float inv_t, u
         x[i] = x[i] >= lo ? x[i] * inv_t - logf(-logf(q36_unif(seed, pos, i))) : -INFINITY;
 }
 
+#include "q36_mtp_conf.cuh"
+
 /// The sampler's penalties on draft logits (sample()'s arithmetic): ids[j] seen cnt[j] times in the window.
 __global__ void k_penalize(float* x, int n, const int32_t* ids, const float* cnt, int m, float rep, float freq, float pres) {
     const int j = blockIdx.x * blockDim.x + threadIdx.x;
@@ -1511,6 +1513,10 @@ struct Engine {
     int mtp_d = 0;   // MTP drafts per speculative step (0: none; greedy requests only)
     strata::qwen35::mtp::Stats mtp_stats;
     bool mtp_adapt = false, mtp_ngram = false;
+    bool mtp_conf = false, mtp_conf_active = false, mtp_short_head = false, mtp_cost = false;
+    float mtp_conf_p = 0.25f;
+    double mtp_block_ms = 0., mtp_head_ms = 0.;
+    long long mtp_cost_calls = 0, mtp_head_calls = 0;
 
     // ---- sessions: the conversation states.  One for a single-request engine; --batch N keeps N, each with its own
     // recurrent state and KV cache, so N requests run at once: their rows share one decode window (forward_rows).  The
@@ -2760,11 +2766,16 @@ struct Engine {
     }
     void draft_hooks(int n) {
         if (pen_on && pen_n > 0) k_penalize<<<(pen_n + 255) / 256, 256, 0, st>>>(logits_m, n, pen_ids_d, pen_cnt_d, pen_n, pen_rep, pen_freq, pen_pres);
-        if (spec_min_p > 0.f) {
+        if (spec_min_p > 0.f || mtp_conf_active) {
             if (!d_prob) CK(cudaMalloc((void**) &d_prob, 4));
-            k_top_prob<<<1, 1024, 0, st>>>(logits_m, n, d_prob);
+            if (!mtp_conf_active || !gumbel_on)
+                k_top_prob<<<1, 1024, 0, st>>>(logits_m, n, d_prob);
         }
         if (gumbel_on) k_gumbel<<<1, 1024, 0, st>>>(logits_m, n, g_inv_t, g_seed, draft_pos, g_top_k);
+    }
+    void draft_picked_prob(int n) {
+        if (mtp_conf_active && gumbel_on)
+            q36_mtp_picked_prob<<<1, 1024, 0, st>>>(logits_m, n, pick_m, g_seed, draft_pos, d_prob);
     }
     void head_draft(const float* hn) {
         const auto& g = m->g;
@@ -2777,6 +2788,7 @@ struct Engine {
             draft_hooks((int) g.n_vocab);
             k_argmax<<<dim3(kArgBlocks, 1), kThreads, 0, st>>>(logits_m, (int) g.n_vocab, pick_m, amv, ami, false);
             k_argmax<<<dim3(1, 1), kThreads, 0, st>>>(logits_m, kArgBlocks, pick_m, amv, ami, true);
+            draft_picked_prob((int) g.n_vocab);
             return;
         }
         quant(hn, N, 1, q8);
@@ -2795,6 +2807,7 @@ struct Engine {
         draft_hooks(draft_n);
         k_argmax<<<dim3(kArgBlocks, 1), kThreads, 0, st>>>(logits_m, draft_n, pick_m, amv, ami, false);
         k_argmax<<<dim3(1, 1), kThreads, 0, st>>>(logits_m, kArgBlocks, pick_m, amv, ami, true);
+        draft_picked_prob(draft_n);
     }
 
     /// The MTP block over T rows: row t reads token tok_m[t] at position p0 + t (also at *pos0_m) and the seed hidden
@@ -3505,15 +3518,16 @@ struct Engine {
         // --spec-min-p: a draft whose probability under the block is below it ends the chain (it and the ones after)
         const int n_dl = draft_n > 0 && draft_n < m->g.n_vocab ? draft_n : (int) m->g.n_vocab;
         (void) n_dl;
-        auto draft_prob = [&]() {   // (k_top_prob ran in head_draft, before the coupled noise)
-            if (spec_min_p <= 0.f) return;
+        const float confidence_floor = mtp_conf_active ? mtp_conf_p : spec_min_p;
+        auto draft_prob = [&]() {
+            if (confidence_floor <= 0.f) return;
             CK(cudaMemcpyAsync(hpin + 3, d_prob, 4, cudaMemcpyDeviceToHost, st));
         };
         auto prob_ok = [&]() {
-            if (spec_min_p <= 0.f) return true;
+            if (confidence_floor <= 0.f) return true;
             float pr;
             std::memcpy(&pr, hpin + 3, 4);
-            return pr >= spec_min_p;
+            return pr >= confidence_floor;
         };
         if (D > 0) {
             draft_prob();
@@ -5095,7 +5109,10 @@ struct Serve {
                 E.g_seed = gseed;
                 E.g_inv_t = gum ? 1.f / smp.temperature : 1.f;
                 E.g_top_k = smp.top_k > 0 ? smp.top_k : 64;
-                const int D = E.spec_verify(nx, fix, adapt.choose(E.mtp_d), drafts, lkd.empty() ? nullptr : &lkd);
+                E.mtp_conf_active = E.mtp_conf;
+                const int D = E.spec_verify(nx, fix, E.mtp_conf_active ? E.mtp_d : adapt.choose(E.mtp_d), drafts,
+                                            E.mtp_conf_active || lkd.empty() ? nullptr : &lkd);
+                E.mtp_conf_active = false;
                 E.gumbel_on = false;
                 E.pen_on = false;
                 float* rows_lg = E.host_logits_rows(D + 1);
@@ -5436,6 +5453,11 @@ int strata::qwen35::run(int argc, char** argv) {
                 for (const auto& kv : E.v_checked)
                     std::fprintf(stderr, "strata-q36 VERIFY checked %s: %lld comparisons\n", kv.first.c_str(), kv.second);
             E.mtp_stats.print("total");
+            if (E.mtp_cost && E.mtp_cost_calls)
+                std::fprintf(stderr, "strata-q36 MTP_COST: %lld block calls, %.3f ms/block call; "
+                                     "%lld draft heads, %.3f ms/draft head (synchronized eager TP; diagnostic only)\n",
+                             E.mtp_cost_calls, E.mtp_block_ms / E.mtp_cost_calls, E.mtp_head_calls,
+                             E.mtp_head_calls ? E.mtp_head_ms / E.mtp_head_calls : 0.);
             if (!E.m->hybrid) return;
             const long long n = E.hy_cpu + E.hy_gpu;
             std::fprintf(stderr, "strata-q36: hybrid experts: %lld of %lld batch entries on the GPU (%.1f%%), %lld on the "
@@ -5461,9 +5483,19 @@ int strata::qwen35::run(int argc, char** argv) {
     E.mtp_stats.enabled = on("STRATA_Q36_MTP_STATS");
     E.mtp_adapt = on("STRATA_Q36_MTP_ADAPT");
     E.mtp_ngram = on("STRATA_Q36_MTP_NGRAM");
+    E.mtp_conf = on("STRATA_Q36_MTP_CONF");
+    E.mtp_short_head = on("STRATA_Q36_MTP_SHORT_HEAD");
+    E.mtp_cost = on("STRATA_Q36_MTP_COST");
+    if (const char* p = std::getenv("STRATA_Q36_MTP_CONF_P")) E.mtp_conf_p = (float) std::atof(p);
+    if (E.mtp_conf && !(E.mtp_conf_p > 0.f && E.mtp_conf_p <= 1.f)) {
+        std::fprintf(stderr, "strata-q36: STRATA_Q36_MTP_CONF_P needs 0 < p <= 1\n"); return 2;
+    }
     if (E.mtp_stats.enabled) std::fprintf(stderr, "strata-q36: STRATA_Q36_MTP_STATS=1 (acceptance by draft position)\n");
     if (E.mtp_adapt) std::fprintf(stderr, "strata-q36: STRATA_Q36_MTP_ADAPT=1 (recent conditional acceptance)\n");
     if (E.mtp_ngram) std::fprintf(stderr, "strata-q36: STRATA_Q36_MTP_NGRAM=1 (greedy lookup drafts)\n");
+    if (E.mtp_conf) std::fprintf(stderr, "strata-q36: STRATA_Q36_MTP_CONF=1 (sampled draft probability floor %.3f)\n", E.mtp_conf_p);
+    if (E.mtp_short_head) std::fprintf(stderr, "strata-q36: STRATA_Q36_MTP_SHORT_HEAD=1 (TP draft head prefix on rank zero when eligible)\n");
+    if (E.mtp_cost) std::fprintf(stderr, "strata-q36: STRATA_Q36_MTP_COST=1 (synchronized eager TP MTP/head timing)\n");
     if (draft_vocab < 0 && on("STRATA_Q36_MTP_VOCAB")) {
         draft_vocab = (int) std::min<int64_t>(65536, m.g.n_vocab);
         std::fprintf(stderr, "strata-q36: STRATA_Q36_MTP_VOCAB=1 (first %d draft head rows)\n", draft_vocab);
@@ -5474,6 +5506,7 @@ int strata::qwen35::run(int argc, char** argv) {
     E.bmtp = (batch_mtp || (std::getenv("STRATA_BATCH_MTP") != nullptr && std::string(std::getenv("STRATA_BATCH_MTP")) != "0")) && E.n_sess > 1 && E.mtp_d > 0;
     if (batch_mtp && !E.bmtp) std::fprintf(stderr, "strata-q36: --batch-mtp needs --batch N (2 or more) and --mtp N: ignored\n");
     if (warm) E.warmup();
+    if (E.mtp_cost) { E.mtp_cost_calls = E.mtp_head_calls = 0; E.mtp_block_ms = E.mtp_head_ms = 0.; }
     if (serve_mode) return serve(E);
     if (bench_pp > 0 || bench_tg > 0) {
         // llama-bench's shapes: a prompt of bench_pp tokens from a fresh state, then bench_tg tokens one at a time
