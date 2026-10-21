@@ -77,6 +77,7 @@ void Engine::tp_init(const Model& a, const Model& b, int context, int chunk, int
     for (const char* flag : {"STRATA_Q36_TP_ATTN_ROWS", "STRATA_Q36_TP_HEAD_Q8", "STRATA_Q36_TP_MOE_JOIN",
                              "STRATA_Q36_TP_FUSE2_CONV_AB", "STRATA_Q36_TP_FUSE2_GDN_Q8", "STRATA_Q36_TP_FUSE2_ROUTER",
                              "STRATA_Q36_TP_FUSE2_JOIN_NORM", "STRATA_Q36_TP_FUSE2_MOE_NORM",
+                             "STRATA_Q36_TP_FUSE3_GDN_ALL", "STRATA_Q36_TP_FUSE3_SHARED",
                              "STRATA_Q36_TP_LAUNCH_STATS"})
         if (q36tp::enabled(flag)) std::fprintf(stderr, "strata-q36: %s=1 (experimental TP decode)\n", flag);
     if (tp_launch_stats)
@@ -90,15 +91,76 @@ void Engine::tp_init(const Model& a, const Model& b, int context, int chunk, int
 
 void Engine::tp_prepare_launch_stats(int requested_mtp) {
     if (!tp_launch_stats) return;
-    if (!tp_graph || verify_k || tp_attn_rows) {
-        std::fprintf(stderr, "strata-q36 TP_LAUNCH_STATS: T=1 graph count unavailable with eager TP, verification, or TP_ATTN_ROWS\n");
-        return;
+#if defined(STRATA_Q36_HIP_LAUNCH_WRAP)
+    const bool graph_was_on = tp_graph;
+    tp_graph = false;
+    tp_stats_warmup = true;
+    const bool active[7] = {tp_fuse2_conv_ab, tp_fuse2_gdn_q8, tp_fuse2_router,
+                            tp_fuse2_join_norm, tp_fuse2_moe_norm, tp_fuse3_gdn_all, tp_fuse3_shared};
+    auto set_fusions = [&](bool enabled) {
+        tp_fuse2_conv_ab = enabled && active[0];
+        tp_fuse2_gdn_q8 = enabled && active[1];
+        tp_fuse2_router = enabled && active[2];
+        tp_fuse2_join_norm = enabled && active[3];
+        tp_fuse2_moe_norm = enabled && active[4];
+        tp_fuse3_gdn_all = enabled && active[5];
+        tp_fuse3_shared = enabled && active[6];
+    };
+    auto count_one = [&](bool baseline) {
+        tp_stats_baseline = baseline;
+        set_fusions(!baseline);
+        use_dev(home);
+        CK(cudaMemsetAsync(tok, 0, sizeof(int32_t), st));
+        CK(cudaMemsetAsync(pos0, 0, sizeof(int32_t), st));
+        long long main_count[2] = {};
+        q36tp_stats::eager = main_count;
+        tp_forward(1, 0, 1, false);
+        q36tp_stats::eager = nullptr;
+        for_devs([&](int) { CK(cudaStreamSynchronize(st)); });
+        std::fprintf(stderr, "strata-q36 TP_LAUNCH_STATS direct eager main T=1 %s: rank 0 %lld kernels, rank 1 %lld "
+                             "(includes head; excludes async copies)\n", baseline ? "FUSE2/3 off" : "active",
+                             main_count[0], main_count[1]);
+        if (m->has_mtp && requested_mtp > 0) {
+            use_dev(home);
+            CK(cudaMemsetAsync(tok_m, 0, sizeof(int32_t), st));
+            CK(cudaMemsetAsync(pos0_m, 0, sizeof(int32_t), st));
+            CK(cudaMemsetAsync(mtp_seed(), 0, (size_t)m->g.n_embd * sizeof(float), st));
+            long long mtp_count[2] = {};
+            q36tp_stats::eager = mtp_count;
+            tp_forward_mtp(1, 0, mtp_seed(), true);
+            q36tp_stats::eager = nullptr;
+            for_devs([&](int) { CK(cudaStreamSynchronize(st)); });
+            std::fprintf(stderr, "strata-q36 TP_LAUNCH_STATS direct eager MTP T=1 %s: rank 0 %lld kernels, rank 1 %lld "
+                                 "(includes draft head; excludes async copies)\n", baseline ? "FUSE2/3 off" : "active",
+                                 mtp_count[0], mtp_count[1]);
+        }
+        reset();
+    };
+    count_one(true);
+    count_one(false);
+    set_fusions(true);
+    for (int kind = 0; kind < 3; ++kind) {
+        const char* name = kind == 0 ? "GDN" : kind == 1 ? "attention" : "MTP";
+        for (int which = 0; which < 2; ++which) if (tp_layer_seen[which][kind])
+            std::fprintf(stderr, "strata-q36 TP_LAUNCH_STATS direct T=1 %s layer %s: %d layers; "
+                                 "rank 0 %.2f, rank 1 %.2f kernels/layer\n", name,
+                         which ? "active" : "FUSE2/3 off", tp_layer_seen[which][kind],
+                         (double)tp_layer_kernels[which][kind][0] / tp_layer_seen[which][kind],
+                         (double)tp_layer_kernels[which][kind][1] / tp_layer_seen[which][kind]);
     }
+    tp_graph = graph_was_on;
+    tp_stats_warmup = false;
+#else
+    std::fprintf(stderr, "strata-q36 TP_LAUNCH_STATS: direct eager counts require a HIP linker with --wrap\n");
+#endif
+    if (!tp_graph || verify_k) return;
     tp_stats_capturing = true;
     tp_graph_run(1, kChunkCells * 4, false, false, nullptr, true);
     if (m->has_mtp && requested_mtp > 0) {
         tp_stats_conv_ab[0] = tp_stats_conv_ab[1] = 0;
         tp_stats_gdn_q8[0] = tp_stats_gdn_q8[1] = 0;
+        tp_stats_gdn_all[0] = tp_stats_gdn_all[1] = 0;
+        tp_stats_shared[0] = tp_stats_shared[1] = 0;
         tp_stats_router[0] = tp_stats_router[1] = 0;
         tp_stats_join_norm[0] = tp_stats_join_norm[1] = 0;
         tp_stats_moe_norm[0] = tp_stats_moe_norm[1] = 0;
@@ -156,7 +218,18 @@ void Engine::tp_moe_end(int T, const int32_t* prow, const float* shared, const f
         q36tp::moe_join<<<q36tp::join_blocks, kThreads, 0, st>>>(moe_out, eparts, prow, ewts, (int)m->top_k,
             shared, sgate, sgs, N, T, tp_mapped[cur_dev][cur_dev], tp_mapped[cur_dev][1-cur_dev],
             tp_flags[cur_dev][cur_dev], tp_flags[cur_dev][1-cur_dev], tp_token[cur_dev], cur_dev);
-    else q36tp::partial_moe<<<T, kThreads, 0, st>>>(moe_out, eparts, prow, ewts, (int)m->top_k, shared, sgate, sgs, N);
+    else if (tp_gdn_defer_hist[cur_dev]) {
+        q36tp_fuse3::partial_moe_hist<<<T, kThreads, 0, st>>>(moe_out, eparts, prow, ewts, (int)m->top_k,
+            shared, sgate, sgs, N, tp_gdn_defer_hist[cur_dev], tp_gdn_defer_qkv[cur_dev],
+            tp_gdn_defer_C[cur_dev], 2 * tp_gdn_defer_HK[cur_dev] * (int)m->g.ssm_state_size, T);
+        if (verify_k && tp_gdn_ref_alloc[cur_dev]) {
+            verify_cmp("fuse3 conv history", tp_gdn_defer_hist[cur_dev], tp_gdn_ref_hist[cur_dev],
+                (size_t) 3 * tp_gdn_defer_C[cur_dev]);
+            CK(cudaFree(tp_gdn_ref_alloc[cur_dev]));
+            tp_gdn_ref_alloc[cur_dev] = tp_gdn_ref_hist[cur_dev] = nullptr;
+        }
+        tp_gdn_defer_hist[cur_dev] = nullptr;
+    } else q36tp::partial_moe<<<T, kThreads, 0, st>>>(moe_out, eparts, prow, ewts, (int)m->top_k, shared, sgate, sgs, N);
     xq_ready = false;
     if (T > kVerify) return; // prompt epilogue follows the copy-engine join
     const bool fused_norm = tp_fuse2_moe_norm && !tp_moe_join && !verify_k && wn && T <= 4 && N % 32 == 0;
@@ -174,6 +247,7 @@ void Engine::tp_forward(int T, int64_t p0, int heads, bool verify) {
     dump_begin(T, p0, verify);
     tp_enter(T);
     if (tp_graph_run(T, p0, verify)) { tp_head(T, heads); return; }
+    if (tp_launch_stats && !tp_stats_warmup && T <= kVerify) ++tp_eager_calls[verify ? 1 : 0][T];
     const int N = (int)m->g.n_embd;
     for (int d = 0; d < 2; ++d) {
         use_dev(d);

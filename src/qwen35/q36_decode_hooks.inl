@@ -7,7 +7,7 @@ std::vector<bool> decode_rdna2;
 std::vector<size_t> decode_lds;
 std::vector<int> decode_tiles;
 void decode_init() {
-    if (!(rdna2_mmvq || moe_out_wide || decode_fuse || expert_fuse || tp_head_q8)) return;
+    if (!(rdna2_mmvq || moe_out_wide || decode_fuse || expert_fuse || tp_head_q8 || tp_fuse3_shared)) return;
     for (const char* flag : {"STRATA_Q36_RDNA2_MMVQ", "STRATA_Q36_MOE_OUT_WIDE", "STRATA_Q36_FUSE", "STRATA_Q36_FUSE_EXPERT"})
         if (q36decode::enabled(flag)) std::fprintf(stderr, "strata-q36: %s=1 (experimental, verify on device)\n", flag);
     decode_rdna2.resize(n_dev, false);
@@ -83,8 +83,9 @@ bool decode_projections(const Layer& L, int T, float* qkv_b = nullptr, float* al
     return true;
 }
 bool decode_shared(const Layer& L, int T) {
-    if (!decode_fuse || !decode_q8_ok(L.sh_gate, T) || !decode_q8_ok(L.sh_up, T) ||
+    if (!(decode_fuse || (tp && tp_fuse3_shared)) || !decode_q8_ok(L.sh_gate, T) || !decode_q8_ok(L.sh_up, T) ||
         L.sh_gate.n_in != L.sh_up.n_in || L.sh_gate.n_out != L.sh_up.n_out || L.sh_gate.n_out % 32) return false;
+    if (tp_stats_capturing && tp && tp_fuse3_shared && !decode_fuse) tp_stats_shared[cur_dev] += 2;
     q36decode::shared(decode_mat(L.sh_gate, nullptr), decode_mat(L.sh_up, nullptr), xq, q8, T, st);
     if (verify_k) {
         float* ref = nullptr;

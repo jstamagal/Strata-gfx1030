@@ -19,6 +19,11 @@ void Engine::tp_copy_join(int T, bool moe) {
 }
 
 void Engine::tp_layer_pair(size_t li, int T, int64_t p0, bool verify, bool mtp) {
+#if defined(STRATA_Q36_HIP_LAUNCH_WRAP)
+    const bool count_layer = tp_stats_warmup && q36tp_stats::eager && T == 1;
+    const long long before0 = count_layer ? q36tp_stats::eager[0] : 0;
+    const long long before1 = count_layer ? q36tp_stats::eager[1] : 0;
+#endif
     auto run = [&](int phase) {
         for (int d = 0; d < 2; ++d) {
             use_dev(d);
@@ -45,4 +50,13 @@ void Engine::tp_layer_pair(size_t li, int T, int64_t p0, bool verify, bool mtp) 
         use_dev(home);
         layer_dump.finish(li, x, st);
     }
+#if defined(STRATA_Q36_HIP_LAUNCH_WRAP)
+    if (count_layer) {
+        const int which = tp_stats_baseline ? 0 : 1;
+        const int kind = mtp ? 2 : m->layers[li].attn ? 1 : 0;
+        ++tp_layer_seen[which][kind];
+        tp_layer_kernels[which][kind][0] += q36tp_stats::eager[0] - before0;
+        tp_layer_kernels[which][kind][1] += q36tp_stats::eager[1] - before1;
+    }
+#endif
 }

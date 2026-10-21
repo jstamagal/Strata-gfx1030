@@ -765,6 +765,12 @@ if(STRATA_ENABLE_CUDA OR STRATA_ENABLE_HIP)
   target_link_libraries(strata PRIVATE strata_qwen35)
   target_compile_definitions(strata PRIVATE STRATA_HAVE_QWEN35=1)
 
+  if(STRATA_ENABLE_HIP AND UNIX AND NOT APPLE)
+    target_compile_definitions(strata_qwen35 PRIVATE STRATA_Q36_HIP_LAUNCH_WRAP=1)
+    target_link_options(strata-q36 PRIVATE "LINKER:--wrap=hipLaunchKernel")
+    target_link_options(strata PRIVATE "LINKER:--wrap=hipLaunchKernel")
+  endif()
+
   if(STRATA_ENABLE_HIP)
     enable_testing()
     set(_strata_hip_tests)
