@@ -4333,6 +4333,7 @@ struct Engine {
 #include "q36_tp_runtime.cuh"
 #include "q36_tp_mtp.cuh"
 #include "q36_tp_prompt.cuh"
+#include "q36_tp_vision.cuh"
 #include "q36_tp_graph.cuh"
 #include "q36_mtp_chain.cuh"
 #include "q36_mtp_split_head.cuh"

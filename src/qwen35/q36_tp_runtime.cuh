@@ -124,6 +124,8 @@ void Engine::tp_init(const Model& a, const Model& b, int context, int chunk, int
     });
     use_mmq = dev_mmq[0] && dev_mmq[1];
     if (tp_check) std::fprintf(stderr, "strata-q36: STRATA_Q36_TP_CHECK=1: compare both residual replicas at each forward boundary (host readback)\n");
+    if (vision) std::fprintf(stderr, "strata-q36: --vision: TP image rows and M-RoPE on both ranks, including MTP\n");
+    if (tp_vision_graph) std::fprintf(stderr, "strata-q36: STRATA_Q36_TP_VISION_GRAPH=1: small image prompt chunks use graphs; image inputs staged before capture/replay\n");
     for (const char* flag : {"STRATA_Q36_TP_BRANCHES", "STRATA_Q36_TP_ATTN_ROWS", "STRATA_Q36_TP_ATTN_GRAPH_ROWS",
                              "STRATA_Q36_TP_JOIN_ROW", "STRATA_Q36_TP_JOIN_WIDE", "STRATA_Q36_TP_JOIN_SPLIT",
                              "STRATA_Q36_TP_JOIN_Q8_ROUTER", "STRATA_Q36_TP_JOIN_Q8_CHECK",

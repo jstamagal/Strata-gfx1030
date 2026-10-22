@@ -39,6 +39,8 @@
     float* tp_remote[2] = {};
     cudaEvent_t tp_copy_ready[2] = {}, tp_copy_done[2] = {};
     bool tp_copy_used = false, tp_graph = true;
+    bool tp_vision_graph = q36tp::enabled("STRATA_Q36_TP_VISION_GRAPH");
+    void tp_picture_input(int T, bool mtp);
     bool tp_branches = q36tp::enabled("STRATA_Q36_TP_BRANCHES");
     bool tp_branch_capture = false;
     q36tp_branch::Recorder tp_branch_recorder;

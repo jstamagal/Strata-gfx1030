@@ -1,11 +1,14 @@
 // Whole-device decode graphs. Call tokens are device memory, so capture/replay cannot reuse a host sequence number.
 long long Engine::tp_graph_key(int T, bool verify, bool mtp, bool short_attn) const {
-    return (((((long long)cur * 2 + (int)rows_mode) * (kVerify+1) + (rows_mode ? rows_G : 0)) *
+    const long long key = (((((long long)cur * 2 + (int)rows_mode) * (kVerify+1) + (rows_mode ? rows_G : 0)) *
              (kVerify+1) + T) * 2 + (int)verify) * 4 + (int)mtp * 2 + (int)short_attn;
+    // Prompt-table graphs have a separate namespace; decode graphs read d_delta.
+    return tp_vision_graph && mtab_now ? ~key : key;
 }
 bool Engine::tp_graph_run(int T, int64_t p0, bool verify, bool mtp, const float* seeds, bool capture_only) {
+    const bool picture = tp_vision_graph && vision && mtab_now && !rows_mode;
     if (!tp_graph || layer_dump.enabled() || verify_k || (tp_join_q8_router && tp_join_q8_check) ||
-        T > kVerify || map_on || mtab_now ||
+        T > kVerify || ((map_on || mtab_now) && !picture) ||
         (tp_attn_rows && !tp_attn_graph_rows && p0 + T <= kChunkCells * 4)) return false;
     // Main callers always stage MTP seeds here. Other seed addresses use eager execution, never a stale capture.
     use_dev(home);
@@ -13,6 +16,7 @@ bool Engine::tp_graph_run(int T, int64_t p0, bool verify, bool mtp, const float*
     const bool short_attn = tp_attn_graph_rows && p0 + T <= kChunkCells * 4;
     const long long key = tp_graph_key(T, verify, mtp, short_attn);
     const int N = (int)m->g.n_embd;
+    if (picture && !capture_only) tp_picture_input(T, mtp);
     for (int d = 0; d < 2; ++d) {
         use_dev(d);
         cudaGraphExec_t& gx = seg_graphs[key];
@@ -22,7 +26,7 @@ bool Engine::tp_graph_run(int T, int64_t p0, bool verify, bool mtp, const float*
         tp_branch_capture = tp_branches;
         tp_branch_recorder.clear();
         if (mtp) {
-            K::iq_embed_rows(m->embd_type, embd_d, m->embd_row, tok_m, T, N, y, st);
+            if (!picture) K::iq_embed_rows(m->embd_type, embd_d, m->embd_row, tok_m, T, N, y, st);
             if (mtp_fuse_norm)
                 k_mtp_pair_rms<<<dim3(T, 2), kThreads, 0, st>>>(y, d == home ? seeds : h,
                                                                    m->mtp_enorm, m->mtp_hnorm, mtp_cat, N, m->eps);
@@ -37,7 +41,7 @@ bool Engine::tp_graph_run(int T, int64_t p0, bool verify, bool mtp, const float*
             k_rms<<<T, kThreads, 0, st>>>(x, m->mtp.attn_norm, h, N, m->eps);
             layer(m->mtp, m->layers.size(), T, p0, pos0_m, true, false, m->mtp_shnorm, hmtp);
         } else {
-            K::iq_embed_rows(m->embd_type, embd_d, m->embd_row, tok, T, N, x, st);
+            if (!picture) K::iq_embed_rows(m->embd_type, embd_d, m->embd_row, tok, T, N, x, st);
             k_rms<<<T, kThreads, 0, st>>>(x, m->layers[0].attn_norm, h, N, m->eps);
             for (size_t l = 0; l < m->layers.size(); ++l) {
                 const bool last = l+1 == m->layers.size();
@@ -99,6 +103,8 @@ bool Engine::tp_graph_run(int T, int64_t p0, bool verify, bool mtp, const float*
         }
         CK(cudaGraphInstantiate(&gx, graph, 0));
         CK(cudaGraphDestroy(graph));
+        if (picture) std::fprintf(stderr, "strata-q36 TP_VISION_GRAPH captured %s T=%d rank=%d: local M-RoPE table, staged image rows\n",
+                                  mtp ? "MTP" : "main", T, d);
     }
     // Capture both first: no running rendezvous kernel can block allocations needed to instantiate its peer.
     if (!capture_only) {
