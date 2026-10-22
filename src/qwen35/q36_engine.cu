@@ -31,6 +31,7 @@
 #include "q36_tp_collective.cuh"
 #include "q36_tp_moe_join.cuh"
 #include "q36_tp_fuse2.cuh"
+#include "q36_tp_router_pair.cuh"
 #include "q36_tp_join_row.cuh"
 #include "q36_tp_partial_split.cuh"
 #include "q36_tp_fuse3.cuh"
@@ -2549,7 +2550,11 @@ struct Engine {
                                   g.n_expert == 256 && Kp == 8 && N % 4 == 0;
         if (fused_router) {
             if (tp_stats_capturing) ++tp_stats_router[cur_dev];
-            if (tp_router_fence)
+            if (tp_router_pair && T >= 2)
+                q36tp_router_pair::router_group<<<rows8(router_rows) * ((T + 1) / 2), kThreads, 0, st>>>(
+                    ext ? L.router_ext : L.router, h, logits_r, N, router_rows, T, router_rows, ids, ewts,
+                    L.blobs, L.stride, grp_ptr, grp_start, n_groups, ent_dst, ent_tok, tp_route_done[cur_dev]);
+            else if (tp_router_fence)
                 q36tp_fuse2::router_group<true><<<rows8(router_rows) * T, kThreads, 0, st>>>(
                     ext ? L.router_ext : L.router, h, logits_r, N, router_rows, T, router_rows, ids, ewts,
                     L.blobs, L.stride, grp_ptr, grp_start, n_groups, ent_dst, ent_tok, tp_route_done[cur_dev]);

@@ -88,9 +88,11 @@ void Engine::tp_init(const Model& a, const Model& b, int context, int chunk, int
     for (const char* flag : {"STRATA_Q36_TP_ATTN_ROWS", "STRATA_Q36_TP_ATTN_GRAPH_ROWS",
                              "STRATA_Q36_TP_JOIN_ROW", "STRATA_Q36_TP_JOIN_PEER_FIRST", "STRATA_Q36_TP_JOIN_FAST_SUBMIT",
                              "STRATA_Q36_TP_JOIN_MOE_PUBLISH",
+                             "STRATA_Q36_TP_JOIN_DEFER_ACK",
                              "STRATA_Q36_TP_PARTIAL_SPLIT",
                              "STRATA_Q36_TP_HEAD_ROWS", "STRATA_Q36_TP_SMALL_ROWS", "STRATA_Q36_TP_LOGITS_PREFETCH",
                              "STRATA_Q36_TP_ROUTER_FENCE",
+                             "STRATA_Q36_TP_ROUTER_PAIR",
                              "STRATA_Q36_TP_SMALL_TRACE",
                              "STRATA_Q36_TP_HEAD_Q8", "STRATA_Q36_TP_MOE_JOIN",
                              "STRATA_Q36_TP_FUSE2_CONV_AB", "STRATA_Q36_TP_FUSE2_GDN_Q8", "STRATA_Q36_TP_FUSE2_ROUTER",
@@ -236,20 +238,33 @@ void Engine::tp_join(float* partial, int T) {
         tp_mapped[cur_dev][1-cur_dev], (size_t) T * m->g.n_embd, tp_flags[cur_dev][cur_dev],
         tp_flags[cur_dev][1-cur_dev], tp_token[cur_dev], cur_dev);
 }
+bool Engine::tp_row_defer_ack(int T, int n) const {
+    return tp_join_defer_ack && tp_join_row && tp_join_moe_publish && tp_partial_split &&
+           tp_fuse2_join_norm && tp_fuse2_moe_norm && !tp_moe_join && !tp_fuse3_gdn_all &&
+           fast_k && !verify_k &&
+           T >= 1 && T <= 4 && n % 32 == 0;
+}
 void Engine::tp_join_norm(float* partial, const float* w, float* hout, int T, bool quantized, bool published) {
     const int N = (int) m->g.n_embd;
     if (tp_join_row && T <= 4 && N % 32 == 0) {
         float* mine = tp_row_mapped[cur_dev][cur_dev];
         const float* peer = tp_row_mapped[cur_dev][1-cur_dev];
         unsigned* token = tp_token[cur_dev];
-        if (quantized)
-            q36tp_row::join_norm<true, false><<<T, kThreads, 0, st>>>(
+        const bool defer_ack = tp_row_defer_ack(T, N);
+        if (quantized && defer_ack)
+            q36tp_row::join_norm<true, false, true><<<T, kThreads, 0, st>>>(
                 partial, mine, peer, token, cur_dev, x, w, hout, (q36k::QB*) xq, N, m->eps);
+        else if (quantized)
+            q36tp_row::join_norm<true, false, false><<<T, kThreads, 0, st>>>(
+                partial, mine, peer, token, cur_dev, x, w, hout, (q36k::QB*) xq, N, m->eps);
+        else if (published && defer_ack)
+            q36tp_row::join_norm<false, true, true><<<T, kThreads, 0, st>>>(
+                partial, mine, peer, token, cur_dev, x, w, hout, nullptr, N, m->eps);
         else if (published)
-            q36tp_row::join_norm<false, true><<<T, kThreads, 0, st>>>(
+            q36tp_row::join_norm<false, true, false><<<T, kThreads, 0, st>>>(
                 partial, mine, peer, token, cur_dev, x, w, hout, nullptr, N, m->eps);
         else
-            q36tp_row::join_norm<false, false><<<T, kThreads, 0, st>>>(
+            q36tp_row::join_norm<false, false, false><<<T, kThreads, 0, st>>>(
                 partial, mine, peer, token, cur_dev, x, w, hout, nullptr, N, m->eps);
     } else if (quantized)
         q36tp_fuse2::join_norm<true><<<q36tp::join_blocks, kThreads, 0, st>>>(
@@ -267,6 +282,7 @@ void Engine::tp_moe_end(int T, const int32_t* prow, const float* shared, const f
     const int N = (int)m->g.n_embd;
     const bool fused_norm = tp_fuse2_moe_norm && !tp_moe_join && !verify_k && wn && T <= 4 && N % 32 == 0;
     const bool direct_publish = fused_norm && tp_join_row && tp_join_moe_publish && !tp_gdn_defer_hist[cur_dev];
+    const bool defer_ack = direct_publish && tp_row_defer_ack(T, N);
     const bool split_partial = tp_partial_split && T <= 4 && !tp_moe_join && !tp_gdn_defer_hist[cur_dev];
     if (tp_moe_join && T <= kVerify)
         q36tp::moe_join<<<q36tp::join_blocks, kThreads, 0, st>>>(moe_out, eparts, prow, ewts, (int)m->top_k,
@@ -285,13 +301,17 @@ void Engine::tp_moe_end(int T, const int32_t* prow, const float* shared, const f
         tp_gdn_defer_hist[cur_dev] = nullptr;
     } else if (split_partial) {
         const int slices = (N + kThreads - 1) / kThreads;
-        if (direct_publish)
-            q36tp_partial::combine<true><<<dim3(slices, T), kThreads, 0, st>>>(
-                moe_out, tp_row_mapped[cur_dev][cur_dev], eparts, prow, ewts, (int)m->top_k,
+        if (direct_publish && defer_ack)
+            q36tp_partial::combine<true, true><<<dim3(slices, T), kThreads, 0, st>>>(
+                moe_out, tp_row_mapped[cur_dev][cur_dev], tp_row_mapped[cur_dev][1-cur_dev], eparts, prow, ewts, (int)m->top_k,
+                shared, sgate, sgs, N, tp_token[cur_dev], tp_partial_done[cur_dev]);
+        else if (direct_publish)
+            q36tp_partial::combine<true, false><<<dim3(slices, T), kThreads, 0, st>>>(
+                moe_out, tp_row_mapped[cur_dev][cur_dev], tp_row_mapped[cur_dev][1-cur_dev], eparts, prow, ewts, (int)m->top_k,
                 shared, sgate, sgs, N, tp_token[cur_dev], tp_partial_done[cur_dev]);
         else
-            q36tp_partial::combine<false><<<dim3(slices, T), kThreads, 0, st>>>(
-                moe_out, nullptr, eparts, prow, ewts, (int)m->top_k,
+            q36tp_partial::combine<false, false><<<dim3(slices, T), kThreads, 0, st>>>(
+                moe_out, nullptr, nullptr, eparts, prow, ewts, (int)m->top_k,
                 shared, sgate, sgs, N, nullptr, nullptr);
     } else if (direct_publish)
         q36tp_row::partial_moe_publish<<<T, kThreads, 0, st>>>(moe_out, tp_row_mapped[cur_dev][cur_dev],

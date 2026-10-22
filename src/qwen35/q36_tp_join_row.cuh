@@ -30,7 +30,7 @@ __global__ void partial_moe_publish(float* out, float* mapped, const float* part
         q36tp::release(my_flags, token[t] + 1);
 }
 
-template <bool Q, bool Published>
+template <bool Q, bool Published, bool DeferAck = false>
 __global__ void __launch_bounds__(256) join_norm(float* partial, float* mapped, const float* peer_mapped,
         unsigned* token, int rank,
         float* x, const float* w, float* h, q36k::QB* hq, int n, float eps) {
@@ -46,6 +46,10 @@ __global__ void __launch_bounds__(256) join_norm(float* partial, float* mapped, 
     if (j == 0) call = token[row] + 1;
     __syncthreads();
     if constexpr (!Published) {
+        if constexpr (DeferAck) {
+            if (j == 0) while (q36tp::acquire(peer_flags + 1) < call - 1) q36tp::pause();
+            __syncthreads();
+        }
         const int n4 = n / 4;
         for (int i = j; i < n4; i += 256)
             ((float4*) mine)[i] = ((const float4*) (partial + base))[i];
@@ -80,6 +84,11 @@ __global__ void __launch_bounds__(256) join_norm(float* partial, float* mapped, 
         partial[base + i] = rank == 0 ? partial[base + i] + b : b + partial[base + i];
     }
     __syncthreads();
+    // Once every lane has read the peer row, the peer may reuse that mapped row.
+    // The residual/norm below touches only device-local memory.
+    if constexpr (DeferAck) {
+        if (j == 0) q36tp::release(my_flags + 1, call);
+    }
     float* xr = x + base;
     const float* yr = partial + base;
     float* hr = h + base;
@@ -108,8 +117,10 @@ __global__ void __launch_bounds__(256) join_norm(float* partial, float* mapped, 
     }
     __syncthreads();
     if (j == 0) {
-        q36tp::release(my_flags + 1, call);
-        while (q36tp::acquire(peer_flags + 1) != call) q36tp::pause();
+        if constexpr (!DeferAck) {
+            q36tp::release(my_flags + 1, call);
+            while (q36tp::acquire(peer_flags + 1) != call) q36tp::pause();
+        }
 #if defined(__HIPCC__)
         __hip_atomic_store(token + row, call, __ATOMIC_RELEASE, __HIP_MEMORY_SCOPE_AGENT);
 #else

@@ -1,8 +1,8 @@
 // Split the TP MoE partial across CTAs without changing an element's reduction order.
 #pragma once
 namespace q36tp_partial {
-template <bool Publish>
-__global__ void __launch_bounds__(256) combine(float* out, float* mapped, const float* parts,
+template <bool Publish, bool DeferAck = false>
+__global__ void __launch_bounds__(256) combine(float* out, float* mapped, const float* peer_mapped, const float* parts,
         const int32_t* prow, const float* wts, int picks, const float* shared,
         const float* sgate, int sg_stride, int n, unsigned* token, unsigned* done) {
     const int t = blockIdx.y;
@@ -14,6 +14,12 @@ __global__ void __launch_bounds__(256) combine(float* out, float* mapped, const 
         const size_t base = (size_t) t * ((size_t) n + 16);
         mine = mapped + base + 4;
         flag = (unsigned*) (mapped + base);
+        if constexpr (DeferAck) {
+            const unsigned* peer_flags = (const unsigned*) (peer_mapped + base);
+            if (threadIdx.x == 0)
+                while (q36tp::acquire((unsigned*) peer_flags + 1) < token[t]) q36tp::pause();
+            __syncthreads();
+        }
     }
     const size_t first = prow ? prow[t * picks] : t * picks;
     for (int i = blockIdx.x * blockDim.x + threadIdx.x; i < n; i += gridDim.x * blockDim.x) {
