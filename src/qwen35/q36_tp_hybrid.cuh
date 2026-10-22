@@ -51,6 +51,9 @@ bool place_experts_tp(Model& a, Model& b, Engine& E, int threads, std::string& e
     std::vector<std::vector<int>> order;
     const char* profile = hybrid_on ? std::getenv("STRATA_Q36_TP_PROFILE") : nullptr;
     if (!q36tp_profile::profile_order(profile, (int)a.layers.size(), ne, order, err)) return false;
+    for (size_t li=0; li<a.layers.size(); ++li)
+        if (!a.layers[li].initial_rank.empty()) order[li] = a.layers[li].initial_rank;
+    if (a.has_mtp && !a.mtp.initial_rank.empty()) order[a.layers.size()] = a.mtp.initial_rank;
     struct Budget { int main = 0, mtp = 0; size_t free = 0, bytes = 0; } budget[2];
     const size_t reserve = (size_t)(hybrid_on ? 768 : 256) << 20;
     size_t host_bytes = 0;
@@ -148,7 +151,8 @@ bool place_experts_tp(Model& a, Model& b, Engine& E, int threads, std::string& e
             std::vector<uint8_t> blob(L.stride, 0);
             for (int s = 0; s < ne; ++s) {
                 const int e = S == ne ? s : rank[(size_t)s]; // full layers use the direct expert-id addressing path
-                expert_blob(L, e, blob.data());
+                if (L.cache) cached_experts(L, e, 1, blob.data());
+                else expert_blob(L, e, blob.data());
                 if (s < S) {
                     H.slot_of[(size_t)e] = s; H.exp_in_slot[(size_t)s] = e;
                     CK(cudaMemcpy(L.blobs + (size_t)s * L.stride, blob.data(), L.stride, cudaMemcpyHostToDevice));
