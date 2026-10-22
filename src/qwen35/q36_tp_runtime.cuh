@@ -106,7 +106,7 @@ void Engine::tp_init(const Model& a, const Model& b, int context, int chunk, int
     });
     use_mmq = dev_mmq[0] && dev_mmq[1];
     if (tp_check) std::fprintf(stderr, "strata-q36: STRATA_Q36_TP_CHECK=1: compare both residual replicas at each forward boundary (host readback)\n");
-    for (const char* flag : {"STRATA_Q36_TP_ATTN_ROWS", "STRATA_Q36_TP_ATTN_GRAPH_ROWS",
+    for (const char* flag : {"STRATA_Q36_TP_BRANCHES", "STRATA_Q36_TP_ATTN_ROWS", "STRATA_Q36_TP_ATTN_GRAPH_ROWS",
                              "STRATA_Q36_TP_JOIN_ROW", "STRATA_Q36_TP_JOIN_WIDE", "STRATA_Q36_TP_JOIN_SPLIT",
                              "STRATA_Q36_TP_JOIN_Q8_ROUTER", "STRATA_Q36_TP_JOIN_Q8_CHECK",
                              "STRATA_Q36_TP_JOIN_PEER_FIRST", "STRATA_Q36_TP_JOIN_FAST_SUBMIT",

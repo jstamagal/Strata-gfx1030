@@ -73,6 +73,7 @@
 #include <type_traits>
 #include <vector>
 
+#include "q36_tp_branches.cuh"
 #include "q36_tp_launch_stats.cuh"
 
 namespace {
@@ -2328,6 +2329,7 @@ struct Engine {
             float* al_b = verify ? v_alpha[li] : alpha;
             float* be_b = verify ? v_beta[li] : beta;
             bool ab_pending = false;
+            q36tp_branch::Node branch_before_proj = nullptr, branch_qkv_end = nullptr, branch_z_end = nullptr;
             const bool fused_gdn_all = tp && tp_fuse3_gdn_all && !tp_moe_join && !rows_mode &&
                                        T >= 1 && T <= 4 && g.ssm_d_conv == 4 && D == 128 &&
                                        C == (2 * HK + HV) * D && g.ssm_value_dim == (int64_t) HV * D &&
@@ -2339,13 +2341,19 @@ struct Engine {
             prep_in(T);
             const bool fused_projection = decode_projections(L, T, qkv_b, al_b, be_b);
             if (!fused_projection) {
+                branch_before_proj = tp_branch_mark();
                 apply(L.qkv, xq, qkv_b, T);
+                branch_qkv_end = tp_branch_mark();
                 apply(L.zg, xq, z, T);
+                branch_z_end = tp_branch_mark();
                 if (T <= kGemmT) {
                     ab_pending = !fused_gdn_all && tp && tp_fuse2_conv_ab && !rows_mode && T <= 4 && C % 128 == 0 && N % 4 == 0;
-                    if (!ab_pending && !fused_gdn_all)
+                    if (!ab_pending && !fused_gdn_all) {
                         k_gdn_ab<<<dim3(rows8(2 * HV), T), kThreads, 0, st>>>(L.alpha, L.beta, h, L.dt, L.ssm_a, al_b, be_b, N,
                                                                               HV);
+                        if (T <= 4) tp_branch_group({branch_before_proj, branch_qkv_end, branch_z_end, tp_branch_mark()});
+                    } else if (T <= 4 && !ab_pending)
+                        tp_branch_group({branch_before_proj, branch_qkv_end, branch_z_end});
                 } else {
                     f32mm(L.alpha, h, al_b, N, HV, T);
                     f32mm(L.beta, h, be_b, N, HV, T);
@@ -2426,6 +2434,7 @@ struct Engine {
                     q36tp_fuse2::conv_ab<<<C / 128 + ((2 * HV + 3) / 4) * T, 128, 0, st>>>(
                         conv[li], qkv_b, L.conv, hc_b, C, 2 * HK, m->eps, T, !verify,
                         L.alpha, L.beta, h, L.dt, L.ssm_a, al_b, be_b, N, HV);
+                    tp_branch_staggered(branch_before_proj, branch_qkv_end, branch_z_end, tp_branch_mark());
                     if (verify_k) {
                         float* ref_hc = ref + (size_t) 3 * C;
                         float* ref_alpha = ref_hc + (size_t) T * C;
@@ -2469,9 +2478,13 @@ struct Engine {
         } else {
             prep_in(T);
             if (!decode_projections(L, T)) {
+                const auto before_projections = tp_branch_mark();
                 apply(L.wq, xq, qg, T);
+                const auto after_q = tp_branch_mark();
                 apply(L.wk, xq, kx, T);
+                const auto after_k = tp_branch_mark();
                 apply(L.wv, xq, vx, T);
+                if (T <= 4) tp_branch_group({before_projections, after_q, after_k, tp_branch_mark()});
             }
             RowSel rs;
             if (rows_mode) {
@@ -2565,6 +2578,11 @@ struct Engine {
             xq_post = true;
         } else add_rms_post(L, T);
         if (!tp || cur_dev == home) layer_dump.mixer(x, st);
+        // The shared expert needs h and xq, but neither the route selection nor
+        // the routed expert output. With router-side Q8, xq becomes ready after
+        // routing; otherwise it is already ready here.
+        const auto before_router = T <= 4 && xq_post && !router_q8 && !lhy(li)
+            ? tp_branch_mark() : nullptr;
         // routed experts (one token: the router and the shared expert's gate in one product, the gate its last row)
         const bool one = T == 1;
         // a decode batch of up to 8 rows takes the router and the shared expert's gate in one product too (rows of 257) when the fused
@@ -2632,6 +2650,7 @@ struct Engine {
             K::native_router_topk(logits_r, ids, ewts, (int) g.n_expert, Kp, T, st);
         const int64_t n_ent = (int64_t) T * Kp;
         const int32_t* prow = nullptr;
+        q36tp_branch::Node before_routed = nullptr, after_routed = nullptr;
         if (hy_rows) {
             moe_hybrid_gpu(L, li, T);
         } else if (T > kGemmT && use_mmq) {
@@ -2697,10 +2716,12 @@ struct Engine {
         } else {
             group_entries(L, nullptr, T);
             if (!xq_post) quant(h, N, T, xq);   // the experts' and the shared expert's input
+            if (T <= 4) before_routed = tp_branch_mark();
             if ((mtp_tpx && tp && li == m->layers.size() && T == 1) ||
                 !decode_experts(L, T, std::min<int64_t>(n_ent, g.n_expert), n_ent))
                 K::native_expert_grouped(L.L, grp_ptr, grp_start, n_groups, ent_dst, ent_tok,
                                          std::min<int64_t>(n_ent, g.n_expert), n_ent, xq, escr, eparts, st, 0, tp && T == 1);
+            if (T <= 4) after_routed = tp_branch_mark();
         }
         // the shared expert, scaled by sigmoid(w . h)
         if (T > kGemmT) k_to_f16<<<grid1((int64_t) N * T), kThreads, 0, st>>>(h, x16, (int64_t) N * T);
@@ -2719,6 +2740,8 @@ struct Engine {
         }
         if (!ext) f32mm(L.sh_gate_inp, h, sgate, N, 1, T);
         if (hy_rows) moe_hybrid_cpu(li, T);   // the CPU pool's experts (while the GPU runs the rest), merged
+        if (after_routed)
+            tp_branch_group({before_router ? before_router : before_routed, after_routed, tp_branch_mark()});
         // the combine, the shared expert's gate, the residual add and the next norm in one launch
         moe_end(T, prow, sy, ext ? logits_r + g.n_expert : sgate, wn, hout, ext ? (int) g.n_expert + 1 : 1);
         if (!tp) layer_dump.finish(li, x, st);

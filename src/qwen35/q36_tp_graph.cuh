@@ -19,14 +19,19 @@ bool Engine::tp_graph_run(int T, int64_t p0, bool verify, bool mtp, const float*
         if (gx) continue;
         cudaGraph_t graph = nullptr;
         CK(cudaStreamBeginCapture(st, cudaStreamCaptureModeThreadLocal));
+        tp_branch_capture = tp_branches;
+        tp_branch_recorder.clear();
         if (mtp) {
             K::iq_embed_rows(m->embd_type, embd_d, m->embd_row, tok_m, T, N, y, st);
             if (mtp_fuse_norm)
                 k_mtp_pair_rms<<<dim3(T, 2), kThreads, 0, st>>>(y, d == home ? seeds : h,
                                                                    m->mtp_enorm, m->mtp_hnorm, mtp_cat, N, m->eps);
             else {
+                const auto before_norms = tp_branch_mark();
                 k_rms_ld<<<T, kThreads, 0, st>>>(y, N, m->mtp_enorm, mtp_cat, 2*N, N, m->eps);
+                const auto after_embed_norm = tp_branch_mark();
                 k_rms_ld<<<T, kThreads, 0, st>>>(d == home ? seeds : h, N, m->mtp_hnorm, mtp_cat+N, 2*N, N, m->eps);
+                if (T <= 4) tp_branch_group({before_norms, after_embed_norm, tp_branch_mark()});
             }
             mm(m->eh_proj, mtp_cat, x, T);
             k_rms<<<T, kThreads, 0, st>>>(x, m->mtp.attn_norm, h, N, m->eps);
@@ -41,6 +46,15 @@ bool Engine::tp_graph_run(int T, int64_t p0, bool verify, bool mtp, const float*
             }
         }
         CK(cudaStreamEndCapture(st, &graph));
+        tp_branch_capture = false;
+        if (tp_branches) {
+            const auto stats = tp_branch_recorder.apply(graph);
+            std::fprintf(stderr,
+                "strata-q36 TP_BRANCHES captured %s T=%d verify=%d rank=%d: "
+                "%zu groups, %zu parallel arms, %zu skipped%s\n",
+                mtp ? "MTP" : "main", T, (int)verify, d, stats.groups, stats.arms,
+                stats.skipped, stats.edges_available ? "" : " (graph edges unavailable)");
+        }
         if (tp_launch_stats) {
             size_t count = 0;
             CK(cudaGraphGetNodes(graph, nullptr, &count));

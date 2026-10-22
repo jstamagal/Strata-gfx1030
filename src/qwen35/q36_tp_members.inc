@@ -31,6 +31,19 @@
     float* tp_remote[2] = {};
     cudaEvent_t tp_copy_ready[2] = {}, tp_copy_done[2] = {};
     bool tp_copy_used = false, tp_graph = true;
+    bool tp_branches = q36tp::enabled("STRATA_Q36_TP_BRANCHES");
+    bool tp_branch_capture = false;
+    q36tp_branch::Recorder tp_branch_recorder;
+    q36tp_branch::Node tp_branch_mark() const {
+        return tp_branch_capture ? q36tp_branch::tail(st) : nullptr;
+    }
+    void tp_branch_group(std::initializer_list<q36tp_branch::Node> marks) {
+        if (tp_branch_capture) tp_branch_recorder.record(marks);
+    }
+    void tp_branch_staggered(q36tp_branch::Node before, q36tp_branch::Node qkv,
+                             q36tp_branch::Node z, q36tp_branch::Node conv) {
+        if (tp_branch_capture) tp_branch_recorder.record_staggered(before, qkv, z, conv);
+    }
     void tp_copy_join(int T, bool moe);
     void tp_layer_pair(size_t li, int T, int64_t p0, bool verify, bool mtp = false);
     long long tp_graph_key(int T, bool verify, bool mtp, bool short_attn) const;
