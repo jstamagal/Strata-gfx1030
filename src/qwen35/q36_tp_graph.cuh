@@ -19,8 +19,13 @@ bool Engine::tp_graph_run(int T, int64_t p0, bool verify, bool mtp, const float*
         CK(cudaStreamBeginCapture(st, cudaStreamCaptureModeThreadLocal));
         if (mtp) {
             K::iq_embed_rows(m->embd_type, embd_d, m->embd_row, tok_m, T, N, y, st);
-            k_rms_ld<<<T, kThreads, 0, st>>>(y, N, m->mtp_enorm, mtp_cat, 2*N, N, m->eps);
-            k_rms_ld<<<T, kThreads, 0, st>>>(d == home ? seeds : h, N, m->mtp_hnorm, mtp_cat+N, 2*N, N, m->eps);
+            if (mtp_fuse_norm)
+                k_mtp_pair_rms<<<dim3(T, 2), kThreads, 0, st>>>(y, d == home ? seeds : h,
+                                                                   m->mtp_enorm, m->mtp_hnorm, mtp_cat, N, m->eps);
+            else {
+                k_rms_ld<<<T, kThreads, 0, st>>>(y, N, m->mtp_enorm, mtp_cat, 2*N, N, m->eps);
+                k_rms_ld<<<T, kThreads, 0, st>>>(d == home ? seeds : h, N, m->mtp_hnorm, mtp_cat+N, 2*N, N, m->eps);
+            }
             mm(m->eh_proj, mtp_cat, x, T);
             k_rms<<<T, kThreads, 0, st>>>(x, m->mtp.attn_norm, h, N, m->eps);
             layer(m->mtp, m->layers.size(), T, p0, pos0_m, true, false, m->mtp_shnorm, hmtp);

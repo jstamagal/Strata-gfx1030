@@ -12,10 +12,29 @@ void Engine::tp_forward_mtp(int T, int64_t p0, const float* seeds, bool draft) {
         const float* local_seeds = d == home ? seeds : h; // tp_enter copied these before h is reused
         K::iq_embed_rows(m->embd_type, embd_d, m->embd_row, tok_m, T, N, y, st);
         if (map_on) k_put_rows<<<T, kThreads, 0, st>>>(y, d_img, d_map, N);
-        k_rms_ld<<<T, kThreads, 0, st>>>(y, N, m->mtp_enorm, mtp_cat, 2*N, N, m->eps);
-        k_rms_ld<<<T, kThreads, 0, st>>>(local_seeds, N, m->mtp_hnorm, mtp_cat+N, 2*N, N, m->eps);
+        if (mtp_fuse_norm) {
+            k_mtp_pair_rms<<<dim3(T, 2), kThreads, 0, st>>>(y, local_seeds, m->mtp_enorm,
+                                                               m->mtp_hnorm, mtp_cat, N, m->eps);
+            if (verify_k) {
+                float* ref = nullptr;
+                CK(cudaMalloc(&ref, (size_t) T * 2 * N * sizeof(float)));
+                k_rms_ld<<<T, kThreads, 0, st>>>(y, N, m->mtp_enorm, ref, 2*N, N, m->eps);
+                k_rms_ld<<<T, kThreads, 0, st>>>(local_seeds, N, m->mtp_hnorm, ref+N, 2*N, N, m->eps);
+                verify_cmp("MTP paired RMS", mtp_cat, ref, (size_t) T * 2 * N);
+                CK(cudaFree(ref));
+            }
+        } else {
+            k_rms_ld<<<T, kThreads, 0, st>>>(y, N, m->mtp_enorm, mtp_cat, 2*N, N, m->eps);
+            k_rms_ld<<<T, kThreads, 0, st>>>(local_seeds, N, m->mtp_hnorm, mtp_cat+N, 2*N, N, m->eps);
+        }
         mm(m->eh_proj, mtp_cat, x, T);
         k_rms<<<T, kThreads, 0, st>>>(x, m->mtp.attn_norm, h, N, m->eps);
+    }
+    if (mtp_cost) {
+        for_devs([&](int) { CK(cudaStreamSynchronize(st)); });
+        const double t = ms_since(cost_start);
+        mtp_input_ms += t;
+        if (T == 1) mtp_t1_input_ms += t;
     }
     tp_layer_pair(m->layers.size(), T, p0, false, true);
     draft_pos = p0 + T;
@@ -32,5 +51,9 @@ void Engine::tp_forward_mtp(int T, int64_t p0, const float* seeds, bool draft) {
                         (draft ? 0. : head_ms);
         if (draft) { mtp_head_ms += head_ms; ++mtp_head_calls; }
         ++mtp_cost_calls;
+        if (T == 1) {
+            ++mtp_t1_calls;
+            if (draft) { mtp_t1_head_ms += head_ms; ++mtp_t1_head_calls; }
+        }
     }
 }
