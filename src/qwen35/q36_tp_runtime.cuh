@@ -2,12 +2,15 @@
 void Engine::tp_swap(int from, int to) {
     auto swap = [&](TpState& s) {
         std::swap(conv, s.conv); std::swap(S, s.S); std::swap(kc, s.kc); std::swap(vc, s.vc);
+        std::swap(kc_hot, s.kc_hot); std::swap(vc_hot, s.vc_hot);
         std::swap(v_qkv, s.v_qkv); std::swap(v_hc, s.v_hc);
         std::swap(v_alpha, s.v_alpha); std::swap(v_beta, s.v_beta); std::swap(hlast, s.hlast);
         s.sessions.resize(sess.size());
         for (size_t i = 0; i < sess.size(); ++i) {
             std::swap(sess[i].conv, s.sessions[i].conv); std::swap(sess[i].S, s.sessions[i].S);
             std::swap(sess[i].kc, s.sessions[i].kc); std::swap(sess[i].vc, s.sessions[i].vc);
+            std::swap(sess[i].kc_hot, s.sessions[i].kc_hot); std::swap(sess[i].vc_hot, s.sessions[i].vc_hot);
+            std::swap(sess[i].kc_host, s.sessions[i].kc_host); std::swap(sess[i].vc_host, s.sessions[i].vc_host);
             std::swap(sess[i].hlast, s.sessions[i].hlast);
         }
     };
@@ -40,19 +43,23 @@ void Engine::tp_init(const Model& a, const Model& b, int context, int chunk, int
         if (kv_int8) {
             size_t blocks = m->has_mtp ? 1 : 0;
             for (const Layer& L : m->layers) if (L.attn) ++blocks;
-            std::fprintf(stderr, "strata-q36: device %d STRATA_Q36_KV=int8 (--kv int8), KV %.2f GiB (%d slots, %zu attention blocks)\n",
-                         d, (double) (2 * kv_bytes() * blocks * n_sess) / (1ull << 30), n_sess, blocks);
+            std::fprintf(stderr, "strata-q36: device %d STRATA_Q36_KV=int8 (--kv int8), KV %.2f GiB GPU, %.2f GiB host (%d slots, %zu attention blocks)\n",
+                         d, (double) (2 * kv_bytes() * blocks * n_sess) / (1ull << 30),
+                         kv_resident ? (double) (2 * kv_full_bytes() * blocks * n_sess) / (1ull << 30) : 0., n_sess, blocks);
         }
-        conv = sess[cur].conv; S = sess[cur].S; kc = sess[cur].kc; vc = sess[cur].vc; hlast = sess[cur].hlast;
+        conv = sess[cur].conv; S = sess[cur].S; kc = sess[cur].kc; vc = sess[cur].vc;
+        kc_hot = sess[cur].kc_hot; vc_hot = sess[cur].vc_hot; hlast = sess[cur].hlast;
         if (n_sess > 1) {
             const size_t count = conv.size() * n_sess;
-            for (int kind = 0; kind < 4; ++kind) {
+            for (int kind = 0; kind < 6; ++kind) {
                 std::vector<float*> table(count);
                 for (size_t li = 0; li < conv.size(); ++li) for (int s = 0; s < n_sess; ++s) {
                     const Sess& ss = sess[s];
-                    table[li * n_sess + s] = (kind == 0 ? ss.conv : kind == 1 ? ss.S : kind == 2 ? ss.kc : ss.vc)[li];
+                    table[li * n_sess + s] = (kind == 0 ? ss.conv : kind == 1 ? ss.S : kind == 2 ? ss.kc :
+                                             kind == 3 ? ss.vc : kind == 4 ? ss.kc_hot : ss.vc_hot)[li];
                 }
-                float*** out = kind == 0 ? &d_conv_tab : kind == 1 ? &d_S_tab : kind == 2 ? &d_kc_tab : &d_vc_tab;
+                float*** out = kind == 0 ? &d_conv_tab : kind == 1 ? &d_S_tab : kind == 2 ? &d_kc_tab :
+                               kind == 3 ? &d_vc_tab : kind == 4 ? &d_kc_hot_tab : &d_vc_hot_tab;
                 CK(cudaMalloc((void**)out, count * sizeof(float*)));
                 CK(cudaMemcpy(*out, table.data(), count * sizeof(float*), cudaMemcpyHostToDevice));
             }

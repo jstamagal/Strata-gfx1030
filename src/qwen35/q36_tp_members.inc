@@ -3,7 +3,7 @@
     const Model* tp_models[2] = {};
     struct TpState {
         std::vector<Sess> sessions;
-        std::vector<float*> conv, S, kc, vc, v_qkv, v_hc, v_alpha, v_beta;
+        std::vector<float*> conv, S, kc, vc, kc_hot, vc_hot, v_qkv, v_hc, v_alpha, v_beta;
         float* hlast = nullptr;
     } tp_state[2];
     float *tp_host[2] = {}, *tp_mapped[2][2] = {}, *tp_logits[2] = {};

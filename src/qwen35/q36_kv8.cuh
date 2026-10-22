@@ -20,18 +20,27 @@ __device__ __forceinline__ float load(const float* base, size_t row, int d, size
 }
 } // namespace q36kv8
 
+namespace q36kvstream {
+__device__ __forceinline__ float load(const float*, const float*, const float*, int, int, int,
+                                       int, int, int, int, int, int);
+}
+
 // The FP32 path's q/k normalization and RoPE, with a 64-value group reduction before writing K/V.
 // Each K block has 256 threads, including inactive lanes for heads shorter than 256.
 template <bool SCALED>
 __global__ void k_attn_prep_q8(const float* qg, const float* kx, const float* vx, const float* qw, const float* kw,
                                float* q, float* gate, float* kc, float* vc, int H, int HKV, int HD, int n_rot,
                                const int32_t* pos0, int ctx, float base, float eps, const int32_t* rdelta,
-                               const int32_t* mtab, RowSel rs, strata::kernels::RopeKernelArgs rope) {
+                               const int32_t* mtab, RowSel rs, strata::kernels::RopeKernelArgs rope, KvStream stream) {
     __shared__ float sh[kThreads], buf[256], warp_max[8];
     const int head = blockIdx.x, t = blockIdx.y, i = threadIdx.x;
     const int pos = rs.cell ? rs.cell[t] : *pos0 + t;
     const int dl = rs.delta ? rs.delta[t] : (rdelta ? *rdelta : 0);
-    if (rs.kc) { kc = rs.kc[rs.slot[t]]; vc = rs.vc[rs.slot[t]]; }
+    if (rs.kc) {
+        const int slot = rs.slot[t];
+        kc = rs.kc[slot]; vc = rs.vc[slot];
+        if (rs.kc_hot) { stream.khot = rs.kc_hot[slot]; stream.vhot = rs.vc_hot[slot]; }
+    }
     const bool isq = head < H;
     const float* src = isq ? qg + ((size_t) t * H + head) * 2 * HD : kx + ((size_t) t * HKV + head - H) * HD;
     const float v0 = i < HD ? src[i] : 0.f;
@@ -76,21 +85,33 @@ __global__ void k_attn_prep_q8(const float* qg, const float* kx, const float* vx
     const int vq = vs > 0.f ? max(-127, min(127, __float2int_rn(vv / vs))) : 0;
     q36kv8::codes(kc)[row * HD + i] = (int8_t) kq;
     q36kv8::codes(vc)[row * HD + i] = (int8_t) vq;
+    if (stream.resident && stream.khot) {
+        const size_t hr = (size_t) kh * stream.resident + pos % stream.resident;
+        q36kv8::codes(stream.khot)[hr * HD + i] = (int8_t) kq;
+        q36kv8::codes(stream.vhot)[hr * HD + i] = (int8_t) vq;
+    }
     if (i % q36kv8::group == 0) {
         q36kv8::scales(kc, rows, HD)[row * (HD / q36kv8::group) + g] = __float2half_rn(ks);
         q36kv8::scales(vc, rows, HD)[row * (HD / q36kv8::group) + g] = __float2half_rn(vs);
+        if (stream.resident && stream.khot) {
+            const size_t hr = (size_t) kh * stream.resident + pos % stream.resident;
+            q36kv8::scales(stream.khot, (size_t) HKV * stream.resident, HD)[hr * (HD / q36kv8::group) + g] = __float2half_rn(ks);
+            q36kv8::scales(stream.vhot, (size_t) HKV * stream.resident, HD)[hr * (HD / q36kv8::group) + g] = __float2half_rn(vs);
+        }
     }
 }
 
 // The prompt GEMMs consume compact FP16 K/V. Expand only the visible prefix from the
 // int8 cache; the append above remains quantized, including for chunked prompts.
 __global__ void k_kv_f16_q8(const float* kc, const float* vc, __half* k16, __half* v16,
-                           int ctx, int P, int HD, int HKV) {
+                           int ctx, int P, int HD, int HKV, KvStream stream) {
     const int64_t i = (int64_t) blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= (int64_t) HKV * P * HD) return;
     const int64_t per = (int64_t) P * HD;
     const int kvh = (int) (i / per), cell = (int) ((i % per) / HD), d = (int) (i % HD);
-    const size_t row = (size_t) kvh * ctx + cell, rows = (size_t) HKV * ctx;
-    k16[i] = __float2half(q36kv8::load(kc, row, d, rows, HD));
-    v16[i] = __float2half(q36kv8::load(vc, row, d, rows, HD));
+    const int end = stream.resident ? P : 0;
+    k16[i] = __float2half(q36kvstream::load(kc, stream.khot, stream.kpref, kvh, cell, d, HD, HKV,
+                                            ctx, stream.resident, stream.prefetch, end));
+    v16[i] = __float2half(q36kvstream::load(vc, stream.vhot, stream.vpref, kvh, cell, d, HD, HKV,
+                                            ctx, stream.resident, stream.prefetch, end));
 }

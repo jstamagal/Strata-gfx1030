@@ -14,9 +14,7 @@ inline bool resolve(const strata::GgufFile& meta, float base, const Options& opt
     using Type = strata::kernels::RopeScalingType;
     const std::string p = "qwen35moe.";
     sc.freq_base = base;
-    std::string type;
-    if (const auto* v = meta.get(p + "rope.scaling.type")) type = v->s;
-    if (!opt.type.empty()) type = opt.type;
+    const std::string& type = opt.type; // q36 keeps scaling opt-in even if a GGUF carries a scaling hint
     if (type == "" || type == "none") sc.type = Type::None;
     else if (type == "linear") sc.type = Type::Linear;
     else if (type == "yarn") sc.type = Type::YaRN;
