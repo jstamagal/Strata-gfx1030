@@ -5557,7 +5557,7 @@ int serve(Engine& E) {
 }  // namespace
 
 int strata::qwen35::run(int argc, char** argv) {
-    std::string model, tokens, force, dump_full, emb_file;
+    std::string model, tokens, force, dump_full, emb_file, flash_pack, flash_profile;
     int ctx = 32768, chunk = 0, n_gen = 64, bench_pp = 0, bench_tg = 0, mtp_d = 0, cpu_threads = 0, hybrid_rows = 128;
     int kv_resident = 0;
     double expert_vram = -1.0;
@@ -5577,6 +5577,8 @@ int strata::qwen35::run(int argc, char** argv) {
         };
         // strata's names where they mean the same thing (the family switch passes strata's command line on)
         if (a == "--model" || a == "--native") model = next();
+        else if (a == "--pack") flash_pack = next();
+        else if (a == "--expert-profile") flash_profile = next();
         else if (a == "--max-new") n_gen = std::atoi(next().c_str());
         else if (a == "--no-token-graph") graph = false;
         else if (a == "--pool-workers") cpu_threads = std::atoi(next().c_str());
@@ -5636,6 +5638,8 @@ int strata::qwen35::run(int argc, char** argv) {
         }
     }
     if (model.empty()) { std::fprintf(stderr, "strata-q36: --model is required\n"); return 2; }
+    if (!flash_pack.empty() || !flash_profile.empty())
+        std::fprintf(stderr, "strata-q36: --pack/--expert-profile accepted from launcher; q36 reads the GGUF and places its own experts\n");
 #if !defined(_WIN32)
     setenv("CUDA_MODULE_LOADING", "EAGER", 0);   // every kernel loaded with the context, not in the first prompt
     setenv("STRATA_Q8_PACKED", "1", 0);   // the packed Q8_0 decode copy unless STRATA_Q8_PACKED is set otherwise

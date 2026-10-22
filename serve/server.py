@@ -2876,8 +2876,11 @@ def layer_split_value(cfg: dict) -> str:
 
 def layer_split_of(cfg: dict) -> bool:
     """Several GPUs in the config are a layer split, unless the args put the later card(s) to another use: with
-    --peer-device the second card is an expert-cache tier, and the engine refuses that beside --layer-split (#665)."""
-    return len(gpu_list(cfg)) > 1 and "--peer-device" not in cfg["args"]
+    --peer-device the second card is an expert-cache tier, and the engine refuses that beside --layer-split (#665).
+    q36 tensor split also uses both cards for every layer, so it must not receive a layer split."""
+    args = cfg.get("args") or []
+    tensor_split = "--tensor-split" in args or str((cfg.get("env") or {}).get("STRATA_Q36_TP", "")) == "1"
+    return len(gpu_list(cfg)) > 1 and "--peer-device" not in args and not tensor_split
 
 
 def merge_env_file(cfg, folder):

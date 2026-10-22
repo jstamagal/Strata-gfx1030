@@ -8,7 +8,7 @@ from __future__ import annotations
 import unittest
 from unittest import mock
 
-from serve.server import engine_args, parallel_args
+from serve.server import child_env, engine_args, parallel_args
 
 
 def cfg(**kw):
@@ -42,6 +42,18 @@ class Q36Config(unittest.TestCase):
     def test_an_explicit_batch_in_the_args_wins(self):
         c = cfg(parallel=4, args=cfg()["args"] + ["--batch", "2"])
         self.assertEqual(parallel_args(c, c["args"]), [])
+
+    def test_tensor_split_launcher_keeps_its_flags_and_environment(self):
+        args = ["--native", "/m/Ornith-Q4_0.gguf", "--pack", "/p/q36", "--expert-profile", "/p/profile.bin",
+                "--prefill", "auto", "--mtp", "3", "--draft-vocab", "32768", "--spec-min-p", "0.45",
+                "--max-context", "1048576", "--rope-scaling", "yarn", "--rope-scale", "4", "--kv", "int8",
+                "--kv-resident", "32768"]
+        c = cfg(args=args, backend="hip", gpu=[0, 1], env={"STRATA_Q36_TP": "1", "STRATA_KV_PREFETCH": "1",
+                                                        "STRATA_KV_PF_RESIDENT": "1"})
+        self.assertEqual(engine_args(c), args)
+        e = child_env(c)
+        self.assertEqual([e[k] for k in ("HIP_VISIBLE_DEVICES", "STRATA_Q36_TP", "STRATA_KV_PREFETCH",
+                                         "STRATA_KV_PF_RESIDENT")], ["0,1", "1", "1", "1"])
 
 
 if __name__ == "__main__":
