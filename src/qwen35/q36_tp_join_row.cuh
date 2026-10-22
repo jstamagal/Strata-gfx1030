@@ -30,10 +30,11 @@ __global__ void partial_moe_publish(float* out, float* mapped, const float* part
         q36tp::release(my_flags, token[t] + 1);
 }
 
-template <bool Q, bool Published, bool DeferAck = false>
+template <bool Q, bool Published, bool DeferAck = false, bool Skew = false>
 __global__ void __launch_bounds__(256) join_norm(float* partial, float* mapped, const float* peer_mapped,
         unsigned* token, int rank,
-        float* x, const float* w, float* h, q36k::QB* hq, int n, float eps) {
+        float* x, const float* w, float* h, q36k::QB* hq, int n, float eps,
+        q36tp_skew::Sample* samples, unsigned* counts, int skew_slot) {
     const int row = blockIdx.x, j = threadIdx.x;
     const size_t base = (size_t) row * n;
     const size_t packed = (size_t) row * ((size_t) n + 16);
@@ -45,6 +46,15 @@ __global__ void __launch_bounds__(256) join_norm(float* partial, float* mapped, 
     __shared__ float sh[256];
     if (j == 0) call = token[row] + 1;
     __syncthreads();
+    __shared__ unsigned sample_index;
+    __shared__ unsigned long long arrived, published_at, peer_at;
+    if constexpr (Skew) {
+        if (j == 0) {
+            sample_index = atomicAdd(counts + skew_slot, 1u) % q36tp_skew::samples_per_join;
+            arrived = q36tp_skew::stamp();
+        }
+        __syncthreads();
+    }
     if constexpr (!Published) {
         if constexpr (DeferAck) {
             if (j == 0) while (q36tp::acquire(peer_flags + 1) < call - 1) q36tp::pause();
@@ -59,7 +69,9 @@ __global__ void __launch_bounds__(256) join_norm(float* partial, float* mapped, 
     }
     if (j == 0) {
         if constexpr (!Published) q36tp::release(my_flags, call);
+        if constexpr (Skew) published_at = q36tp_skew::stamp();
         while (q36tp::acquire(peer_flags) != call) q36tp::pause();
+        if constexpr (Skew) peer_at = q36tp_skew::stamp();
     }
     __syncthreads();
     // The flag was acquired by lane zero; make the peer's mapped writes visible to the CTA.
@@ -126,6 +138,23 @@ __global__ void __launch_bounds__(256) join_norm(float* partial, float* mapped, 
 #else
         atomicExch(token + row, call);
 #endif
+        if constexpr (Skew) {
+            q36tp_skew::Sample* s = samples +
+                (size_t) skew_slot * q36tp_skew::samples_per_join + sample_index;
+            *s = {arrived, published_at, peer_at, q36tp_skew::stamp()};
+        }
     }
+}
+
+template <bool Q, bool Published, bool DeferAck>
+inline void launch_join_norm(float* partial, float* mine, const float* peer, unsigned* token, int rank,
+        float* x, const float* w, float* h, q36k::QB* hq, int n, float eps, int T, cudaStream_t stream,
+        q36tp_skew::Sample* samples, unsigned* counts, int skew_slot) {
+    if (samples && T == 1)
+        join_norm<Q, Published, DeferAck, true><<<T, 256, 0, stream>>>(
+            partial, mine, peer, token, rank, x, w, h, hq, n, eps, samples, counts, skew_slot);
+    else
+        join_norm<Q, Published, DeferAck, false><<<T, 256, 0, stream>>>(
+            partial, mine, peer, token, rank, x, w, h, hq, n, eps, nullptr, nullptr, 0);
 }
 } // namespace q36tp_row

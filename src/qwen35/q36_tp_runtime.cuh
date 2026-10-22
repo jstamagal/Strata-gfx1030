@@ -77,6 +77,16 @@ void Engine::tp_init(const Model& a, const Model& b, int context, int chunk, int
                 flag[0] = flag[1] = 0;
             }
         }
+        if (tp_skew && tp_join_row && g.n_embd % 32 == 0) {
+            const size_t slots = (m->layers.size() + 1) * 2;
+            tp_skew_counts[d] = dalloc_t<unsigned>(slots);
+            CK(cudaMemset(tp_skew_counts[d], 0, slots * sizeof(unsigned)));
+            CK(cudaHostAlloc((void**)&tp_skew_host[d],
+                             slots * q36tp_skew::samples_per_join * sizeof(q36tp_skew::Sample),
+                             cudaHostAllocPortable | cudaHostAllocMapped));
+            std::memset(tp_skew_host[d], 0,
+                        slots * q36tp_skew::samples_per_join * sizeof(q36tp_skew::Sample));
+        }
     }
     for_devs([&](int d) {
         for (int r = 0; r < 2; ++r) {
@@ -84,6 +94,7 @@ void Engine::tp_init(const Model& a, const Model& b, int context, int chunk, int
             CK(cudaHostGetDevicePointer((void**)&tp_flags[d][r], tp_flags_host[r], 0));
             if (tp_row_host[r]) CK(cudaHostGetDevicePointer((void**)&tp_row_mapped[d][r], tp_row_host[r], 0));
         }
+        if (tp_skew_host[d]) CK(cudaHostGetDevicePointer((void**)&tp_skew_mapped[d], tp_skew_host[d], 0));
         CK(cudaDeviceSynchronize());
     });
     use_mmq = dev_mmq[0] && dev_mmq[1];
@@ -96,6 +107,7 @@ void Engine::tp_init(const Model& a, const Model& b, int context, int chunk, int
                              "STRATA_Q36_TP_HEAD_ROWS", "STRATA_Q36_TP_SMALL_ROWS", "STRATA_Q36_TP_LOGITS_PREFETCH",
                              "STRATA_Q36_TP_ROUTER_FENCE",
                              "STRATA_Q36_TP_ROUTER_PAIR",
+                             "STRATA_Q36_TP_ROUTER_4W", "STRATA_Q36_TP_SKEW", "STRATA_Q36_TP_MMVQ_TRACE",
                              "STRATA_Q36_TP_SMALL_TRACE",
                              "STRATA_Q36_TP_HEAD_Q8", "STRATA_Q36_TP_MOE_JOIN",
                              "STRATA_Q36_TP_FUSE2_CONV_AB", "STRATA_Q36_TP_FUSE2_GDN_Q8", "STRATA_Q36_TP_FUSE2_ROUTER",
@@ -122,6 +134,37 @@ void Engine::tp_init(const Model& a, const Model& b, int context, int chunk, int
             for (size_t li = 0; li < tm.layers.size(); ++li) log_layer(tm.layers[li], (int)li);
             if (tm.has_mtp) log_layer(tm.mtp, (int)tm.layers.size());
         }
+    }
+    if (q36tp::enabled("STRATA_Q36_TP_MMVQ_TRACE")) {
+        const Model& tm = *tp_models[0];
+        auto log_mat = [&](const char* label, const Mat& w, size_t layer) {
+            if (w.d && (w.type == 12 || w.type == 13 || w.type == 23)) std::fprintf(stderr,
+                "strata-q36 TP_MMVQ_TRACE layer %zu %s %s: %d x %d, %.3f MiB weights\n",
+                layer, label, strata::ggml_type_name((uint32_t)w.type), w.n_in, w.n_out,
+                (double)(row_bytes(w.type, w.n_in) * (size_t)w.n_out) / 1048576.);
+        };
+        for (size_t li = 0; li < tm.layers.size(); ++li) {
+            const Layer& L = tm.layers[li];
+            log_mat("qkv", L.qkv, li); log_mat("z", L.zg, li); log_mat("ssm_out", L.ssm_out, li);
+            log_mat("wq", L.wq, li); log_mat("wk", L.wk, li);
+            log_mat("wv", L.wv, li); log_mat("wo", L.wo, li);
+            log_mat("shared_gate", L.sh_gate, li);
+            log_mat("shared_up", L.sh_up, li);
+            log_mat("shared_down", L.sh_down, li);
+        }
+        if (tm.has_mtp) {
+            const size_t li = tm.layers.size();
+            log_mat("mtp_eh_proj", tm.eh_proj, li);
+            log_mat("qkv", tm.mtp.qkv, li); log_mat("z", tm.mtp.zg, li);
+            log_mat("ssm_out", tm.mtp.ssm_out, li);
+            log_mat("wq", tm.mtp.wq, li); log_mat("wk", tm.mtp.wk, li);
+            log_mat("wv", tm.mtp.wv, li); log_mat("wo", tm.mtp.wo, li);
+            log_mat("shared_gate", tm.mtp.sh_gate, li);
+            log_mat("shared_up", tm.mtp.sh_up, li);
+            log_mat("shared_down", tm.mtp.sh_down, li);
+        }
+        log_mat("head", tm.head, tm.layers.size() + 1);
+        log_mat("mtp_head", tm.mtp_head, tm.layers.size() + 1);
     }
     if (tp_launch_stats)
         std::fprintf(stderr, "strata-q36 TP_LAUNCH_STATS: T=1 heads=1 submits 4 transfer calls "
@@ -196,7 +239,13 @@ void Engine::tp_prepare_launch_stats(int requested_mtp) {
 #else
     std::fprintf(stderr, "strata-q36 TP_LAUNCH_STATS: direct eager counts require a HIP linker with --wrap\n");
 #endif
-    if (!tp_graph || verify_k) return;
+    if (!tp_graph || verify_k) {
+        if (tp_skew_counts[0]) for (int d = 0; d < 2; ++d) {
+            use_dev(d);
+            CK(cudaMemset(tp_skew_counts[d], 0, (m->layers.size() + 1) * 2 * sizeof(unsigned)));
+        }
+        return;
+    }
     tp_stats_capturing = true;
     tp_graph_run(1, kChunkCells * 4, false, false, nullptr, true);
     if (m->has_mtp && requested_mtp > 0) {
@@ -210,6 +259,76 @@ void Engine::tp_prepare_launch_stats(int requested_mtp) {
         tp_graph_run(1, kChunkCells * 4, false, true, mtp_seed(), true);
     }
     tp_stats_capturing = false;
+    if (tp_skew_counts[0]) for (int d = 0; d < 2; ++d) {
+        use_dev(d);
+        CK(cudaMemset(tp_skew_counts[d], 0, (m->layers.size() + 1) * 2 * sizeof(unsigned)));
+    }
+}
+
+void Engine::tp_report_skew() {
+    if (!tp_skew_host[0] || !tp_skew_host[1]) {
+        std::fprintf(stderr, "strata-q36 TP_SKEW: row joins unavailable; enable TP_JOIN_ROW with an aligned embedding width\n");
+        return;
+    }
+    const size_t layers = m->layers.size() + (m->has_mtp ? 1 : 0);
+    const size_t slots = (m->layers.size() + 1) * 2;
+    std::vector<unsigned> count[2] = {std::vector<unsigned>(slots), std::vector<unsigned>(slots)};
+    double ticks_per_us[2] = {1., 1.};
+    for (int d = 0; d < 2; ++d) {
+        CK(cudaSetDevice(d));
+        CK(cudaDeviceSynchronize());
+        CK(cudaMemcpy(count[d].data(), tp_skew_counts[d], slots * sizeof(unsigned), cudaMemcpyDeviceToHost));
+#if defined(__HIPCC__)
+        int clock_khz = 0;
+        CK(hipDeviceGetAttribute(&clock_khz, hipDeviceAttributeWallClockRate, d));
+        ticks_per_us[d] = (double)clock_khz / 1000.;
+#else
+        cudaDeviceProp prop{};
+        CK(cudaGetDeviceProperties(&prop, d));
+        ticks_per_us[d] = (double)prop.clockRate / 1000.;
+#endif
+    }
+    for (size_t li = 0; li < layers; ++li) for (int kind = 0; kind < 2; ++kind) {
+        const size_t slot = 2 * li + kind;
+        double wait[2] = {}, prep[2] = {}, total[2] = {};
+        double following[2] = {};
+        unsigned n[2] = {};
+        const bool has_following = kind == 0 || li + 1 < m->layers.size();
+        const size_t next_slot = slot + 1;
+        for (int d = 0; d < 2; ++d) {
+            n[d] = std::min<unsigned>(count[d][slot], q36tp_skew::samples_per_join);
+            for (unsigned i = 0; i < n[d]; ++i) {
+                const auto& s = tp_skew_host[d][slot * q36tp_skew::samples_per_join + i];
+                if (!(s.arrival <= s.publish && s.publish <= s.peer && s.peer <= s.done)) continue;
+                prep[d] += (double)(s.publish - s.arrival) / ticks_per_us[d];
+                wait[d] += (double)(s.peer - s.publish) / ticks_per_us[d];
+                total[d] += (double)(s.done - s.arrival) / ticks_per_us[d];
+            }
+            if (n[d]) { prep[d] /= n[d]; wait[d] /= n[d]; total[d] /= n[d]; }
+            if (has_following) {
+                const unsigned both = std::min<unsigned>(n[d],
+                    std::min<unsigned>(count[d][next_slot], q36tp_skew::samples_per_join));
+                unsigned valid = 0;
+                for (unsigned i = 0; i < both; ++i) {
+                    const auto& now = tp_skew_host[d][slot * q36tp_skew::samples_per_join + i];
+                    const auto& next = tp_skew_host[d][next_slot * q36tp_skew::samples_per_join + i];
+                    if (next.arrival < now.done) continue;
+                    following[d] += (double)(next.arrival - now.done) / ticks_per_us[d];
+                    ++valid;
+                }
+                if (valid) following[d] /= valid;
+            }
+        }
+        if (!n[0] || !n[1]) continue;
+        std::fprintf(stderr,
+            "strata-q36 TP_SKEW layer %zu %s %s: samples %u/%u, prepublish %.2f/%.2f us, "
+            "peer wait %.2f/%.2f us, arrival skew estimate %+0.2f us (positive = rank 0 early), "
+            "join %.2f/%.2f us, next-arrival %.2f/%.2f us\n",
+            li, li == m->layers.size() ? "MTP" : m->layers[li].attn ? "attention" : "GDN",
+            kind ? "MoE" : "mixer", n[0], n[1], prep[0], prep[1], wait[0], wait[1],
+            wait[0] - wait[1], total[0], total[1], following[0], following[1]);
+    }
+    CK(cudaSetDevice(home));
 }
 
 // All callers submit inputs on home. A cross-device event orders their copies without a host wait.
@@ -254,21 +373,29 @@ void Engine::tp_join_norm(float* partial, const float* w, float* hout, int T, bo
         const float* peer = tp_row_mapped[cur_dev][1-cur_dev];
         unsigned* token = tp_token[cur_dev];
         const bool defer_ack = tp_row_defer_ack(T, N);
+        q36tp_skew::Sample* samples = tp_skew_mapped[cur_dev];
+        unsigned* counts = tp_skew_counts[cur_dev];
+        const int skew_slot = tp_skew_layer * 2 + (quantized ? 0 : 1);
         if (quantized && defer_ack)
-            q36tp_row::join_norm<true, false, true><<<T, kThreads, 0, st>>>(
-                partial, mine, peer, token, cur_dev, x, w, hout, (q36k::QB*) xq, N, m->eps);
+            q36tp_row::launch_join_norm<true, false, true>(
+                partial, mine, peer, token, cur_dev, x, w, hout, (q36k::QB*) xq, N, m->eps,
+                T, st, samples, counts, skew_slot);
         else if (quantized)
-            q36tp_row::join_norm<true, false, false><<<T, kThreads, 0, st>>>(
-                partial, mine, peer, token, cur_dev, x, w, hout, (q36k::QB*) xq, N, m->eps);
+            q36tp_row::launch_join_norm<true, false, false>(
+                partial, mine, peer, token, cur_dev, x, w, hout, (q36k::QB*) xq, N, m->eps,
+                T, st, samples, counts, skew_slot);
         else if (published && defer_ack)
-            q36tp_row::join_norm<false, true, true><<<T, kThreads, 0, st>>>(
-                partial, mine, peer, token, cur_dev, x, w, hout, nullptr, N, m->eps);
+            q36tp_row::launch_join_norm<false, true, true>(
+                partial, mine, peer, token, cur_dev, x, w, hout, nullptr, N, m->eps,
+                T, st, samples, counts, skew_slot);
         else if (published)
-            q36tp_row::join_norm<false, true, false><<<T, kThreads, 0, st>>>(
-                partial, mine, peer, token, cur_dev, x, w, hout, nullptr, N, m->eps);
+            q36tp_row::launch_join_norm<false, true, false>(
+                partial, mine, peer, token, cur_dev, x, w, hout, nullptr, N, m->eps,
+                T, st, samples, counts, skew_slot);
         else
-            q36tp_row::join_norm<false, false, false><<<T, kThreads, 0, st>>>(
-                partial, mine, peer, token, cur_dev, x, w, hout, nullptr, N, m->eps);
+            q36tp_row::launch_join_norm<false, false, false>(
+                partial, mine, peer, token, cur_dev, x, w, hout, nullptr, N, m->eps,
+                T, st, samples, counts, skew_slot);
     } else if (quantized)
         q36tp_fuse2::join_norm<true><<<q36tp::join_blocks, kThreads, 0, st>>>(
             partial, tp_mapped[cur_dev][cur_dev], tp_mapped[cur_dev][1-cur_dev], (size_t) T * N,

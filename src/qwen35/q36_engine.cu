@@ -32,6 +32,7 @@
 #include "q36_tp_moe_join.cuh"
 #include "q36_tp_fuse2.cuh"
 #include "q36_tp_router_pair.cuh"
+#include "q36_tp_skew.cuh"
 #include "q36_tp_join_row.cuh"
 #include "q36_tp_partial_split.cuh"
 #include "q36_tp_fuse3.cuh"
@@ -2304,6 +2305,7 @@ struct Engine {
         const int HK = (int) g.ssm_k_heads, HV = (int) g.ssm_v_heads, D = (int) g.ssm_state_size;
         const int C = (int) g.ssm_conv_channels;
         const int H = (int) g.n_head, HKV = (int) g.n_head_kv, HD = (int) g.head_dim;
+        if (tp_skew) tp_skew_layer = (int) li;
         if (tp && tp_phase != 2) tp_gdn_defer_hist[cur_dev] = nullptr;
         const bool fused_mixer_norm = tp && tp_fuse2_join_norm && fast_k && !verify_k &&
                                       T >= 1 && T <= 4 && N % 32 == 0;
@@ -2567,6 +2569,10 @@ struct Engine {
             if (tp_stats_capturing) ++tp_stats_router[cur_dev];
             if (tp_router_pair && T >= 2)
                 q36tp_router_pair::router_group<<<rows8(router_rows) * ((T + 1) / 2), kThreads, 0, st>>>(
+                    ext ? L.router_ext : L.router, h, logits_r, N, router_rows, T, router_rows, ids, ewts,
+                    L.blobs, L.stride, grp_ptr, grp_start, n_groups, ent_dst, ent_tok, tp_route_done[cur_dev]);
+            else if (tp_router_4w && T == 1)
+                q36tp_fuse2::router_group<false, 4><<<(router_rows + 3) / 4, 128, 0, st>>>(
                     ext ? L.router_ext : L.router, h, logits_r, N, router_rows, T, router_rows, ids, ewts,
                     L.blobs, L.stride, grp_ptr, grp_start, n_groups, ent_dst, ent_tok, tp_route_done[cur_dev]);
             else if (tp_router_fence)
@@ -5513,6 +5519,7 @@ int strata::qwen35::run(int argc, char** argv) {
     struct Report {
         Engine& E;
         ~Report() {
+            if (E.tp && E.tp_skew) E.tp_report_skew();
             if (E.tp && E.tp_launch_stats) {
                 for (int kind = 0; kind < 3; ++kind) for (int t = 1; t <= E.kVerify; ++t) {
                     const long long graph = E.tp_graph_replays[kind][t], eager = E.tp_eager_calls[kind][t];

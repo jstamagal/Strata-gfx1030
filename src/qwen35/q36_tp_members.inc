@@ -8,6 +8,11 @@
     } tp_state[2];
     float *tp_host[2] = {}, *tp_mapped[2][2] = {}, *tp_logits[2] = {};
     float *tp_row_host[2] = {}, *tp_row_mapped[2][2] = {};
+    q36tp_skew::Sample *tp_skew_host[2] = {}, *tp_skew_mapped[2] = {};
+    unsigned* tp_skew_counts[2] = {};
+    bool tp_skew = q36tp::enabled("STRATA_Q36_TP_SKEW");
+    int tp_skew_layer = 0;
+    void tp_report_skew();
     unsigned *tp_flags_host[2] = {}, *tp_flags[2][2] = {}, *tp_token[2] = {};
     cudaEvent_t tp_event[2] = {};
     void tp_swap(int from, int to);
@@ -50,6 +55,7 @@
     bool tp_fuse2_router = q36tp::enabled("STRATA_Q36_TP_FUSE2_ROUTER");
     bool tp_router_fence = q36tp::enabled("STRATA_Q36_TP_ROUTER_FENCE");
     bool tp_router_pair = q36tp::enabled("STRATA_Q36_TP_ROUTER_PAIR");
+    bool tp_router_4w = q36tp::enabled("STRATA_Q36_TP_ROUTER_4W");
     bool tp_fuse2_join_norm = q36tp::enabled("STRATA_Q36_TP_FUSE2_JOIN_NORM");
     bool tp_fuse2_moe_norm = q36tp::enabled("STRATA_Q36_TP_FUSE2_MOE_NORM");
     bool tp_fuse3_gdn_all = q36tp::enabled("STRATA_Q36_TP_FUSE3_GDN_ALL");
