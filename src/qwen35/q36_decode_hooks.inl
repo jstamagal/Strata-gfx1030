@@ -2,12 +2,13 @@
 bool rdna2_mmvq = q36decode::enabled("STRATA_Q36_RDNA2_MMVQ");
 bool moe_out_wide = q36decode::enabled("STRATA_Q36_MOE_OUT_WIDE");
 bool decode_fuse = q36decode::enabled("STRATA_Q36_FUSE");
+bool tpx_q8_t1_fuse = q36decode::enabled("STRATA_Q36_TPX_Q8_T1_FUSE");
 bool expert_fuse = q36decode::enabled("STRATA_Q36_FUSE_EXPERT");
 std::vector<bool> decode_rdna2;
 std::vector<size_t> decode_lds;
 std::vector<int> decode_tiles;
 void decode_init() {
-    if (!(rdna2_mmvq || moe_out_wide || decode_fuse || expert_fuse || tp_head_q8 || tp_fuse3_shared)) return;
+    if (!(rdna2_mmvq || moe_out_wide || decode_fuse || expert_fuse || tp_head_q8 || tp_fuse3_shared || (tp && tpx_q8_t1_fuse))) return;
     for (const char* flag : {"STRATA_Q36_RDNA2_MMVQ", "STRATA_Q36_MOE_OUT_WIDE", "STRATA_Q36_FUSE", "STRATA_Q36_FUSE_EXPERT"})
         if (q36decode::enabled(flag)) std::fprintf(stderr, "strata-q36: %s=1 (experimental, verify on device)\n", flag);
     decode_rdna2.resize(n_dev, false);
@@ -56,15 +57,20 @@ bool decode_mmvq(const Mat& w, const void* qin, float* out, int T) {
     return true;
 }
 bool decode_projections(const Layer& L, int T, float* qkv_b = nullptr, float* al_b = nullptr, float* be_b = nullptr) {
-    if (!decode_fuse) return false;
+    if (!decode_fuse && !(tp && tpx_q8_t1_fuse && T == 1)) return false;
     if (L.attn) {
         if (!decode_q8_ok(L.wq, T) || !decode_q8_ok(L.wk, T) || !decode_q8_ok(L.wv, T)) return false;
+        q36tpx::dense_trace(L.wq.name, L.wq.type, L.wq.n_in, L.wq.n_out, "fused_qkv", T, L.wq.d);
+        q36tpx::dense_trace(L.wk.name, L.wk.type, L.wk.n_in, L.wk.n_out, "fused_qkv", T, L.wk.d);
+        q36tpx::dense_trace(L.wv.name, L.wv.type, L.wv.n_in, L.wv.n_out, "fused_qkv", T, L.wv.d);
         q36decode::project(decode_mat(L.wq, qg), decode_mat(L.wk, kx), decode_mat(L.wv, vx), xq, {}, T, st);
         decode_check_mat("fuse Q", L.wq, xq, qg, T);
         decode_check_mat("fuse K", L.wk, xq, kx, T);
         decode_check_mat("fuse V", L.wv, xq, vx, T);
     } else {
         if (!decode_q8_ok(L.qkv, T) || !decode_q8_ok(L.zg, T)) return false;
+        q36tpx::dense_trace(L.qkv.name, L.qkv.type, L.qkv.n_in, L.qkv.n_out, "fused_qkv", T, L.qkv.d);
+        q36tpx::dense_trace(L.zg.name, L.zg.type, L.zg.n_in, L.zg.n_out, "fused_qkv", T, L.zg.d);
         q36decode::AB ab{L.alpha, L.beta, h, L.dt, L.ssm_a, al_b, be_b, (int) m->g.n_embd, (int) m->g.ssm_v_heads};
         q36decode::project(decode_mat(L.qkv, qkv_b), decode_mat(L.zg, z), {}, xq, ab, T, st);
         decode_check_mat("fuse QKV", L.qkv, xq, qkv_b, T);
@@ -86,6 +92,8 @@ bool decode_shared(const Layer& L, int T) {
     if (!(decode_fuse || (tp && tp_fuse3_shared)) || !decode_q8_ok(L.sh_gate, T) || !decode_q8_ok(L.sh_up, T) ||
         L.sh_gate.n_in != L.sh_up.n_in || L.sh_gate.n_out != L.sh_up.n_out || L.sh_gate.n_out % 32) return false;
     if (tp_stats_capturing && tp && tp_fuse3_shared && !decode_fuse) tp_stats_shared[cur_dev] += 2;
+    q36tpx::dense_trace(L.sh_gate.name, L.sh_gate.type, L.sh_gate.n_in, L.sh_gate.n_out, "fused_shared", T, L.sh_gate.d);
+    q36tpx::dense_trace(L.sh_up.name, L.sh_up.type, L.sh_up.n_in, L.sh_up.n_out, "fused_shared", T, L.sh_up.d);
     q36decode::shared(decode_mat(L.sh_gate, nullptr), decode_mat(L.sh_up, nullptr), xq, q8, T, st);
     if (verify_k) {
         float* ref = nullptr;

@@ -842,6 +842,10 @@ if(STRATA_ENABLE_CUDA OR STRATA_ENABLE_HIP)
     set_source_files_properties(tests/hip/tpx_engine_call.cpp PROPERTIES LANGUAGE HIP)
     target_include_directories(hip_tpx_engine_call PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/qwen35)
     target_link_libraries(hip_tpx_engine_call PRIVATE strata_kernels strata_hip_runtime)
+    add_executable(hip_tpx_q8_fuse tests/hip/tpx_q8_fuse.cpp)
+    set_source_files_properties(tests/hip/tpx_q8_fuse.cpp PROPERTIES LANGUAGE HIP)
+    target_include_directories(hip_tpx_q8_fuse PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/qwen35)
+    target_link_libraries(hip_tpx_q8_fuse PRIVATE strata_kernels strata_hip_runtime)
     # STRATA_MMVQ_ROW: the one-wavefront-per-row dense projections against the default native_mmvq kernels, bit for
     # bit (every type, 1-8 columns, every layout); --bench times the decode window's shapes
     add_executable(hip_mmvq_row_parity tests/hip/mmvq_row_parity.cpp)

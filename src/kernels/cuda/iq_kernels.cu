@@ -4909,6 +4909,7 @@ __global__ void __launch_bounds__(256) native_gu_fused_kernel(const unsigned lon
     }
 }
 
+#include "../../qwen35/q36_tpx_gu_fused.cuh"
 
 #if defined(__HIPCC__)
 // STRATA_EXP_IQ2S=1 keeps mode 8's lane sums, float scaling, butterfly and q8_1 epilogue.
@@ -5172,6 +5173,7 @@ void native_expert_tpx_tune(int gu, int down) {
     g_tpx_gu = gu;
     g_tpx_down = down;
 }
+void native_expert_tpx_fused_t1_tune(int mode) { g_tpx_gu_fused_t1 = mode; }
 
 namespace {
 bool g_grouped_v1 = env_on("STRATA_GROUPED_V1");
@@ -5212,7 +5214,7 @@ bool native_expert_expdec_takes(const NativeExpertLayout& L, bool& gu, bool& dow
 void native_expert_grouped(const NativeExpertLayout& L, const unsigned long long* grp_ptr, const int32_t* grp_start,
                            const int32_t* n_groups, const int32_t* ent_dst, const int32_t* ent_tok, int64_t cap_groups,
                            int64_t cap_entries, const void* x_q8_1, void* scratch, float* out, void* stream,
-                           int64_t grid_groups) {
+                           int64_t grid_groups, bool tp_single_token) {
     if (cap_groups <= 0 || cap_entries <= 0) return;
     if (L.n_ff % 32 != 0) { std::fprintf(stderr, "native_expert_grouped: n_ff %lld\n", (long long) L.n_ff); std::exit(1); }
     cudaStream_t s = (cudaStream_t) stream;
@@ -5299,6 +5301,13 @@ void native_expert_grouped(const NativeExpertLayout& L, const unsigned long long
     if (fused_gu && g_exp_phase != 2) {
         const dim3 gl((unsigned) (L.n_ff / 32), (unsigned) cap_groups);
         const size_t sh = (size_t) LDS_NT * (size_t) (L.n_embd / 32) * sizeof(block_q8_1);
+        const bool tpx_t1 = tp_single_token && tpx_switch(g_tpx_gu_fused_t1, "STRATA_Q36_TPX_GU_FUSED_T1") &&
+                            cap_entries == cap_groups && (L.gu_type == 18 || L.gu_type == 23);
+        if (tpx_t1) {
+            if (L.gu_type == 18) tpx_gu_fused_t1_kernel<18><<<gl, 256, 0, s>>>(grp_ptr, grp_start, n_groups, ent_tok, X, L, hq);
+            else tpx_gu_fused_t1_kernel<23><<<gl, 256, 0, s>>>(grp_ptr, grp_start, n_groups, ent_tok, X, L, hq);
+            tpx_expert_trace("gu fused t1", L, true);
+        } else {
 #if defined(__HIPCC__)
         static const bool iq2s = [] { const char* v = std::getenv("STRATA_EXP_IQ2S"); return v && v[0] == '1'; }();
         // Small entry sets favor the original IQ3 kernel on gfx1030.  Capacity is an entry
@@ -5318,6 +5327,7 @@ void native_expert_grouped(const NativeExpertLayout& L, const unsigned long long
             case 21: native_gu_fused_kernel<21><<<gl, 256, sh, s>>>(grp_ptr, grp_start, n_groups, ent_tok, X, L, hq); break;
             case 23: native_gu_fused_kernel<23><<<gl, 256, sh, s>>>(grp_ptr, grp_start, n_groups, ent_tok, X, L, hq); break;
             default: native_gu_fused_kernel<22><<<gl, 256, sh, s>>>(grp_ptr, grp_start, n_groups, ent_tok, X, L, hq); break;
+        }
         }
         check("native_expert_grouped/gu fused");
     }

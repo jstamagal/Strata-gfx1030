@@ -43,6 +43,7 @@ void Engine::tp_split_draft_head(int T) {
         const float* src = hmtp + (size_t) (T - 1) * N;
         quant(src, N, 1, q8);
         const uint8_t* weights = d ? mtp_head_peer : m->head.d;
+        q36tpx::dense_trace(m->head.name + "#mtp_short", m->head.type, N, rows, "tp_mtp_short_head", 1, weights);
         const uint8_t* packed = nullptr;
         if (!d) for (const auto& p : m->packed)
             if (std::get<0>(p) == m->head.d) packed = std::get<1>(p);

@@ -36,6 +36,7 @@
 #include "q36_tp_partial_split.cuh"
 #include "q36_tp_fuse3.cuh"
 #include "q36_decode.cuh"
+#include "q36_tpx_dense_trace.hpp"
 #include "q36_experts.hpp"
 #include "q36_mtp_policy.h"
 #if defined(STRATA_Q36_CPU_POOL)
@@ -1019,6 +1020,7 @@ struct Mat {
     const uint8_t* d = nullptr;   // device, GGUF blocks
     int type = -1;
     int n_in = 0, n_out = 0;
+    std::string name;             // trace label; empty for an absent optional matrix
 };
 
 struct Layer {
@@ -1243,6 +1245,7 @@ bool load(const std::string& path, Model& m, std::string& err, bool want_mtp, co
             t = &shard;
         }
         Mat w;
+        w.name = name;
         w.type = (int) t->type;
         w.n_in = (int) t->shape[0];
         w.n_out = (int) t->shape[1];
@@ -2284,8 +2287,9 @@ struct Engine {
     }
     /// y [T][n_out] = W x from x's q8_1 image, 8 columns per launch.
     void mmq(const Mat& w, const void* q, float* out, int T) {
-        if (decode_mmvq(w, q, out, T)) return;
-        if (q8_small(w, q, out, T)) return;
+        if (decode_mmvq(w, q, out, T)) { q36tpx::dense_trace(w.name, w.type, w.n_in, w.n_out, "rdna2", T, w.d); return; }
+        if (q8_small(w, q, out, T)) { q36tpx::dense_trace(w.name, w.type, w.n_in, w.n_out, "q8_small", T, w.d); return; }
+        q36tpx::dense_trace(w.name, w.type, w.n_in, w.n_out, "native_mmvq", T, w.d);
         const size_t qb = K::native_q8_1_bytes(w.n_in, 1);
         for (int c0 = 0; c0 < T; c0 += 8) {
             const int nc = std::min(8, T - c0);
@@ -2666,7 +2670,7 @@ struct Engine {
             if ((mtp_tpx && tp && li == m->layers.size() && T == 1) ||
                 !decode_experts(L, T, std::min<int64_t>(n_ent, g.n_expert), n_ent))
                 K::native_expert_grouped(L.L, grp_ptr, grp_start, n_groups, ent_dst, ent_tok,
-                                         std::min<int64_t>(n_ent, g.n_expert), n_ent, xq, escr, eparts, st);
+                                         std::min<int64_t>(n_ent, g.n_expert), n_ent, xq, escr, eparts, st, 0, tp && T == 1);
         }
         // the shared expert, scaled by sigmoid(w . h)
         if (T > kGemmT) k_to_f16<<<grid1((int64_t) N * T), kThreads, 0, st>>>(h, x16, (int64_t) N * T);
@@ -5582,6 +5586,10 @@ int strata::qwen35::run(int argc, char** argv) {
     if (on("STRATA_Q36_TPX_Q8_ROW")) std::fprintf(stderr, "strata-q36: STRATA_Q36_TPX_Q8_ROW=1 (TP Q8_0 dense row waves)\n");
     if (on("STRATA_Q36_TPX_Q8_HEAD_ROW")) std::fprintf(stderr, "strata-q36: STRATA_Q36_TPX_Q8_HEAD_ROW=1 (TP Q8_0 head row waves)\n");
     if (on("STRATA_Q36_TPX_K_ROW")) std::fprintf(stderr, "strata-q36: STRATA_Q36_TPX_K_ROW=1 (TP IQ4_XS/Q4_K/Q5_K dense row waves)\n");
+    if (on("STRATA_Q36_TPX_Q8_T1_ROW")) std::fprintf(stderr, "strata-q36: STRATA_Q36_TPX_Q8_T1_ROW=1 (T=1 Q8_0 row waves)\n");
+    if (on("STRATA_Q36_TPX_Q8_T1_FUSE")) std::fprintf(stderr, "strata-q36: STRATA_Q36_TPX_Q8_T1_FUSE=1 (T=1 TP Q8 GDN/attention projections)\n");
+    if (on("STRATA_Q36_TPX_GU_FUSED_T1")) std::fprintf(stderr, "strata-q36: STRATA_Q36_TPX_GU_FUSED_T1=1 (T=1 IQ3_XXS/IQ4_XS fused gate/up)\n");
+    if (on("STRATA_Q36_TPX_DENSE_TRACE")) std::fprintf(stderr, "strata-q36: STRATA_Q36_TPX_DENSE_TRACE=1 (T=1 dense TP shard bytes per call site)\n");
     E.mtp_stats.enabled = on("STRATA_Q36_MTP_STATS");
     E.mtp_adapt = on("STRATA_Q36_MTP_ADAPT");
     E.mtp_ngram = on("STRATA_Q36_MTP_NGRAM");

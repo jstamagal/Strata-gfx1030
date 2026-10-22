@@ -165,13 +165,13 @@ struct Lab {
         ck(cudaMemcpy(dst, ds.data(), ds.size() * 4, cudaMemcpyHostToDevice), "dst");
         ck(cudaMemcpy(tok, tk.data(), tk.size() * 4, cudaMemcpyHostToDevice), "tok");
     }
-    cudaGraphExec_t graph(cudaStream_t s, int phase, int layers) {
-        k::native_expert_set_mode(-1, phase);
+    cudaGraphExec_t graph(cudaStream_t s, int phase, int layers, int mode = -1) {
+        k::native_expert_set_mode(mode, phase);
         cudaGraph_t g;
         cudaGraphExec_t ge;
         ck(cudaStreamBeginCapture(s, cudaStreamCaptureModeThreadLocal), "capture");
         for (int l = 0; l < layers; ++l)
-            k::native_expert_grouped(L, ptr[l], start, n, dst, tok, cap, cap, xq, scr, out, s, 0);
+            k::native_expert_grouped(L, ptr[l], start, n, dst, tok, cap, cap, xq, scr, out, s, 0, T == 1);
         ck(cudaStreamEndCapture(s, &g), "capture");
         size_t nodes = 0;
         ck(cudaGraphGetNodes(g, nullptr, &nodes), "nodes");
@@ -268,7 +268,8 @@ std::vector<int> shape(int T) {
 
 int main(int argc, char** argv) {
     const bool hash = argc > 1 && std::string(argv[1]) == "--hash";
-    const bool tpx_compare = argc > 1 && std::string(argv[1]) == "--tpx-compare";
+    const bool tpx_fused_t1 = argc > 1 && std::string(argv[1]) == "--tpx-fused-t1";
+    const bool tpx_compare = argc > 1 && (std::string(argv[1]) == "--tpx-compare" || tpx_fused_t1);
     int only_gu = -1, only_d = -1, only_T = 0;
     for (int i = 1; i + 1 < argc; ++i) {
         if (std::string(argv[i]) == "--pair") { std::sscanf(argv[i + 1], "%d/%d", &only_gu, &only_d); }
@@ -287,16 +288,20 @@ int main(int argc, char** argv) {
             std::mt19937 rng(1234u + (unsigned) pr[0] * 100u + (unsigned) pr[1]);
             for (int T = 1; T <= 4; ++T) {
                 if (only_T && T != only_T) continue;
+                if (tpx_fused_t1 && (T != 1 || (pr[0] != 18 && pr[0] != 23))) continue;
                 Lab lab(pr[0], pr[1], T, T * kK, rng, s);
                 lab.plan(shape(T), rng);
                 k::native_expert_tpx_tune(0, 0);
-                auto old_gu = lab.graph(s, 1, kLayers), old_down = lab.graph(s, 2, kLayers), old_all = lab.graph(s, 0, kLayers);
-                k::native_expert_tpx_tune(1, 0);
-                auto new_gu = lab.graph(s, 1, kLayers);
-                k::native_expert_tpx_tune(0, 1);
-                auto new_down = lab.graph(s, 2, kLayers);
-                k::native_expert_tpx_tune(1, 1);
-                auto new_all = lab.graph(s, 0, kLayers);
+                k::native_expert_tpx_fused_t1_tune(0);
+                const int em = tpx_fused_t1 ? 8 : -1;
+                auto old_gu = lab.graph(s, 1, kLayers, em), old_down = lab.graph(s, 2, kLayers, em), old_all = lab.graph(s, 0, kLayers, em);
+                if (tpx_fused_t1) k::native_expert_tpx_fused_t1_tune(1);
+                else k::native_expert_tpx_tune(1, 0);
+                auto new_gu = lab.graph(s, 1, kLayers, em);
+                if (!tpx_fused_t1) k::native_expert_tpx_tune(0, 1);
+                auto new_down = lab.graph(s, 2, kLayers, em);
+                if (!tpx_fused_t1) k::native_expert_tpx_tune(1, 1);
+                auto new_all = lab.graph(s, 0, kLayers, em);
                 const float gu0 = median_us(s, old_gu), gu1 = median_us(s, new_gu);
                 // Both down graphs read hq from the last complete expert call.
                 const float d0 = median_us(s, old_down), d1 = median_us(s, new_down);
@@ -332,6 +337,7 @@ int main(int argc, char** argv) {
             }
         }
         k::native_expert_tpx_tune(-1, -1);
+        k::native_expert_tpx_fused_t1_tune(-1);
         return pass ? 0 : 1;
     }
     if (hash) {

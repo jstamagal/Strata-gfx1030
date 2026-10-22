@@ -372,6 +372,7 @@ void Engine::tp_head(int T, int heads, bool mtp, bool draft, float* output, int3
         if (heads && !short_draft) {
             const float* src = (mtp ? hmtp : hmain) + (size_t)(T-heads) * N;
             const int nb = m->head.n_in / 32;
+            q36tpx::dense_trace(m->head.name, m->head.type, m->head.n_in, m->head.n_out, "tp_head_dispatch", heads, m->head.d);
             if (tp_head_rows && heads == 1 && m->head.type == 8 && m->head.n_in % 32 == 0 && nb <= 128) {
                 prep(src, m->head.n_in, 1, q8);
                 const uint8_t* pk = nullptr;
