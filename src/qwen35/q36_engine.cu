@@ -28,6 +28,7 @@
 #include "strata/qwen35/engine.hpp"
 #include "q36_kernels.cuh"
 #include "q36_rope.cuh"
+#include "q36_q4_dense.cuh"
 #include "q36_tp_plan.hpp"
 #include "q36_tp_collective.cuh"
 #include "q36_tp_moe_join.cuh"
@@ -1690,9 +1691,13 @@ struct Engine {
     std::vector<std::vector<int32_t>> row_ids;   // [main layer][row * top_k + k] of the last such call
     void count_rows(int n) {
         const int Kp = (int) m->top_k;
-        for (size_t li = 0; li < row_ids.size() && li < hy.size(); ++li)
-            if (!row_ids[li].empty())
-                for (int e = 0; e < n * Kp; ++e) hy[li].score[(size_t) row_ids[li][(size_t) e]] += 1.0;
+        auto count = [&] {
+            for (size_t li = 0; li < row_ids.size() && li < hy.size(); ++li)
+                if (!row_ids[li].empty())
+                    for (int e = 0; e < n * Kp; ++e) hy[li].score[(size_t) row_ids[li][(size_t) e]] += 1.0;
+        };
+        if (tp) { for (int d = 0; d < 2; ++d) { use_dev(d); count(); } use_dev(home); }
+        else count();
     }
     void after_rows(int n) {   // a decode step / verify window kept n rows: count them, rebalance at the boundary
         if (!m->hybrid) return;
@@ -2141,6 +2146,20 @@ struct Engine {
         }
         return true;
     }
+    bool q4_dense(const Mat& w, const void* q, float* out, int T) {
+        if (!q36tp::enabled("STRATA_Q36_Q4_DENSE") || w.type != 2 || T < 1 || T > 8 || w.n_in % 32) return false;
+        q36q4::launch(w.d, q, out, w.n_in, w.n_out, T, st);
+        if (verify_k) {
+            float* ref = nullptr;
+            const size_t n = (size_t)T * w.n_out;
+            CK(cudaMalloc((void**)&ref, n * sizeof(float)));
+            K::native_mmvq(w.type, w.d, q, ref, w.n_in, w.n_out, T, st);
+            verify_cmp("q4 dense", out, ref, n, " n_in " + std::to_string(w.n_in) +
+                       " n_out " + std::to_string(w.n_out) + " T " + std::to_string(T));
+            CK(cudaFree(ref));
+        }
+        return true;
+    }
     // ---- the q8_1 images produced by the norm kernels themselves (fast_k, T <= kGemmT): xq_ready = the layer's input h is
     // already quantized in xq (k_moe_out_small of the layer before), xq_post = the MoE input h is (k_add_rms_q)
     bool xq_ready = false, xq_post = false;
@@ -2385,6 +2404,7 @@ struct Engine {
     /// y [T][n_out] = W x from x's q8_1 image, 8 columns per launch.
     void mmq(const Mat& w, const void* q, float* out, int T) {
         if (decode_mmvq(w, q, out, T)) { q36tpx::dense_trace(w.name, w.type, w.n_in, w.n_out, "rdna2", T, w.d); return; }
+        if (q4_dense(w, q, out, T)) { q36tpx::dense_trace(w.name, w.type, w.n_in, w.n_out, "q4_dense", T, w.d); return; }
         if (q8_small(w, q, out, T)) { q36tpx::dense_trace(w.name, w.type, w.n_in, w.n_out, "q8_small", T, w.d); return; }
         q36tpx::dense_trace(w.name, w.type, w.n_in, w.n_out, "native_mmvq", T, w.d);
         const size_t qb = K::native_q8_1_bytes(w.n_in, 1);
@@ -2852,6 +2872,7 @@ struct Engine {
                 !decode_experts(L, T, std::min<int64_t>(n_ent, g.n_expert), n_ent))
                 K::native_expert_grouped(L.L, grp_ptr, grp_start, n_groups, ent_dst, ent_tok,
                                          std::min<int64_t>(n_ent, g.n_expert), n_ent, xq, escr, eparts, st, 0, tp && T == 1);
+            verify_tpx_experts(L, std::min<int64_t>(n_ent, g.n_expert), n_ent);
             if (T <= 4) after_routed = tp_branch_mark();
         }
         // the shared expert, scaled by sigmoid(w . h)
@@ -3170,8 +3191,11 @@ struct Engine {
         CK(cudaEventRecord(ev_route, st));
         group_entries(L, hy[li].slot_of_d, T);
         if (!xq_post) quant(h, N, T, xq);   // the experts' and the shared expert's input
-        K::native_expert_grouped(L.L, grp_ptr, grp_start, n_groups, ent_dst, ent_tok,
-                                 std::min<int64_t>(n_ent, g.n_expert), n_ent, xq, escr, eparts, st);
+        if (verify_k) CK(cudaMemsetAsync(eparts, 0, (size_t)n_ent * N * sizeof(float), st));
+        if (!decode_experts(L, T, std::min<int64_t>(n_ent, g.n_expert), n_ent))
+            K::native_expert_grouped(L.L, grp_ptr, grp_start, n_groups, ent_dst, ent_tok,
+                                     std::min<int64_t>(n_ent, g.n_expert), n_ent, xq, escr, eparts, st);
+        verify_tpx_experts(L, std::min<int64_t>(n_ent, g.n_expert), n_ent);
     }
     /// The CPU half: the entries without a slot on the pool (ggml-cpu's arithmetic for the layer's formats), their
     /// rows uploaded and merged into the entries' rows.
@@ -3231,6 +3255,8 @@ struct Engine {
         } else {
             k_merge_cpu<<<n_ent, kThreads, 0, st>>>(eparts, cpu_out, h_miss, N);   // read over the bus, missed rows only
         }
+        // TP reuses the pinned CPU buffers for its second rank. Finish the first rank's read before overwriting them.
+        if (tp) CK(cudaStreamSynchronize(st));
 #else
         (void) li;
         (void) T;
@@ -3242,6 +3268,13 @@ struct Engine {
     void rebalance(int max_swaps, bool after_prompt = false) {
         static const bool off = std::getenv("STRATA_Q36_FIXED_SLOTS") != nullptr;   // the slots as placed (tests)
         if (!m->hybrid || off || warming) return;
+        if (tp && !tp_rebalancing) {
+            tp_rebalancing = true;
+            for (int d = 0; d < 2; ++d) { use_dev(d); rebalance(max_swaps, after_prompt); }
+            use_dev(home);
+            tp_rebalancing = false;
+            return;
+        }
         // STRATA_Q36_SWAP_MARGIN=c: a newcomer takes a slot only when its routing count beats the resident's by more
         // than c (0, the default: any lead), so near-ties stop trading places after every prompt
         static const double swap_margin = [] { const char* v = std::getenv("STRATA_Q36_SWAP_MARGIN"); return v ? std::atof(v) : 0.0; }();
@@ -3283,7 +3316,7 @@ struct Engine {
             const Layer& L = layer_at((int) li);
             const int S = L.n_slots;
             if (S <= 0 || S >= ne) continue;
-            use_dev(dev_of[li]);
+            if (!tp) use_dev(dev_of[li]);
             std::vector<int> order((size_t) ne);
             for (int x = 0; x < ne; ++x) order[(size_t) x] = x;
             std::sort(order.begin(), order.end(), [&](int a, int b) { return H.score[(size_t) a] > H.score[(size_t) b]; });
@@ -3326,7 +3359,7 @@ struct Engine {
             for (double& v : H.score) v *= 0.5;
             CK(cudaStreamSynchronize(st));   // slot_of's host copy is pageable: the upload is done before it changes
         }
-        use_dev(home);
+        if (!tp) use_dev(home);
         CK(cudaStreamSynchronize(st));
         const int kind = after_prompt ? 1 : 0;
         hy_reb_ms[kind] += ms_since(t_reb);
@@ -5655,7 +5688,7 @@ int strata::qwen35::run(int argc, char** argv) {
         std::fprintf(stderr, "strata-q36: --kv-resident needs --kv int8 and at least 20480 cells (more than --chunk)\n"); return 2;
     }
     if (tensor_split && (expert_slots > 0 || expert_vram >= 0)) {
-        std::fprintf(stderr, "strata-q36: TP requires all expert shards resident; CPU/hybrid expert limits are unsupported\n"); return 2;
+        std::fprintf(stderr, "strata-q36: TP sizes its half-expert cache from free VRAM; --expert-slots and --expert-vram do not apply\n"); return 2;
     }
     if (tensor_split && chunk == 0) {
         const char* cv = std::getenv("STRATA_Q36_CHUNK");
@@ -5765,7 +5798,7 @@ int strata::qwen35::run(int argc, char** argv) {
     }
     if (tensor_split) E.tp_init(m, tp_peer, ctx, chunk, batch, vision);
     else E.init(m, ctx, chunk, batch, vision);
-    if (tensor_split ? !place_experts_tp(m, tp_peer, E, err) : E.n_dev > 1 ? !place_experts_split(m, E, cpu_threads, hybrid_rows, err)
+    if (tensor_split ? !place_experts_tp(m, tp_peer, E, cpu_threads, err) : E.n_dev > 1 ? !place_experts_split(m, E, cpu_threads, hybrid_rows, err)
                     : !place_experts(m, E, expert_vram, cpu_threads, hybrid_rows, expert_slots, err)) {
         std::fprintf(stderr, "strata-q36: %s\n", err.c_str());
         return 1;
@@ -5849,6 +5882,8 @@ int strata::qwen35::run(int argc, char** argv) {
     if (on("STRATA_Q36_TPX_Q8_T1_FUSE")) std::fprintf(stderr, "strata-q36: STRATA_Q36_TPX_Q8_T1_FUSE=1 (T=1 TP Q8 GDN/attention projections)\n");
     if (on("STRATA_Q36_TPX_GU_FUSED_T1")) std::fprintf(stderr, "strata-q36: STRATA_Q36_TPX_GU_FUSED_T1=1 (T=1 IQ3_XXS/IQ4_XS fused gate/up)\n");
     if (on("STRATA_Q36_TPX_DENSE_TRACE")) std::fprintf(stderr, "strata-q36: STRATA_Q36_TPX_DENSE_TRACE=1 (T=1 dense TP shard bytes per call site)\n");
+    if (on("STRATA_Q36_Q4_DENSE")) std::fprintf(stderr, "strata-q36: STRATA_Q36_Q4_DENSE=1 (Q4_0 dense row waves)\n");
+    if (on("STRATA_Q36_TP_MTP_HEAD")) std::fprintf(stderr, "strata-q36: STRATA_Q36_TP_MTP_HEAD=1 (sharded nextn head)\n");
     E.mtp_stats.enabled = on("STRATA_Q36_MTP_STATS");
     E.mtp_adapt = on("STRATA_Q36_MTP_ADAPT");
     E.mtp_ngram = on("STRATA_Q36_MTP_NGRAM");

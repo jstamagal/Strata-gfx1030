@@ -56,7 +56,6 @@ __global__ void __launch_bounds__(128) q36_down_rows2(const unsigned long long* 
         const int32_t* groups, const int32_t* dst, const block_q8_1* x, NativeExpertLayout L, float* out) {
     if ((int) blockIdx.y >= *groups) return;
     using F = Fmt<TD>;
-    using S = Split<TD>;
     const int lane = threadIdx.x & 31, r = blockIdx.x * 8 + 2 * (threadIdx.x >> 5);
     if (r >= L.n_embd) return;
     const uint8_t* w = (const uint8_t*) ptr[blockIdx.y] + L.down_off + (size_t) r * L.d_row;
@@ -66,13 +65,18 @@ __global__ void __launch_bounds__(128) q36_down_rows2(const unsigned long long* 
         float a[GRP_NC] = {}, b[GRP_NC] = {};
         for (int k = lane; k < nb * F::ipb; k += 32) {
             const int kb = k / F::ipb, iq = F::step * (k % F::ipb);
-            const auto wa = S::template load<false>(w, kb, iq);
-            const auto wb = S::template load<false>(w + (r + 1 < L.n_embd ? L.d_row : 0), kb, iq);
 #pragma unroll
             for (int c = 0; c < GRP_NC; ++c) if (c < n) {
                 const block_q8_1* u = x + (size_t) (e + c) * xb + kb * (F::qk / 32);
-                a[c] += S::apply(wa, u, iq);
-                b[c] += S::apply(wb, u, iq);
+                if constexpr (TD == 2 || TD == 3) {
+                    a[c] += F::dot(w, u, kb, iq);
+                    b[c] += F::dot(w + (r + 1 < L.n_embd ? L.d_row : 0), u, kb, iq);
+                } else {
+                    const auto wa = Split<TD>::template load<false>(w, kb, iq);
+                    const auto wb = Split<TD>::template load<false>(w + (r + 1 < L.n_embd ? L.d_row : 0), kb, iq);
+                    a[c] += Split<TD>::apply(wa, u, iq);
+                    b[c] += Split<TD>::apply(wb, u, iq);
+                }
             }
         }
 #pragma unroll
@@ -93,10 +97,11 @@ bool q36_expert_decode(const NativeExpertLayout& L, const unsigned long long* pt
     // Preserve alternate global experimental layouts, whose arithmetic may differ.
     if (g_old_kernels || g_grouped_v1 || exp_mode() != 0 || g_exp_phase != 0 || expdec_mode()) return false;
     const bool gu_ok = L.gu_type == 16 || L.gu_type == 18 || L.gu_type == 19 || L.gu_type == 22 ||
-                       L.gu_type == 23 || L.gu_type == 11 || L.gu_type == 12 || L.gu_type == 8;
+                       L.gu_type == 23 || L.gu_type == 11 || L.gu_type == 12 || L.gu_type == 8 ||
+                       L.gu_type == 2 || L.gu_type == 3;
     const bool dn_ok = d_qk(L.d_type) > 0;
     if (!gu_ok || !dn_ok) return false;
-    rows2 = rows2 && (L.d_type == 12 || L.d_type == 8) && L.n_ff <= L.n_embd;
+    rows2 = rows2 && (L.d_type == 12 || L.d_type == 8 || L.d_type == 2 || L.d_type == 3) && L.n_ff <= L.n_embd;
     if (!rows2 && !fuse) return false;
     const size_t f = (size_t) cap_entries * L.n_ff * sizeof(float), fa = (f + 255) & ~(size_t) 255;
     float* gate = (float*) scratch;
@@ -108,13 +113,13 @@ bool q36_expert_decode(const NativeExpertLayout& L, const unsigned long long* pt
     const dim3 gf((unsigned) (L.n_ff / 32), (unsigned) cap_groups);
 #define Q36_GU(TY) case TY: if (fuse) q36_gu_quant<TY><<<gf, 256, 0, st>>>(ptr, start, groups, tok, X, L, hq); \
     else launch_gu<TY>(gg, st, ptr, start, groups, tok, X, L, gate, up); break;
-    switch (L.gu_type) { Q36_GU(16) Q36_GU(18) Q36_GU(19) Q36_GU(22) Q36_GU(23) Q36_GU(11) Q36_GU(12) Q36_GU(8) }
+    switch (L.gu_type) { Q36_GU(16) Q36_GU(18) Q36_GU(19) Q36_GU(22) Q36_GU(23) Q36_GU(11) Q36_GU(12) Q36_GU(8) Q36_GU(2) Q36_GU(3) }
 #undef Q36_GU
     if (!fuse) swiglu_q8_1_entries_kernel<<<(unsigned) ((cap_entries * L.n_ff + 255) / 256), 256, 0, st>>>(gate, up, start, groups, L.n_ff, hq);
     const dim3 gd((unsigned) ((L.n_embd + 7) / 8), (unsigned) cap_groups);
     if (rows2) {
 #define Q36_DN(TY) case TY: q36_down_rows2<TY><<<gd, 128, 0, st>>>(ptr, start, groups, dst, hq, L, out); break;
-        switch (L.d_type) { Q36_DN(12) Q36_DN(8) }
+        switch (L.d_type) { Q36_DN(12) Q36_DN(8) Q36_DN(2) Q36_DN(3) }
 #undef Q36_DN
     } else {
 #define Q36_DN(TY) case TY: launch_down<TY>(gd, st, ptr, start, groups, dst, hq, L, out); break;

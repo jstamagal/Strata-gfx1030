@@ -4076,6 +4076,7 @@ bool launch_tpx_gu(const NativeExpertLayout& L, dim3 grid, cudaStream_t s,
 #define TPX_GU(T) case T: return launch_tpx_gu_type<T>(L, grid, s, grp_ptr, grp_start, n_groups, ent_tok, xq, gate, up)
     switch (L.gu_type) {
         TPX_GU(16); TPX_GU(18); TPX_GU(19); TPX_GU(22); TPX_GU(23); TPX_GU(11); TPX_GU(12); TPX_GU(8);
+        TPX_GU(2); TPX_GU(3);
         default: return false;
     }
 #undef TPX_GU
@@ -4099,7 +4100,7 @@ bool launch_tpx_down(const NativeExpertLayout& L, dim3 grid, cudaStream_t s,
 #define TPX_DOWN(T) case T: return launch_tpx_down_type<T>(L, grid, s, grp_ptr, grp_start, n_groups, ent_dst, hq, out)
     switch (L.d_type) {
         TPX_DOWN(16); TPX_DOWN(18); TPX_DOWN(19); TPX_DOWN(22); TPX_DOWN(23);
-        TPX_DOWN(11); TPX_DOWN(12); TPX_DOWN(8);
+        TPX_DOWN(11); TPX_DOWN(12); TPX_DOWN(8); TPX_DOWN(2); TPX_DOWN(3);
         default: return false;
     }
 #undef TPX_DOWN
