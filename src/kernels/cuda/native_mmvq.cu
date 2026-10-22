@@ -2042,20 +2042,29 @@ bool row_launch(const void* weights, const void* x_q8_1, float* y, int n_in, int
             const char* v = std::getenv("STRATA_Q36_TPX_Q8_HEAD_ROW");
             return v && v[0] == '1' && v[1] == '\0';
         }();
+        static const bool t1_env = [] {
+            const char* v = std::getenv("STRATA_Q36_TPX_Q8_T1_ROW");
+            return v && v[0] == '1' && v[1] == '\0';
+        }();
         // The dense T=2 shard already approaches V620 DRAM bandwidth in the
         // decode trace.  The head has many more rows and a measured row-kernel
         // gain, so allow it to be tested without changing the dense calls.
         const bool head_shape = n_in > 0 && n_out / n_in >= 16;
-        const int tpx_rows = g_tpx_q8_rows >= 0 ? g_tpx_q8_rows : (tpx_env || (head_env && head_shape) ? 2 : 0);
-        if (tpx_rows && n_in >= 1024 && n_in % 32 == 0 && n_out >= 2048 && ncols >= 1 && ncols <= 4 && g_multi_exact) {
+        const bool t1_shape = t1_env && ncols == 1 && !head_shape;
+        const int tpx_rows = g_tpx_q8_rows >= 0 ? g_tpx_q8_rows :
+                             t1_shape ? 1 : (tpx_env || (head_env && head_shape) ? 2 : 0);
+        const bool small_t1 = ncols == 1 && (t1_shape || g_tpx_q8_rows > 0);
+        if (tpx_rows && n_in >= 1024 && n_in % 32 == 0 && n_out >= (small_t1 ? 32 : 2048) &&
+            ncols >= 1 && ncols <= 4 && g_multi_exact) {
             const int r = tpx_rows >= 4 ? 4 : tpx_rows >= 2 ? 2 : 1;
             tpx_row_trace(8, n_in, n_out, ncols, r);
             const auto s = static_cast<cudaStream_t>(stream);
+            const int wv = ncols == 1 && n_out < 2048 ? 1 : 4;
             switch (ncols) {
-                case 1: row_launch_n<F, 1>(weights, x_q8_1, y, n_in, n_out, r, 4, s); break;
-                case 2: row_launch_n<F, 2>(weights, x_q8_1, y, n_in, n_out, r, 4, s); break;
-                case 3: row_launch_n<F, 3>(weights, x_q8_1, y, n_in, n_out, r, 4, s); break;
-                default: row_launch_n<F, 4>(weights, x_q8_1, y, n_in, n_out, r, 4, s); break;
+                case 1: row_launch_n<F, 1>(weights, x_q8_1, y, n_in, n_out, r, wv, s); break;
+                case 2: row_launch_n<F, 2>(weights, x_q8_1, y, n_in, n_out, r, wv, s); break;
+                case 3: row_launch_n<F, 3>(weights, x_q8_1, y, n_in, n_out, r, wv, s); break;
+                default: row_launch_n<F, 4>(weights, x_q8_1, y, n_in, n_out, r, wv, s); break;
             }
             return true;
         }
@@ -3266,9 +3275,15 @@ void native_q8_0_mmvq(const void* weights, const void* x_q8_1, float* y,
         const char* v = std::getenv("STRATA_Q36_TPX_Q8_HEAD_ROW");
         return v && v[0] == '1' && v[1] == '\0';
     }();
+    static const bool t1_env = [] {
+        const char* v = std::getenv("STRATA_Q36_TPX_Q8_T1_ROW");
+        return v && v[0] == '1' && v[1] == '\0';
+    }();
+    const bool small_t1 = ncols == 1 && ((t1_env && n_in > 0 && n_out / n_in < 16) || g_tpx_q8_rows > 0);
     tpx_q8 = (g_tpx_q8_rows >= 0 ? g_tpx_q8_rows != 0 :
-              (tpx_env || (head_env && n_in > 0 && n_out / n_in >= 16))) && g_multi_exact &&
-             n_in >= 1024 && n_in % 32 == 0 && n_out >= 2048 && ncols >= 1 && ncols <= 4;
+              (tpx_env || (head_env && n_in > 0 && n_out / n_in >= 16) ||
+               (t1_env && ncols == 1 && n_in > 0 && n_out / n_in < 16))) && g_multi_exact &&
+             n_in >= 1024 && n_in % 32 == 0 && n_out >= (small_t1 ? 32 : 2048) && ncols >= 1 && ncols <= 4;
 #endif
     if (!tpx_q8 && q8_packed_mmvq(weights, x_q8_1, y, n_in, n_out, ncols, stream)) return;
     small_mmvq<Q80Block, 8>(weights, x_q8_1, y, n_in, n_out, ncols, stream);

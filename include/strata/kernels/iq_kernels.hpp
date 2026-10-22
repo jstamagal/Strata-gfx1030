@@ -78,7 +78,7 @@ void iq_xmx_grouped(int ty, const uint8_t* const* a, const uint8_t* const* b, co
 void native_expert_grouped(const NativeExpertLayout& L, const unsigned long long* grp_ptr, const int32_t* grp_start,
                            const int32_t* n_groups, const int32_t* ent_dst, const int32_t* ent_tok, int64_t cap_groups,
                            int64_t cap_entries, const void* x_q8_1, void* scratch, float* out, void* stream,
-                           int64_t grid_groups = 0);
+                           int64_t grid_groups = 0, bool tp_single_token = false);
 /// true: `native_expert_grouped`'s launches before the group stride (STRATA_GROUPED_V1=1 at startup) - a block row
 /// per possible group, SwiGLU and the q8_1 quantization as two kernels over all cap_entries.  Bitwise the same results
 /// (native_grouped_parity checks it); kept for A/B timing.  Set before graph capture; captured graphs keep theirs.
@@ -91,6 +91,7 @@ void native_expert_set_mode(int mode, int phase);
 /// 0 forces the old launch, 1 selects the opt-in 16-lane layout where the shape fits.
 /// Set before graph capture; captured graphs retain their selected kernels.
 void native_expert_tpx_tune(int gu, int down);
+void native_expert_tpx_fused_t1_tune(int mode);  // lab: 0 old, 1 fused T=1 TP variant, -1 environment
 
 /// APR (prism.hadamard): y = H_block (signs * x) per block of `block` values of each of `rows` rows of `width`
 /// (x == y allowed).  `signs`: a device vector of `width` signs, or nullptr (identity).  The same floats as the CPU's
