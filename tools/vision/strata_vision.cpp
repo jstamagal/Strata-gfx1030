@@ -86,7 +86,7 @@ int main(int argc, char** argv) {
     }
 #endif
     std::string mmproj, model;
-    bool gpu = false;
+    bool gpu = false, native_f16 = false;
     int threads = 0, max_tokens = 0, min_tokens = 0;
     llama_flash_attn_type fa = LLAMA_FLASH_ATTN_TYPE_AUTO;
     bool fa_given = false;
@@ -99,6 +99,7 @@ int main(int argc, char** argv) {
         if (a == "--mmproj") mmproj = next();
         else if (a == "--model") model = next();
         else if (a == "--gpu") gpu = true;
+        else if (a == "--native-f16") native_f16 = true;
         else if (a == "--version") {
 #ifdef STRATA_VISION_HIP
             std::printf("strata-vision hip (GPU architectures: %s)\n", STRATA_VISION_HIP_ARCHS);
@@ -191,6 +192,36 @@ int main(int argc, char** argv) {
     }
 #endif
 
+    // Opt-in precision contract: reject a quantized/BF16 projector rather than silently
+    // accepting a different tower. mtmd loads these tensor types unchanged. Its CPU
+    // F16 matmuls use floating-point operands; non-flash attention retains F32 K/V.
+    if (native_f16) {
+        if (gpu || (fa_given && fa != LLAMA_FLASH_ATTN_TYPE_DISABLED)) {
+            std::fprintf(stderr, "--native-f16 requires CPU and --flash-attn off (or omitted)\n");
+            return 2;
+        }
+        gguf_init_params gp{true, nullptr};
+        gguf_context* gg = gguf_init_from_file(mmproj.c_str(), gp);
+        if (!gg) return 2;
+        int64_t f16 = 0, f32 = 0;
+        for (int64_t i = 0; i < gguf_get_n_tensors(gg); ++i) {
+            const auto type = gguf_get_tensor_type(gg, i);
+            if (type == GGML_TYPE_F16) ++f16;
+            else if (type == GGML_TYPE_F32) ++f32;
+            else {
+                std::fprintf(stderr, "--native-f16 refuses tensor %s (%s)\n",
+                             gguf_get_tensor_name(gg, i), ggml_type_name(type));
+                gguf_free(gg);
+                return 2;
+            }
+        }
+        gguf_free(gg);
+        if (!f16) { std::fprintf(stderr, "--native-f16 found no F16 tensors\n"); return 2; }
+        fa = LLAMA_FLASH_ATTN_TYPE_DISABLED;
+        fa_given = true;
+        std::fprintf(stderr, "strata-vision: native F16 CPU, %lld F16 / %lld F32 tensors, "
+                             "no weight conversion, flash attention off\n", (long long)f16, (long long)f32);
+    }
     const auto load_t0 = std::chrono::steady_clock::now();
 #if !defined(_WIN32) && !defined(__APPLE__)   // macOS has no posix_fadvise
     // ask the OS for the projector file up front (128 KiB steps) so the loader's sequential reads find it cached;

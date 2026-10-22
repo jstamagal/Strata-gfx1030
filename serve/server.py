@@ -3021,6 +3021,8 @@ class Vision:
         args = [absolute(cfg["exe"]), "--mmproj", absolute(cfg["mmproj"]), "--model", absolute(cfg["model"])]
         if cfg.get("gpu"):
             args.append("--gpu")
+        if cfg.get("native_f16") is True:
+            args.append("--native-f16")
         if cfg.get("threads"):
             args += ["--threads", str(cfg["threads"])]
         limit = Vision.token_limit(cfg)
