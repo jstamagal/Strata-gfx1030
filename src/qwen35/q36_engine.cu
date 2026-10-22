@@ -145,6 +145,7 @@ __global__ void k_rms_ld(const float* x, int ldx, const float* w, float* out, in
     const float r = rsqrtf(s / (float) n + eps);
     for (int i = threadIdx.x; i < n; i += blockDim.x) yr[i] = xr[i] * r * w[i];
 }
+#include "q36_mtp_fuse.cuh"
 __global__ void k_add_rms(float* x, const float* y, const float* w, float* h, int n, float eps) {
     __shared__ float sh[kThreads];
     float* xr = x + (size_t) blockIdx.x * n;
@@ -1516,8 +1517,18 @@ struct Engine {
     bool mtp_adapt = false, mtp_ngram = false;
     bool mtp_conf = false, mtp_conf_active = false, mtp_short_head = false, mtp_cost = false;
     float mtp_conf_p = 0.25f;
-    double mtp_block_ms = 0., mtp_head_ms = 0.;
+    bool mtp_fuse_norm = q36tp::enabled("STRATA_Q36_MTP_FUSE_NORM");
+    bool mtp_tpx = q36tp::enabled("STRATA_Q36_MTP_TPX");
+    bool mtp_lookup = q36tp::enabled("STRATA_Q36_MTP_LOOKUP");
+    bool mtp_cum = q36tp::enabled("STRATA_Q36_MTP_CUM");
+    bool mtp_device_chain = q36tp::enabled("STRATA_Q36_MTP_DEVICE_CHAIN");
+    bool mtp_lookup_active = false, mtp_cum_active = false, mtp_device_chain_active = false;
+    float mtp_cum_p = 0.1f;
+    int32_t* mtp_chain_picks = nullptr;
+    double mtp_block_ms = 0., mtp_head_ms = 0., mtp_input_ms = 0., mtp_mixer_ms = 0., mtp_moe_ms = 0.;
     long long mtp_cost_calls = 0, mtp_head_calls = 0;
+    double mtp_t1_input_ms = 0., mtp_t1_mixer_ms = 0., mtp_t1_moe_ms = 0., mtp_t1_head_ms = 0.;
+    long long mtp_t1_calls = 0, mtp_t1_head_calls = 0;
 
     // ---- sessions: the conversation states.  One for a single-request engine; --batch N keeps N, each with its own
     // recurrent state and KV cache, so N requests run at once: their rows share one decode window (forward_rows).  The
@@ -2632,7 +2643,8 @@ struct Engine {
         } else {
             group_entries(L, nullptr, T);
             if (!xq_post) quant(h, N, T, xq);   // the experts' and the shared expert's input
-            if (!decode_experts(L, T, std::min<int64_t>(n_ent, g.n_expert), n_ent))
+            if ((mtp_tpx && tp && li == m->layers.size() && T == 1) ||
+                !decode_experts(L, T, std::min<int64_t>(n_ent, g.n_expert), n_ent))
                 K::native_expert_grouped(L.L, grp_ptr, grp_start, n_groups, ent_dst, ent_tok,
                                          std::min<int64_t>(n_ent, g.n_expert), n_ent, xq, escr, eparts, st);
         }
@@ -2776,15 +2788,15 @@ struct Engine {
     }
     void draft_hooks(int n) {
         if (pen_on && pen_n > 0) k_penalize<<<(pen_n + 255) / 256, 256, 0, st>>>(logits_m, n, pen_ids_d, pen_cnt_d, pen_n, pen_rep, pen_freq, pen_pres);
-        if (spec_min_p > 0.f || mtp_conf_active) {
+        if (spec_min_p > 0.f || mtp_conf_active || mtp_cum_active) {
             if (!d_prob) CK(cudaMalloc((void**) &d_prob, 4));
-            if (!mtp_conf_active || !gumbel_on)
+            if (!(mtp_conf_active || mtp_cum_active) || !gumbel_on)
                 k_top_prob<<<1, 1024, 0, st>>>(logits_m, n, d_prob);
         }
         if (gumbel_on) k_gumbel<<<1, 1024, 0, st>>>(logits_m, n, g_inv_t, g_seed, draft_pos, g_top_k);
     }
     void draft_picked_prob(int n) {
-        if (mtp_conf_active && gumbel_on)
+        if ((mtp_conf_active || mtp_cum_active) && gumbel_on)
             q36_mtp_picked_prob<<<1, 1024, 0, st>>>(logits_m, n, pick_m, g_seed, draft_pos, d_prob);
     }
     void head_draft(const float* hn) {
@@ -3487,15 +3499,17 @@ struct Engine {
     /// hand-over of a stopped request to a batch slot) reuses it instead of reading them again.
     int spec_step(int x_tok, const std::vector<int32_t>& fix, int D, std::vector<int32_t>& drafts, int32_t* picks,
                   const std::atomic<bool>* cancel = nullptr, const std::vector<int32_t>* lookup = nullptr) {
+        const long long before_lookup = lookup_steps;
         D = spec_verify(x_tok, fix, D, drafts, lookup);
         int a = 0;
         while (a < D && hpin[2 + a] == drafts[(size_t) a]) ++a;
         if (cancel != nullptr && cancel->load()) a = 0;
-        if (!warming) mtp_stats.record(D, a);
+        if (!warming) mtp_stats.record(D, a, lookup_steps != before_lookup);
         for (int i = 0; i <= a; ++i) picks[i] = hpin[2 + i];
         spec_commit(a);
         return a;
     }
+    void device_draft_chain(int D, int64_t p, float* seeds, int last_row, std::vector<int32_t>& drafts);
     /// A speculative step's first half: the MTP drafts and the verify window [x, d1 .. dD] (D may come back smaller:
     /// a hybrid rebalance boundary); every row's logits in `logits`, the greedy picks in hpin[2 ..].  spec_commit(a)
     /// then keeps x and the first a drafts.
@@ -3530,15 +3544,17 @@ struct Engine {
         const int n_dl = draft_n > 0 && draft_n < m->g.n_vocab ? draft_n : (int) m->g.n_vocab;
         (void) n_dl;
         const float confidence_floor = mtp_conf_active ? mtp_conf_p : spec_min_p;
+        float cumulative_prob = 1.f;
         auto draft_prob = [&]() {
-            if (confidence_floor <= 0.f) return;
+            if (confidence_floor <= 0.f && !mtp_cum_active) return;
             CK(cudaMemcpyAsync(hpin + 3, d_prob, 4, cudaMemcpyDeviceToHost, st));
         };
         auto prob_ok = [&]() {
-            if (confidence_floor <= 0.f) return true;
+            if (confidence_floor <= 0.f && !mtp_cum_active) return true;
             float pr;
             std::memcpy(&pr, hpin + 3, 4);
-            return pr >= confidence_floor;
+            cumulative_prob *= pr;
+            return pr >= confidence_floor && (!mtp_cum_active || cumulative_prob >= mtp_cum_p);
         };
         if (D > 0) {
             draft_prob();
@@ -3550,10 +3566,10 @@ struct Engine {
         int last_row = T0 - 1;   // the row of the previous MTP call whose output seeds the next draft
         // the lookup drafts (the text's own continuation of its last tokens, earlier in the conversation) instead of the
         // chain when they agree with the block's first draft: a longer window for repeated text (code, markup)
-        if (D > 0 && lookup && !lookup->empty() && (*lookup)[0] == drafts[0]) {
+        if (D > 0 && lookup && !lookup->empty() && (*lookup)[0] == drafts[0] && (!mtp_lookup_active || !low)) {
             const int L = (int) std::min<size_t>(lookup->size(), (size_t) (kVerify - 1));
             const int room = (int) std::min<int64_t>(L, ctx - pos - 1);
-            if (room > D || (low && room > 0)) {
+            if (mtp_lookup_active ? (room >= 2 && room >= D) : room > D || (low && room > 0)) {
                 drafts.assign(lookup->begin(), lookup->begin() + room);
                 D = room;
                 low = false;
@@ -3564,7 +3580,10 @@ struct Engine {
             D = 0;
             drafts.clear();
         }
-        for (int d = 1; d < D && !(lookup_steps_mark != lookup_steps); ++d) {   // chained: (the block's own output, the last draft) at the next position
+        if (mtp_device_chain_active && tp && !pen_on && !mtp_cost && confidence_floor <= 0.f && !mtp_cum_active &&
+            D > 1 && lookup_steps_mark == lookup_steps)
+            device_draft_chain(D, pos, seeds, last_row, drafts);
+        else for (int d = 1; d < D && !(lookup_steps_mark != lookup_steps); ++d) {   // chained: (the block's own output, the last draft) at the next position
             hpin[0] = drafts[(size_t) d - 1];
             hpin[1] = (int32_t) (pos + d);
             CK(cudaMemcpyAsync(tok_m, hpin, 4, cudaMemcpyHostToDevice, st));
@@ -3790,6 +3809,7 @@ struct Engine {
 #include "q36_tp_mtp.cuh"
 #include "q36_tp_prompt.cuh"
 #include "q36_tp_graph.cuh"
+#include "q36_mtp_chain.cuh"
 
 // ------------------------------------------------------------------------------------------------ expert placement
 /// The routed experts after the engine's buffers: all in VRAM when they fit in `vram_gib` (< 0: the free VRAM less a
@@ -4642,12 +4662,12 @@ struct Serve {
     std::vector<int32_t> lkd;   // lookup drafts
     /// The continuation of the text's last n tokens (n = 4, then 3) at their latest earlier occurrence, up to 7 tokens
     /// (STRATA_Q36_LOOKUP=0: none).
-    static void lookup_drafts(const std::vector<int32_t>& h, std::vector<int32_t>& out) {
+    static void lookup_drafts(const std::vector<int32_t>& h, std::vector<int32_t>& out, bool bigrams = false) {
         out.clear();
         static const bool off = [] { const char* v = std::getenv("STRATA_Q36_LOOKUP"); return v && v[0] == '0'; }();
         if (off) return;
         const int e = (int) h.size();
-        for (int n = 4; n >= 3; --n) {
+        for (int n = 4; n >= (bigrams ? 2 : 3); --n) {
             if (e < n + 1) continue;
             for (int j = e - n - 1; j >= 0; --j) {
                 bool ok = true;
@@ -5120,7 +5140,7 @@ struct Serve {
             if (n_active > 0) window();
             if (spec && smp.needs_logits() && n_active == 0 && E.pos + E.mtp_d + 1 <= E.ctx) {
                 // speculative sampling: the window's row i is the distribution after x and the first i drafts
-                lookup_drafts(hist, lkd);
+                lookup_drafts(hist, lkd, E.mtp_lookup);
                 static const bool gum_off = [] { const char* v = std::getenv("STRATA_Q36_GUMBEL"); return v && v[0] == '0'; }();
                 const bool gum = !gum_off && smp.temperature > 0.f;
                 const int64_t p_x = E.pos;   // x's cell: row a samples the token at p_x + 1 + a
@@ -5131,8 +5151,16 @@ struct Serve {
                 E.g_inv_t = gum ? 1.f / smp.temperature : 1.f;
                 E.g_top_k = smp.top_k > 0 ? smp.top_k : 64;
                 E.mtp_conf_active = E.mtp_conf;
-                const int D = E.spec_verify(nx, fix, E.mtp_conf_active ? E.mtp_d : adapt.choose(E.mtp_d), drafts,
-                                            E.mtp_conf_active || lkd.empty() ? nullptr : &lkd, true);
+                E.mtp_cum_active = E.mtp_cum;
+                E.mtp_lookup_active = E.mtp_lookup;
+                E.mtp_device_chain_active = E.mtp_device_chain;
+                const bool use_lookup = !lkd.empty() &&
+                    (E.mtp_lookup_active || (!E.mtp_conf_active && !E.mtp_cum_active));
+                const long long before_lookup = E.lookup_steps;
+                const int D = E.spec_verify(nx, fix,
+                                            E.mtp_conf_active || E.mtp_cum_active ? E.mtp_d : adapt.choose(E.mtp_d), drafts,
+                                            use_lookup ? &lkd : nullptr, true);
+                E.mtp_lookup_active = E.mtp_cum_active = E.mtp_device_chain_active = false;
                 E.mtp_conf_active = false;
                 E.gumbel_on = false;
                 E.pen_on = false;
@@ -5162,7 +5190,7 @@ struct Serve {
                 }
                 if (stop.load()) a = 0;
                 E.spec_commit(a);
-                E.mtp_stats.record(D, a);
+                E.mtp_stats.record(D, a, E.lookup_steps != before_lookup);
                 adapt.record(D, a);
                 offered += D;
                 accepted += a;
@@ -5479,6 +5507,18 @@ int strata::qwen35::run(int argc, char** argv) {
                                      "%lld draft heads, %.3f ms/draft head (synchronized eager TP; diagnostic only)\n",
                              E.mtp_cost_calls, E.mtp_block_ms / E.mtp_cost_calls, E.mtp_head_calls,
                              E.mtp_head_calls ? E.mtp_head_ms / E.mtp_head_calls : 0.);
+            if (E.mtp_cost && E.mtp_cost_calls)
+                std::fprintf(stderr, "strata-q36 MTP_STAGE: input+eh_proj %.3f ms/call, attention+mixer %.3f ms/call, "
+                                     "MoE+shared %.3f ms/call (synchronized eager TP)\n",
+                             E.mtp_input_ms / E.mtp_cost_calls, E.mtp_mixer_ms / E.mtp_cost_calls,
+                             E.mtp_moe_ms / E.mtp_cost_calls);
+            if (E.mtp_cost && E.mtp_t1_calls)
+                std::fprintf(stderr, "strata-q36 MTP_STAGE_T1: %lld calls; input+eh_proj %.3f ms/call, "
+                                     "attention+mixer %.3f ms/call, MoE+shared %.3f ms/call, "
+                                     "draft head %.3f ms/call (synchronized eager TP)\n",
+                             E.mtp_t1_calls, E.mtp_t1_input_ms / E.mtp_t1_calls,
+                             E.mtp_t1_mixer_ms / E.mtp_t1_calls, E.mtp_t1_moe_ms / E.mtp_t1_calls,
+                             E.mtp_t1_head_calls ? E.mtp_t1_head_ms / E.mtp_t1_head_calls : 0.);
             if (!E.m->hybrid) return;
             const long long n = E.hy_cpu + E.hy_gpu;
             std::fprintf(stderr, "strata-q36: hybrid experts: %lld of %lld batch entries on the GPU (%.1f%%), %lld on the "
@@ -5507,9 +5547,13 @@ int strata::qwen35::run(int argc, char** argv) {
     E.mtp_conf = on("STRATA_Q36_MTP_CONF");
     E.mtp_short_head = on("STRATA_Q36_MTP_SHORT_HEAD");
     E.mtp_cost = on("STRATA_Q36_MTP_COST");
+    if (const char* p = std::getenv("STRATA_Q36_MTP_CUM_P")) E.mtp_cum_p = (float) std::atof(p);
     if (const char* p = std::getenv("STRATA_Q36_MTP_CONF_P")) E.mtp_conf_p = (float) std::atof(p);
     if (E.mtp_conf && !(E.mtp_conf_p > 0.f && E.mtp_conf_p <= 1.f)) {
         std::fprintf(stderr, "strata-q36: STRATA_Q36_MTP_CONF_P needs 0 < p <= 1\n"); return 2;
+    }
+    if (E.mtp_cum && !(E.mtp_cum_p > 0.f && E.mtp_cum_p <= 1.f)) {
+        std::fprintf(stderr, "strata-q36: STRATA_Q36_MTP_CUM_P needs 0 < p <= 1\n"); return 2;
     }
     if (E.mtp_stats.enabled) std::fprintf(stderr, "strata-q36: STRATA_Q36_MTP_STATS=1 (acceptance by draft position)\n");
     if (E.mtp_adapt) std::fprintf(stderr, "strata-q36: STRATA_Q36_MTP_ADAPT=1 (recent conditional acceptance)\n");
@@ -5517,6 +5561,12 @@ int strata::qwen35::run(int argc, char** argv) {
     if (E.mtp_conf) std::fprintf(stderr, "strata-q36: STRATA_Q36_MTP_CONF=1 (sampled draft probability floor %.3f)\n", E.mtp_conf_p);
     if (E.mtp_short_head) std::fprintf(stderr, "strata-q36: STRATA_Q36_MTP_SHORT_HEAD=1 (TP draft head prefix on rank zero when eligible)\n");
     if (E.mtp_cost) std::fprintf(stderr, "strata-q36: STRATA_Q36_MTP_COST=1 (synchronized eager TP MTP/head timing)\n");
+    if (E.mtp_fuse_norm) std::fprintf(stderr, "strata-q36: STRATA_Q36_MTP_FUSE_NORM=1 (paired MTP input norms)\n");
+    if (E.mtp_tpx) std::fprintf(stderr, "strata-q36: STRATA_Q36_MTP_TPX=1 (MTP native experts, TPX when its format flags allow; GU type %d, down type %d)\n",
+                                 m.mtp.L.gu_type, m.mtp.L.d_type);
+    if (E.mtp_lookup) std::fprintf(stderr, "strata-q36: STRATA_Q36_MTP_LOOKUP=1 (sampled lookup after first MTP agreement)\n");
+    if (E.mtp_cum) std::fprintf(stderr, "strata-q36: STRATA_Q36_MTP_CUM=1 (sampled cumulative draft probability floor %.3f)\n", E.mtp_cum_p);
+    if (E.mtp_device_chain) std::fprintf(stderr, "strata-q36: STRATA_Q36_MTP_DEVICE_CHAIN=1 (TP sampled drafts 2+ queued without intermediate host waits when confidence gates and penalties are off)\n");
     if (draft_vocab < 0 && on("STRATA_Q36_MTP_VOCAB")) {
         draft_vocab = (int) std::min<int64_t>(65536, m.g.n_vocab);
         std::fprintf(stderr, "strata-q36: STRATA_Q36_MTP_VOCAB=1 (first %d draft head rows)\n", draft_vocab);
@@ -5527,7 +5577,12 @@ int strata::qwen35::run(int argc, char** argv) {
     E.bmtp = (batch_mtp || (std::getenv("STRATA_BATCH_MTP") != nullptr && std::string(std::getenv("STRATA_BATCH_MTP")) != "0")) && E.n_sess > 1 && E.mtp_d > 0;
     if (batch_mtp && !E.bmtp) std::fprintf(stderr, "strata-q36: --batch-mtp needs --batch N (2 or more) and --mtp N: ignored\n");
     if (warm) E.warmup();
-    if (E.mtp_cost) { E.mtp_cost_calls = E.mtp_head_calls = 0; E.mtp_block_ms = E.mtp_head_ms = 0.; }
+    if (E.mtp_cost) {
+        E.mtp_cost_calls = E.mtp_head_calls = 0;
+        E.mtp_block_ms = E.mtp_head_ms = E.mtp_input_ms = E.mtp_mixer_ms = E.mtp_moe_ms = 0.;
+        E.mtp_t1_calls = E.mtp_t1_head_calls = 0;
+        E.mtp_t1_input_ms = E.mtp_t1_mixer_ms = E.mtp_t1_moe_ms = E.mtp_t1_head_ms = 0.;
+    }
     if (serve_mode) return serve(E);
     if (bench_pp > 0 || bench_tg > 0) {
         // llama-bench's shapes: a prompt of bench_pp tokens from a fresh state, then bench_tg tokens one at a time

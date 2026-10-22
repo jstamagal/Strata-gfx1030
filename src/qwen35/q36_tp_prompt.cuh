@@ -34,9 +34,24 @@ void Engine::tp_layer_pair(size_t li, int T, int64_t p0, bool verify, bool mtp) 
             layer(mtp ? m->mtp : m->layers[li], li, T, p0, mtp ? pos0_m : pos0, false, verify, wn, hout, phase);
         }
     };
+    const auto mtp_phase_start = mtp && mtp_cost ? Clock::now() : Clock::time_point{};
     run(1);
+    Clock::time_point mtp_moe_start{};
+    if (mtp && mtp_cost) {
+        for_devs([&](int) { CK(cudaStreamSynchronize(st)); });
+        const double t = ms_since(mtp_phase_start);
+        mtp_mixer_ms += t;
+        if (T == 1) mtp_t1_mixer_ms += t;
+        mtp_moe_start = Clock::now();
+    }
     if (T > kVerify) tp_copy_join(T, false);
     run(2);
+    if (mtp && mtp_cost) {
+        for_devs([&](int) { CK(cudaStreamSynchronize(st)); });
+        const double t = ms_since(mtp_moe_start);
+        mtp_moe_ms += t;
+        if (T == 1) mtp_t1_moe_ms += t;
+    }
     if (T > kVerify) {
         tp_copy_join(T, true);
         for (int d = 0; d < 2; ++d) {
