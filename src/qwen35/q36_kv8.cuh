@@ -78,3 +78,16 @@ __global__ void k_attn_prep_q8(const float* qg, const float* kx, const float* vx
         q36kv8::scales(vc, rows, HD)[row * (HD / q36kv8::group) + g] = __float2half_rn(vs);
     }
 }
+
+// The prompt GEMMs consume compact FP16 K/V. Expand only the visible prefix from the
+// int8 cache; the append above remains quantized, including for chunked prompts.
+__global__ void k_kv_f16_q8(const float* kc, const float* vc, __half* k16, __half* v16,
+                           int ctx, int P, int HD, int HKV) {
+    const int64_t i = (int64_t) blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= (int64_t) HKV * P * HD) return;
+    const int64_t per = (int64_t) P * HD;
+    const int kvh = (int) (i / per), cell = (int) ((i % per) / HD), d = (int) (i % HD);
+    const size_t row = (size_t) kvh * ctx + cell, rows = (size_t) HKV * ctx;
+    k16[i] = __float2half(q36kv8::load(kc, row, d, rows, HD));
+    v16[i] = __float2half(q36kv8::load(vc, row, d, rows, HD));
+}

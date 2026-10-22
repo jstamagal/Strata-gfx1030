@@ -1748,7 +1748,7 @@ struct Engine {
         if (n_sess > 1) CK(cudaHostAlloc((void**) &hrow, 128 * sizeof(int32_t), cudaHostAllocPortable));
         if (vision) CK(cudaHostAlloc((void**) &h_map, T * sizeof(int32_t), cudaHostAllocPortable));
         n_chunk = (ctx + kChunkCells - 1) / kChunkCells;
-        att_rows = (int) (g.n_head * std::min<int64_t>((int64_t) T, 64));   // 64 query tokens per attention batch
+        att_rows = (int) (g.n_head * std::min<int64_t>((int64_t) T, kv_int8 ? kVerify : 64));
         // every device's own buffers (one device: the members), the last one allocated last stays active
         for (int d = 0; d < n_dev; ++d) {
             use_dev(d);
@@ -1823,7 +1823,7 @@ struct Engine {
             if (kv_int8) {
                 size_t layers = m->has_mtp && d == home ? 1 : 0;
                 for (size_t li = 0; li < m->layers.size(); ++li) if (m->layers[li].attn && (tp || dev_of[li] == d)) ++layers;
-                std::fprintf(stderr, "strata-q36: device %d KV int8 %.2f GiB (%d slots, %zu attention blocks)\n",
+                std::fprintf(stderr, "strata-q36: device %d STRATA_Q36_KV=int8 (--kv int8), KV %.2f GiB (%d slots, %zu attention blocks)\n",
                              d, (double) (2 * kv_bytes() * layers * n_sess) / (1ull << 30), n_sess, layers);
             }
             size_t fr = 0, tot = 0;
@@ -2534,7 +2534,10 @@ struct Engine {
                 const int tq = (int) std::max<int64_t>(1, std::min<int64_t>(T, (int64_t) (kAttScoreFloats / ((size_t) H * ldp))));
                 const int G = H / HKV;
                 const float one = 1.0f, zero = 0.0f;
-                k_kv_f16<<<grid1((int64_t) HKV * P * HD), kThreads, 0, st>>>(kc[li], vc[li], k16, v16, ctx, P, HD, HKV);
+                if (kv_int8)
+                    k_kv_f16_q8<<<grid1((int64_t) HKV * P * HD), kThreads, 0, st>>>(kc[li], vc[li], k16, v16, ctx, P, HD, HKV);
+                else
+                    k_kv_f16<<<grid1((int64_t) HKV * P * HD), kThreads, 0, st>>>(kc[li], vc[li], k16, v16, ctx, P, HD, HKV);
                 k_to_f16<<<grid1((int64_t) T * H * HD), kThreads, 0, st>>>(q, q16, (int64_t) T * H * HD);
                 for (int t0 = 0; t0 < T; t0 += tq) {
                     const int nt = std::min(tq, T - t0);
@@ -2580,16 +2583,16 @@ struct Engine {
                     const float* vl = rows_mode ? nullptr : vc[li];
                     const float a_scale = 1.0f / sqrtf((float) HD);
                     const int slots = std::min(nc, 32);   // GQA blocks per row: each takes every 32nd chunk
-                    if (kv_int8 && !gqa_off && HD == 256 && H == 16 * HKV &&
-                        !(tp && (tp_attn_rows || tp_attn_graph_rows) && p0 + t0 + nt <= kChunkCells * 4))
+                    const bool tp_short = tp && (tp_attn_rows || tp_attn_graph_rows) &&
+                                          p0 + t0 + nt <= kChunkCells * 4;
+                    if (kv_int8 && !gqa_off && HD == 256 && H == 16 * HKV && !tp_short)
                         k_attn_part_gqa<16, true><<<dim3(slots, nt * HKV), kThreads, 0, st>>>(
                             q, kl, vl, dpos, t0, H, HKV, ctx, a_scale, n_chunk, pacc, pm, pl, rs);
-                    else if (kv_int8 && !gqa_off && HD == 256 && H == 8 * HKV &&
-                             !(tp && (tp_attn_rows || tp_attn_graph_rows) && p0 + t0 + nt <= kChunkCells * 4))
+                    else if (kv_int8 && !gqa_off && HD == 256 && H == 8 * HKV && !tp_short)
                         k_attn_part_gqa<8, true><<<dim3(slots, nt * HKV), kThreads, 0, st>>>(
                             q, kl, vl, dpos, t0, H, HKV, ctx, a_scale, n_chunk, pacc, pm, pl, rs);
                     else if (kv_int8)
-                        k_attn_part<true><<<dim3(nc, nt * H), kChunkCells, 0, st>>>(
+                        k_attn_part<true><<<dim3(tp_short && graph_mode ? std::min(n_chunk, 4) : nc, nt * H), kChunkCells, 0, st>>>(
                             q, kl, vl, dpos, t0, H, HKV, ctx, a_scale, n_chunk, pacc, pm, pl, rs);
                     else if (tp && (tp_attn_rows || tp_attn_graph_rows) && p0 + t0 + nt <= kChunkCells * 4)
                         k_attn_part<false><<<dim3(graph_mode ? std::min(n_chunk, 4) : nc, nt * H), kChunkCells, 0, st>>>(q, kl, vl, dpos, t0, H, HKV, ctx, a_scale,
@@ -4429,7 +4432,8 @@ bool place_experts_split(Model& m, Engine& E, int threads, int hybrid_t, std::st
 /// device; "auto" one device when the whole model fits the first one's free VRAM, else every visible device, each a
 /// share of the layers in proportion to its free VRAM after its fixed part (its buffers, the token table, on the last
 /// one the head and the MTP block); "K" or "K1,K2,..": the first layer of each later device.
-std::vector<int> plan_split(const std::string& path, const std::string& spec, int ctx, int batch, std::string& err) {
+std::vector<int> plan_split(const std::string& path, const std::string& spec, int ctx, int batch,
+                            bool kv_int8, std::string& err) {
     int nd = 0;
     if (cudaGetDeviceCount(&nd) != cudaSuccess) { (void) cudaGetLastError(); nd = 1; }
     if (spec == "0" || nd < 2) return {};
@@ -4463,7 +4467,8 @@ std::vector<int> plan_split(const std::string& path, const std::string& spec, in
     const double GiB = (double) (1ull << 30);
     int n_attn = 0;
     for (int64_t l = 0; l < nl; ++l) n_attn += strata::core::is_qsa_layer(g, l) ? 1 : 0;
-    const double kv_layer = (double) g.n_head_kv * g.head_dim * 2 * 4 * (double) ctx * std::max(1, batch);
+    const double kv_layer = (kv_int8 ? 2.0 * q36kv8::bytes((int) g.n_head_kv, ctx, (int) g.head_dim)
+                                      : (double) g.n_head_kv * g.head_dim * 2 * 4 * ctx) * std::max(1, batch);
     std::vector<int> first;   // the first layer of each device
     first.push_back(0);
     if (spec == "auto") {
@@ -5544,7 +5549,7 @@ int strata::qwen35::run(int argc, char** argv) {
             }
             CK(cudaSetDevice(0));
         } else {
-        dev_of = plan_split(model, layer_split, ctx, batch, err);
+        dev_of = plan_split(model, layer_split, ctx, batch, kv_int8, err);
         if (!err.empty()) { std::fprintf(stderr, "strata-q36: %s\n", err.c_str()); return 2; }
         const int n_dev = dev_of.empty() ? 1 : dev_of.back() + 1;
         if (!dev_of.empty()) CK(cudaSetDevice(0));

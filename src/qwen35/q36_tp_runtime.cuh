@@ -23,7 +23,7 @@ void Engine::tp_init(const Model& a, const Model& b, int context, int chunk, int
     dev_of.assign(a.layers.size() + 1, 0); devs.resize(2);
     const auto& g = a.g;
     n_chunk = (ctx + kChunkCells - 1) / kChunkCells;
-    att_rows = (int) (g.n_head * std::min(tmax, 64));
+    att_rows = (int) (g.n_head * std::min(tmax, kv_int8 ? kVerify : 64));
     CK(cudaHostAlloc((void**) &hpin, 64 * sizeof(int32_t), cudaHostAllocPortable));
     if (n_sess > 1) CK(cudaHostAlloc((void**) &hrow, 128 * sizeof(int32_t), cudaHostAllocPortable));
     if (vision) CK(cudaHostAlloc((void**) &h_map, (size_t) tmax * sizeof(int32_t), cudaHostAllocPortable));
@@ -40,7 +40,7 @@ void Engine::tp_init(const Model& a, const Model& b, int context, int chunk, int
         if (kv_int8) {
             size_t blocks = m->has_mtp ? 1 : 0;
             for (const Layer& L : m->layers) if (L.attn) ++blocks;
-            std::fprintf(stderr, "strata-q36: device %d KV int8 %.2f GiB (%d slots, %zu attention blocks)\n",
+            std::fprintf(stderr, "strata-q36: device %d STRATA_Q36_KV=int8 (--kv int8), KV %.2f GiB (%d slots, %zu attention blocks)\n",
                          d, (double) (2 * kv_bytes() * blocks * n_sess) / (1ull << 30), n_sess, blocks);
         }
         conv = sess[cur].conv; S = sess[cur].S; kc = sess[cur].kc; vc = sess[cur].vc; hlast = sess[cur].hlast;
