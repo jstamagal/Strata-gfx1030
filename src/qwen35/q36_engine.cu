@@ -27,6 +27,7 @@
 #include "strata/prefill/moe_mmq.hpp"
 #include "strata/qwen35/engine.hpp"
 #include "q36_kernels.cuh"
+#include "q36_rope.cuh"
 #include "q36_tp_plan.hpp"
 #include "q36_tp_collective.cuh"
 #include "q36_tp_moe_join.cuh"
@@ -273,10 +274,11 @@ struct RowSel {
 /// of their cells, see mrope), or, with `mtab` (a request's prompt cells, device int32 [cell][3] = t, h, w), the
 /// interleaved M-RoPE position (llama.cpp's IMROPE with sections 11 / 11 / 10: pair p takes stream p % 3).
 /// grid (H + HKV, T), block 256 (HD <= 256).
+template <bool SCALED>
 __global__ void k_attn_prep(const float* qg, const float* kx, const float* vx, const float* qw, const float* kw,
                             float* q, float* gate, float* kc, float* vc, int H, int HKV, int HD, int n_rot,
                             const int32_t* pos0, int ctx, float base, float eps, const int32_t* rdelta,
-                            const int32_t* mtab, RowSel rs) {
+                            const int32_t* mtab, RowSel rs, strata::kernels::RopeKernelArgs rope) {
     __shared__ float sh[kThreads];
     __shared__ float buf[256];
     const int head = blockIdx.x, t = blockIdx.y;
@@ -302,7 +304,9 @@ __global__ void k_attn_prep(const float* qg, const float* kx, const float* vx, c
         const int rp = mtab ? __ldg(mtab + (size_t) pos * 3 + p % 3) : pos + dl;
         const float theta = (float) rp * powf(base, -2.0f * (float) p / (float) n_rot);
         float sn, cs;
-        sincosf(theta, &sn, &cs);
+        if constexpr (SCALED) strata::kernels::rope_scaled_angle(theta, rope.freq_scale, rope.corr_low, rope.corr_high,
+                                                                    rope.ext_factor, rope.attn_factor, p, cs, sn);
+        else sincosf(theta, &sn, &cs);
         v = i < half ? buf[i] * cs - buf[i + half] * sn : buf[i - half] * sn + buf[i] * cs;
     }
     if (isq) {
@@ -1532,6 +1536,8 @@ struct Engine {
     __half* x16 = nullptr;
     bool use_graph = true;
     bool kv_int8 = false;
+    bool rope_scaled = false;
+    strata::kernels::RopeKernelArgs rope_args;
     int mtp_d = 0;   // MTP drafts per speculative step (0: none; greedy requests only)
     strata::qwen35::mtp::Stats mtp_stats;
     bool mtp_adapt = false, mtp_ngram = false;
@@ -2519,12 +2525,21 @@ struct Engine {
                 rs.kc = d_kc_tab + li * n_sess;
                 rs.vc = d_vc_tab + li * n_sess;
             }
-            if (kv_int8) k_attn_prep_q8<<<dim3(H + HKV, T), kThreads, 0, st>>>(
-                qg, kx, vx, L.q_norm, L.k_norm, q, gate, rows_mode ? nullptr : kc[li], rows_mode ? nullptr : vc[li],
-                H, HKV, HD, m->n_rot, dpos, ctx, m->rope_base, m->eps, d_delta, mtab_now, rs);
-            else k_attn_prep<<<dim3(H + HKV, T), kThreads, 0, st>>>(qg, kx, vx, L.q_norm, L.k_norm, q, gate, rows_mode ? nullptr : kc[li],
-                                                              rows_mode ? nullptr : vc[li], H, HKV, HD, m->n_rot, dpos, ctx,
-                                                              m->rope_base, m->eps, d_delta, mtab_now, rs);
+            if (kv_int8) {
+                if (rope_scaled) k_attn_prep_q8<true><<<dim3(H + HKV, T), kThreads, 0, st>>>(
+                    qg, kx, vx, L.q_norm, L.k_norm, q, gate, rows_mode ? nullptr : kc[li], rows_mode ? nullptr : vc[li],
+                    H, HKV, HD, m->n_rot, dpos, ctx, m->rope_base, m->eps, d_delta, mtab_now, rs, rope_args);
+                else k_attn_prep_q8<false><<<dim3(H + HKV, T), kThreads, 0, st>>>(
+                    qg, kx, vx, L.q_norm, L.k_norm, q, gate, rows_mode ? nullptr : kc[li], rows_mode ? nullptr : vc[li],
+                    H, HKV, HD, m->n_rot, dpos, ctx, m->rope_base, m->eps, d_delta, mtab_now, rs, rope_args);
+            } else {
+                if (rope_scaled) k_attn_prep<true><<<dim3(H + HKV, T), kThreads, 0, st>>>(
+                    qg, kx, vx, L.q_norm, L.k_norm, q, gate, rows_mode ? nullptr : kc[li], rows_mode ? nullptr : vc[li],
+                    H, HKV, HD, m->n_rot, dpos, ctx, m->rope_base, m->eps, d_delta, mtab_now, rs, rope_args);
+                else k_attn_prep<false><<<dim3(H + HKV, T), kThreads, 0, st>>>(
+                    qg, kx, vx, L.q_norm, L.k_norm, q, gate, rows_mode ? nullptr : kc[li], rows_mode ? nullptr : vc[li],
+                    H, HKV, HD, m->n_rot, dpos, ctx, m->rope_base, m->eps, d_delta, mtab_now, rs, rope_args);
+            }
             if (T > kGemmT) {
                 // a prompt chunk: scores = Q K^T and out = P V as FP16 GEMMs (FP32 accumulation, FP32 scores) per KV
                 // head (its query heads one strided batch over the shared K / V), the causal softmax in between writing
@@ -5448,6 +5463,7 @@ int strata::qwen35::run(int argc, char** argv) {
     double expert_vram = -1.0;
     bool warm = true;
     bool tensor_split = q36tp::enabled();
+    q36rope::Options rope_opt;
     bool kv_int8 = std::getenv("STRATA_Q36_KV") && std::strcmp(std::getenv("STRATA_Q36_KV"), "int8") == 0;
     int expert_slots = 0, batch = 0, draft_vocab = -1;
     bool serve_mode = false, graph = true, vision = false, batch_mtp = false;
@@ -5470,6 +5486,9 @@ int strata::qwen35::run(int argc, char** argv) {
         else if (a == "--max-context" || a == "--ctx") ctx = std::atoi(next().c_str());
         else if (a == "--kv") { const std::string v = next(); if (v == "int8") kv_int8 = true; else if (v == "fp32") kv_int8 = false;
                               else { std::fprintf(stderr, "strata-q36: --kv must be fp32 or int8\n"); return 2; } }
+        else if (a == "--rope-scaling") rope_opt.type = next();
+        else if (a == "--rope-scale") rope_opt.factor = std::atof(next().c_str());
+        else if (a == "--rope-freq-scale") rope_opt.freq_scale = std::atof(next().c_str());
         else if (a == "--chunk" || a == "--prefill") { const std::string v = next(); chunk = v == "auto" ? 0 : std::atoi(v.c_str()); }
         else if (a == "--tokens") tokens = next();
         else if (a == "--n") n_gen = std::atoi(next().c_str());
@@ -5616,6 +5635,16 @@ int strata::qwen35::run(int argc, char** argv) {
     }
     E.tp_graph = graph;
     E.kv_int8 = kv_int8;
+    strata::kernels::RopeScaling rope_sc;
+    if (!q36rope::resolve(m.file->meta(), m.rope_base, rope_opt, rope_sc, err)) {
+        std::fprintf(stderr, "strata-q36: %s\n", err.c_str()); return 2;
+    }
+    E.rope_scaled = rope_sc.type != strata::kernels::RopeScalingType::None;
+    E.rope_args = rope_sc.kernel_args(m.n_rot);
+    if (E.rope_scaled) std::fprintf(stderr, "strata-q36: rope scaling %s, factor %.6g, freq_scale %.6g, "
+                                    "base %.6g, original context %.0f, mscale %.6g\n",
+                                    rope_sc.type == strata::kernels::RopeScalingType::YaRN ? "yarn" : "linear",
+                                    rope_sc.factor, rope_sc.freq_scale(), rope_sc.freq_base, rope_sc.orig_ctx, rope_sc.mscale());
     if (kv_int8 && (m.g.head_dim % q36kv8::group != 0 || m.g.head_dim > kThreads)) {
         std::fprintf(stderr, "strata-q36: int8 KV needs head_dim divisible by %d and <= %d\n", q36kv8::group, kThreads); return 2;
     }

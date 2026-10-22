@@ -22,10 +22,11 @@ __device__ __forceinline__ float load(const float* base, size_t row, int d, size
 
 // The FP32 path's q/k normalization and RoPE, with a 64-value group reduction before writing K/V.
 // Each K block has 256 threads, including inactive lanes for heads shorter than 256.
+template <bool SCALED>
 __global__ void k_attn_prep_q8(const float* qg, const float* kx, const float* vx, const float* qw, const float* kw,
                                float* q, float* gate, float* kc, float* vc, int H, int HKV, int HD, int n_rot,
                                const int32_t* pos0, int ctx, float base, float eps, const int32_t* rdelta,
-                               const int32_t* mtab, RowSel rs) {
+                               const int32_t* mtab, RowSel rs, strata::kernels::RopeKernelArgs rope) {
     __shared__ float sh[kThreads], buf[256], warp_max[8];
     const int head = blockIdx.x, t = blockIdx.y, i = threadIdx.x;
     const int pos = rs.cell ? rs.cell[t] : *pos0 + t;
@@ -45,7 +46,9 @@ __global__ void k_attn_prep_q8(const float* qg, const float* kx, const float* vx
         const int rp = mtab ? __ldg(mtab + (size_t) pos * 3 + p % 3) : pos + dl;
         const float theta = (float) rp * powf(base, -2.0f * (float) p / (float) n_rot);
         float sn, cs;
-        sincosf(theta, &sn, &cs);
+        if constexpr (SCALED) strata::kernels::rope_scaled_angle(theta, rope.freq_scale, rope.corr_low, rope.corr_high,
+                                                                    rope.ext_factor, rope.attn_factor, p, cs, sn);
+        else sincosf(theta, &sn, &cs);
         v = i < half ? buf[i] * cs - buf[i + half] * sn : buf[i - half] * sn + buf[i] * cs;
     }
     if (isq) {
