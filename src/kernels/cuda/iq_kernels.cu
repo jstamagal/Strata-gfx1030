@@ -5386,27 +5386,37 @@ void native_expert_grouped(const NativeExpertLayout& L, const unsigned long long
 #if STRATA_EXP_LAYOUTS
     }
 #endif
-    check("native_expert_grouped/gu");
-    const long long nh = (long long) cap_entries * L.n_ff;
-#if defined(STRATA_HIP_GFX906)
-    // gfx906: the separate SwiGLU and q8_1 passes stay the default (the A/B baseline); the RDNA one-pass
-    // kernel (bitwise the same) with STRATA_HIP_SWIGLU_FUSED=1
-    static const bool sw_fused = env_on("STRATA_HIP_SWIGLU_FUSED");
-    const bool sw_v1 = v1 || !sw_fused;
+    }  // end gate/up fallback; both GU paths still need SwiGLU and q8_1
+#if STRATA_EXP_LAYOUTS
+    if (!fused_gu && !gs_done) check("native_expert_grouped/gu");
 #else
-    const bool sw_v1 = v1;
+    if (!gs_done) check("native_expert_grouped/gu");
 #endif
-    // APR: Hadamard-folded down weights take the rotated h, so h exists as floats first (the separate passes)
-    if (sw_v1 || L.had_block > 0) {
-        swiglu_entries_kernel<<<(unsigned) ((nh + 255) / 256), 256, 0, s>>>(gate, up, h, nh);
-        if (L.had_block > 0)   // APR: the down weights are Hadamard-folded, so is their input (in place, every entry row)
-            hadamard_rows(h, h, cap_entries, L.n_ff, L.had_block, L.d_signs, s);
-        quantize_q8_1_kernel<<<(unsigned) ((nh + 255) / 256), 256, 0, s>>>(h, hq, nh);
-    } else {
-        swiglu_q8_1_entries_kernel<<<(unsigned) ((nh + 255) / 256), 256, 0, s>>>(gate, up, grp_start, n_groups,
-                                                                                (int) L.n_ff, hq);
-    }
-    check("native_expert_grouped/swiglu");
+#if STRATA_EXP_LAYOUTS
+    if (g_exp_phase != 2 && !fused_gu && !gs_done) {
+#else
+    if (g_exp_phase != 2 && !gs_done) {
+#endif
+        const long long nh = (long long) cap_entries * L.n_ff;
+#if defined(STRATA_HIP_GFX906)
+        // gfx906: the separate SwiGLU and q8_1 passes stay the default (the A/B baseline); the RDNA one-pass
+        // kernel (bitwise the same) with STRATA_HIP_SWIGLU_FUSED=1
+        static const bool sw_fused = env_on("STRATA_HIP_SWIGLU_FUSED");
+        const bool sw_v1 = v1 || !sw_fused;
+#else
+        const bool sw_v1 = v1;
+#endif
+        // APR: Hadamard-folded down weights take the rotated h, so h exists as floats first (the separate passes)
+        if (sw_v1 || L.had_block > 0) {
+            swiglu_entries_kernel<<<(unsigned) ((nh + 255) / 256), 256, 0, s>>>(gate, up, h, nh);
+            if (L.had_block > 0)   // APR: the down weights are Hadamard-folded, so is their input (in place, every entry row)
+                hadamard_rows(h, h, cap_entries, L.n_ff, L.had_block, L.d_signs, s);
+            quantize_q8_1_kernel<<<(unsigned) ((nh + 255) / 256), 256, 0, s>>>(h, hq, nh);
+        } else {
+            swiglu_q8_1_entries_kernel<<<(unsigned) ((nh + 255) / 256), 256, 0, s>>>(gate, up, grp_start, n_groups,
+                                                                                    (int) L.n_ff, hq);
+        }
+        check("native_expert_grouped/swiglu");
     }
     if (g_exp_phase == 1) return;
     if (launch_tpx_down(L, dim3(1, (unsigned) gy), s, grp_ptr, grp_start, n_groups, ent_dst, hq, out)) {

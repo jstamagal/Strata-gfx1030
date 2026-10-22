@@ -307,6 +307,10 @@ int main(int argc, char** argv) {
                 const size_t fa = ((size_t) lab.cap * kF * 4 + 255) & ~(size_t) 255;
                 std::vector<uint8_t> old_hq((size_t) lab.cap * (kF / 32) * 36);
                 ck(cudaMemcpy(old_hq.data(), lab.scr + 3 * fa, old_hq.size(), cudaMemcpyDeviceToHost), "old hq");
+                // The two graphs share buffers. Clear them before the new path:
+                // a skipped SwiGLU/q8_1 launch must not inherit the old hq.
+                ck(cudaMemset(lab.scr, 0, lab.scr_bytes), "clear scratch before new");
+                ck(cudaMemset(lab.out, 0, old_out.size() * 4), "clear output before new");
                 ck(cudaGraphLaunch(new_all, s), "new graph");
                 ck(cudaStreamSynchronize(s), "new sync");
                 std::vector<float> new_out(old_out.size());

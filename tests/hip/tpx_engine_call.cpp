@@ -6,6 +6,7 @@
 #include "strata/kernels/iq_kernels.hpp"
 #include "strata/kernels/native_mmvq.hpp"
 #include "q36_kernels.cuh"
+#include "q36_tp_collective.cuh"
 
 #include <cuda_runtime.h>
 #include <algorithm>
@@ -91,17 +92,20 @@ struct Call {
     int T, topk, n_expert, cap, groups;
     const Weight& w;
     cudaStream_t stream;
-    float *logits, *x, *ewts, *out[2];
+    float *logits, *x, *ewts, *shared, *sgate, *out[2], *combined[2];
     int32_t *ids, *start, *ng, *dst, *tok;
     unsigned long long* ptr;
     uint8_t *xq, *scratch[2];
     cudaGraphExec_t graph[2] = {};
+    size_t graph_nodes[2] = {};
     Call(const Weight& weight, int tokens, int k, int ne, cudaStream_t s, bool repeated) :
         T(tokens), topk(k), n_expert(ne), cap(T * k), groups(std::min(cap, ne)), w(weight), stream(s) {
         const int N = (int) w.L.n_embd;
         logits = alloc<float>((size_t) T * ne);
         x = alloc<float>((size_t) T * N);
         ewts = alloc<float>(cap);
+        shared = alloc<float>((size_t) T * N);
+        sgate = alloc<float>(T);
         ids = alloc<int32_t>(cap + 128); // native MMQ's padded ids convention
         start = alloc<int32_t>(groups + 1);
         ng = alloc<int32_t>(1);
@@ -111,18 +115,23 @@ struct Call {
         xq = alloc<uint8_t>((size_t) T * (N / 32) * 36);
         std::mt19937 rng(20261021 + w.layer * 17 + w.rank * 3 + T);
         std::normal_distribution<float> normal(0.f, 1.f);
-        std::vector<float> hx((size_t) T * N), hl((size_t) T * ne);
+        std::vector<float> hx((size_t) T * N), hl((size_t) T * ne), hs((size_t) T * N), hg(T);
         for (auto& v : hx) v = normal(rng);
+        for (auto& v : hs) v = normal(rng);
+        for (auto& v : hg) v = normal(rng);
         for (int t = 0; t < T; ++t)
             for (int e = 0; e < ne; ++e)
                 hl[(size_t) t * ne + e] = (repeated ? (e < topk ? 8.f : -8.f) : 0.f) + normal(rng) * (repeated ? .01f : 1.f);
         ck(cudaMemcpy(x, hx.data(), hx.size() * 4, cudaMemcpyHostToDevice), "activation");
         ck(cudaMemcpy(logits, hl.data(), hl.size() * 4, cudaMemcpyHostToDevice), "router logits");
+        ck(cudaMemcpy(shared, hs.data(), hs.size() * 4, cudaMemcpyHostToDevice), "shared expert");
+        ck(cudaMemcpy(sgate, hg.data(), hg.size() * 4, cudaMemcpyHostToDevice), "shared gate");
         const size_t scratch_bytes = K::native_expert_scratch_bytes(cap, w.L.n_ff);
         K::native_expert_set_mode(0, 0); // gfx1030 engine reference layout
         for (int i = 0; i < 2; ++i) {
             scratch[i] = alloc<uint8_t>(scratch_bytes + 256);
             out[i] = alloc<float>((size_t) cap * N + 64);
+            combined[i] = alloc<float>((size_t) T * N);
             K::native_expert_tpx_tune(i, 0);
             cudaGraph_t g;
             ck(cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal), "begin capture");
@@ -130,18 +139,28 @@ struct Call {
                 w.blobs, w.stride, ptr, start, ng, dst, tok);
             K::native_quantize_q8_1(x, xq, N * T, 1, stream);
             K::native_expert_grouped(w.L, ptr, start, ng, dst, tok, groups, cap, xq, scratch[i], out[i], stream);
+            // The TP engine uses this exact kernel after down: put routed
+            // outputs back in pick order, weight them, add the shared expert.
+            q36tp::partial_moe<<<T, 256, 0, stream>>>(combined[i], out[i], nullptr, ewts, topk,
+                                                       shared, sgate, 1, N);
             ck(cudaStreamEndCapture(stream, &g), "end capture");
+            ck(cudaGraphGetNodes(g, nullptr, &graph_nodes[i]), "graph nodes");
             ck(cudaGraphInstantiate(&graph[i], g, 0), "instantiate");
             ck(cudaGraphDestroy(g), "destroy graph");
         }
         K::native_expert_tpx_tune(-1, -1);
         K::native_expert_set_mode(-1, 0);
+        const char* gu_check = std::getenv("STRATA_Q36_TPX_GU_CHECK");
+        if (!(gu_check && std::strcmp(gu_check, "1") == 0) && graph_nodes[0] != graph_nodes[1])
+            throw std::runtime_error("GU16 graph has a different number of launches from reference");
     }
     ~Call() {
         for (auto g : graph) (void) cudaGraphExecDestroy(g);
         for (auto p : scratch) (void) cudaFree(p);
         for (auto p : out) (void) cudaFree(p);
+        for (auto p : combined) (void) cudaFree(p);
         for (auto p : {static_cast<void*>(logits), static_cast<void*>(x), static_cast<void*>(ewts),
+                       static_cast<void*>(shared), static_cast<void*>(sgate),
                        static_cast<void*>(ids), static_cast<void*>(start), static_cast<void*>(ng),
                        static_cast<void*>(dst), static_cast<void*>(tok), static_cast<void*>(ptr),
                        static_cast<void*>(xq)}) (void) cudaFree(p);
@@ -171,6 +190,7 @@ struct Call {
         ok &= compare("q8_1", scratch[0] + 3 * fa, scratch[1] + 3 * fa,
                       (size_t) cap * (w.L.n_ff / 32) * 36);
         ok &= compare("down", out[0], out[1], (size_t) cap * w.L.n_embd * 4);
+        ok &= compare("combined MoE", combined[0], combined[1], (size_t) T * w.L.n_embd * 4);
         std::printf("layer=%d type=%d/%d rank=%d T=%d groups=%d bits=%s\n", w.layer, w.L.gu_type, w.L.d_type,
                     w.rank, T, hng, ok ? "OK" : "FAIL");
         return ok;
