@@ -1529,6 +1529,7 @@ struct Engine {
     float *pref_kc = nullptr, *pref_vc = nullptr; // per-card cold-window staging
     // verify windows (T <= kVerify): the GDN inputs of every row per layer, kept for the commit
     static constexpr int kVerify = 8;
+    static_assert(kVerify == q36kvstream::rollback_guard);
     std::vector<float*> v_qkv, v_hc, v_alpha, v_beta;
     // the MTP block (when loaded)
     float *mtp_cat = nullptr, *hmtp = nullptr, *logits_m = nullptr;

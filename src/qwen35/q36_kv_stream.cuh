@@ -2,6 +2,7 @@
 // The host allocation contains every cell. The GPU ring contains the last `resident` cells.
 // The prefetch window is per device and is reused from one attention layer to the next.
 namespace q36kvstream {
+inline constexpr int rollback_guard = 8; // q36's maximum speculative verify window
 __device__ __forceinline__ float load(const float* cold, const float* hot, const float* pref,
                                        int kvh, int pos, int d, int HD, int HKV, int ctx,
                                        int resident, int pref_cap, int end) {
@@ -14,7 +15,9 @@ __device__ __forceinline__ float load(const float* cold, const float* hot, const
                 return q36kv8::load(pref, row, d, (size_t) HKV * pref_cap, HD);
             }
         }
-        if (hot && pos >= cold_end) {
+        // Rejected draft writes can wrap over the oldest cells of the ring. Those
+        // cells remain correct in the full host copy until their position is reused.
+        if (hot && pos >= cold_end + rollback_guard) {
             const size_t row = (size_t) kvh * resident + pos % resident;
             return q36kv8::load(hot, row, d, (size_t) HKV * resident, HD);
         }
