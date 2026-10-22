@@ -1522,9 +1522,24 @@ struct Engine {
     bool mtp_lookup = q36tp::enabled("STRATA_Q36_MTP_LOOKUP");
     bool mtp_cum = q36tp::enabled("STRATA_Q36_MTP_CUM");
     bool mtp_device_chain = q36tp::enabled("STRATA_Q36_MTP_DEVICE_CHAIN");
+    bool mtp_split_head = q36tp::enabled("STRATA_Q36_MTP_SPLIT_HEAD");
+    bool mtp_split_eh = q36tp::enabled("STRATA_Q36_MTP_SPLIT_EH");
+    bool mtp_input_detail = q36tp::enabled("STRATA_Q36_MTP_INPUT_DETAIL");
     bool mtp_lookup_active = false, mtp_cum_active = false, mtp_device_chain_active = false;
     float mtp_cum_p = 0.1f;
     int32_t* mtp_chain_picks = nullptr;
+    float* mtp_chain_probs = nullptr;
+    long long mtp_chain_steps = 0, mtp_chain_calls = 0;
+    uint8_t* mtp_head_peer = nullptr;
+    int mtp_head_peer_rows = 0;
+    cudaEvent_t mtp_eh_done[2] = {};
+    cudaEvent_t mtp_input_events[2][4] = {};
+    double mtp_input_phase_ms[2][2][3] = {};
+    long long mtp_input_phase_calls[2] = {};
+    void prepare_mtp_split_head();
+    void tp_split_draft_head(int T);
+    bool tp_split_eh_eligible(int T) const;
+    bool tp_split_eh_proj(int T, const float* seeds);
     double mtp_block_ms = 0., mtp_head_ms = 0., mtp_input_ms = 0., mtp_mixer_ms = 0., mtp_moe_ms = 0.;
     long long mtp_cost_calls = 0, mtp_head_calls = 0;
     double mtp_t1_input_ms = 0., mtp_t1_mixer_ms = 0., mtp_t1_moe_ms = 0., mtp_t1_head_ms = 0.;
@@ -3509,7 +3524,8 @@ struct Engine {
         spec_commit(a);
         return a;
     }
-    void device_draft_chain(int D, int64_t p, float* seeds, int last_row, std::vector<int32_t>& drafts);
+    int device_draft_chain(int D, int64_t p, float* seeds, int last_row, float floor,
+                           float& cumulative_prob, std::vector<int32_t>& drafts);
     /// A speculative step's first half: the MTP drafts and the verify window [x, d1 .. dD] (D may come back smaller:
     /// a hybrid rebalance boundary); every row's logits in `logits`, the greedy picks in hpin[2 ..].  spec_commit(a)
     /// then keeps x and the first a drafts.
@@ -3556,6 +3572,13 @@ struct Engine {
             cumulative_prob *= pr;
             return pr >= confidence_floor && (!mtp_cum_active || cumulative_prob >= mtp_cum_p);
         };
+        const bool device_chain_step = mtp_device_chain_active && tp && !pen_on && !mtp_cost && D > 0 &&
+                                       (!lookup || lookup->empty());
+        if (device_chain_step) {
+            ++mtp_chain_steps;
+            mtp_chain_calls += D;
+            D = device_draft_chain(D, pos, seeds, T0 - 1, confidence_floor, cumulative_prob, drafts);
+        } else {
         if (D > 0) {
             draft_prob();
             CK(cudaMemcpyAsync(hpin + 2, pick_m, 4, cudaMemcpyDeviceToHost, st));
@@ -3580,10 +3603,7 @@ struct Engine {
             D = 0;
             drafts.clear();
         }
-        if (mtp_device_chain_active && tp && !pen_on && !mtp_cost && confidence_floor <= 0.f && !mtp_cum_active &&
-            D > 1 && lookup_steps_mark == lookup_steps)
-            device_draft_chain(D, pos, seeds, last_row, drafts);
-        else for (int d = 1; d < D && !(lookup_steps_mark != lookup_steps); ++d) {   // chained: (the block's own output, the last draft) at the next position
+        for (int d = 1; d < D && !(lookup_steps_mark != lookup_steps); ++d) {   // chained: (the block's own output, the last draft) at the next position
             hpin[0] = drafts[(size_t) d - 1];
             hpin[1] = (int32_t) (pos + d);
             CK(cudaMemcpyAsync(tok_m, hpin, 4, cudaMemcpyHostToDevice, st));
@@ -3602,6 +3622,7 @@ struct Engine {
                 drafts.resize((size_t) D);
                 break;
             }
+        }
         }
         lookup_steps_mark = lookup_steps;
         // the verify window
@@ -3810,6 +3831,8 @@ struct Engine {
 #include "q36_tp_prompt.cuh"
 #include "q36_tp_graph.cuh"
 #include "q36_mtp_chain.cuh"
+#include "q36_mtp_split_head.cuh"
+#include "q36_mtp_split_eh.cuh"
 
 // ------------------------------------------------------------------------------------------------ expert placement
 /// The routed experts after the engine's buffers: all in VRAM when they fit in `vram_gib` (< 0: the free VRAM less a
@@ -5502,6 +5525,9 @@ int strata::qwen35::run(int argc, char** argv) {
                 for (const auto& kv : E.v_checked)
                     std::fprintf(stderr, "strata-q36 VERIFY checked %s: %lld comparisons\n", kv.first.c_str(), kv.second);
             E.mtp_stats.print("total");
+            if (E.mtp_device_chain && E.mtp_chain_steps)
+                std::fprintf(stderr, "strata-q36 MTP_DEVICE_CHAIN: %lld steps, %.3f queued MTP calls/step\n",
+                             E.mtp_chain_steps, (double) E.mtp_chain_calls / E.mtp_chain_steps);
             if (E.mtp_cost && E.mtp_cost_calls)
                 std::fprintf(stderr, "strata-q36 MTP_COST: %lld block calls, %.3f ms/block call; "
                                      "%lld draft heads, %.3f ms/draft head (synchronized eager TP; diagnostic only)\n",
@@ -5519,6 +5545,16 @@ int strata::qwen35::run(int argc, char** argv) {
                              E.mtp_t1_calls, E.mtp_t1_input_ms / E.mtp_t1_calls,
                              E.mtp_t1_mixer_ms / E.mtp_t1_calls, E.mtp_t1_moe_ms / E.mtp_t1_calls,
                              E.mtp_t1_head_calls ? E.mtp_t1_head_ms / E.mtp_t1_head_calls : 0.);
+            if (E.mtp_cost && E.mtp_input_detail)
+                for (int bucket = 0; bucket < 2; ++bucket) if (E.mtp_input_phase_calls[bucket])
+                    for (int d = 0; d < 2; ++d)
+                        std::fprintf(stderr, "strata-q36 MTP_INPUT_DETAIL %s rank %d: %lld calls, "
+                                             "embedding+norm %.3f ms, eh_proj+exchange %.3f ms, postnorm %.3f ms "
+                                             "(GPU events per call)\n", bucket ? "batched" : "T=1", d,
+                                     E.mtp_input_phase_calls[bucket],
+                                     E.mtp_input_phase_ms[bucket][d][0] / E.mtp_input_phase_calls[bucket],
+                                     E.mtp_input_phase_ms[bucket][d][1] / E.mtp_input_phase_calls[bucket],
+                                     E.mtp_input_phase_ms[bucket][d][2] / E.mtp_input_phase_calls[bucket]);
             if (!E.m->hybrid) return;
             const long long n = E.hy_cpu + E.hy_gpu;
             std::fprintf(stderr, "strata-q36: hybrid experts: %lld of %lld batch entries on the GPU (%.1f%%), %lld on the "
@@ -5566,13 +5602,23 @@ int strata::qwen35::run(int argc, char** argv) {
                                  m.mtp.L.gu_type, m.mtp.L.d_type);
     if (E.mtp_lookup) std::fprintf(stderr, "strata-q36: STRATA_Q36_MTP_LOOKUP=1 (sampled lookup after first MTP agreement)\n");
     if (E.mtp_cum) std::fprintf(stderr, "strata-q36: STRATA_Q36_MTP_CUM=1 (sampled cumulative draft probability floor %.3f)\n", E.mtp_cum_p);
-    if (E.mtp_device_chain) std::fprintf(stderr, "strata-q36: STRATA_Q36_MTP_DEVICE_CHAIN=1 (TP sampled drafts 2+ queued without intermediate host waits when confidence gates and penalties are off)\n");
+    if (E.mtp_device_chain) std::fprintf(stderr, "strata-q36: STRATA_Q36_MTP_DEVICE_CHAIN=1 (TP sampled drafts queued before one host readback; penalties and lookup use the host path)\n");
+    if (E.mtp_split_eh) std::fprintf(stderr, "strata-q36: STRATA_Q36_MTP_SPLIT_EH=1 (%s; eh_proj type %d, %lld x %lld)\n",
+                                     E.tp_split_eh_eligible(2) ? "TP batched input projection split by output rows" : "inactive for this model/path",
+                                     m.eh_proj.type, (long long) m.eh_proj.n_in, (long long) m.eh_proj.n_out);
+    if (E.mtp_input_detail) std::fprintf(stderr, "strata-q36: STRATA_Q36_MTP_INPUT_DETAIL=1 (GPU event breakdown with MTP_COST)\n");
     if (draft_vocab < 0 && on("STRATA_Q36_MTP_VOCAB")) {
         draft_vocab = (int) std::min<int64_t>(65536, m.g.n_vocab);
         std::fprintf(stderr, "strata-q36: STRATA_Q36_MTP_VOCAB=1 (first %d draft head rows)\n", draft_vocab);
     }
     if (draft_vocab < 0 && std::getenv("STRATA_Q36_DRAFT_VOCAB") != nullptr) draft_vocab = std::atoi(std::getenv("STRATA_Q36_DRAFT_VOCAB"));
     E.draft_n = std::max(0, draft_vocab);
+    if (E.tp && E.mtp_split_head && E.mtp_d > 0) E.prepare_mtp_split_head();
+    if (E.tp && E.mtp_device_chain && E.mtp_d > 0) {
+        E.use_dev(E.home);
+        CK(cudaMalloc((void**) &E.mtp_chain_picks, (size_t) Engine::kVerify * sizeof(int32_t)));
+        CK(cudaMalloc((void**) &E.mtp_chain_probs, (size_t) Engine::kVerify * sizeof(float)));
+    }
     E.spec_min_p = spec_min_p;
     E.bmtp = (batch_mtp || (std::getenv("STRATA_BATCH_MTP") != nullptr && std::string(std::getenv("STRATA_BATCH_MTP")) != "0")) && E.n_sess > 1 && E.mtp_d > 0;
     if (batch_mtp && !E.bmtp) std::fprintf(stderr, "strata-q36: --batch-mtp needs --batch N (2 or more) and --mtp N: ignored\n");
@@ -5582,6 +5628,8 @@ int strata::qwen35::run(int argc, char** argv) {
         E.mtp_block_ms = E.mtp_head_ms = E.mtp_input_ms = E.mtp_mixer_ms = E.mtp_moe_ms = 0.;
         E.mtp_t1_calls = E.mtp_t1_head_calls = 0;
         E.mtp_t1_input_ms = E.mtp_t1_mixer_ms = E.mtp_t1_moe_ms = E.mtp_t1_head_ms = 0.;
+        std::memset(E.mtp_input_phase_ms, 0, sizeof(E.mtp_input_phase_ms));
+        std::memset(E.mtp_input_phase_calls, 0, sizeof(E.mtp_input_phase_calls));
     }
     if (serve_mode) return serve(E);
     if (bench_pp > 0 || bench_tg > 0) {

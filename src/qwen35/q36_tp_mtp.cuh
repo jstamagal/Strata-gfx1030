@@ -4,11 +4,17 @@ void Engine::tp_forward_mtp(int T, int64_t p0, const float* seeds, bool draft) {
     const auto cost_start = mtp_cost ? Clock::now() : Clock::time_point{};
     tp_enter(T, true, seeds);
     draft_pos = p0 + T;
-    if (!mtp_cost && tp_graph_run(T, p0, false, true, seeds)) { tp_head(T, draft ? 1 : 0, true, draft); return; }
+    const bool split_eh = tp_split_eh_eligible(T);
+    if (!mtp_cost && !split_eh && tp_graph_run(T, p0, false, true, seeds)) {
+        tp_head(T, draft ? 1 : 0, true, draft);
+        return;
+    }
     if (tp_launch_stats && !tp_stats_warmup && T <= kVerify) ++tp_eager_calls[2][T];
     const int N = (int)m->g.n_embd;
-    for (int d = 0; d < 2; ++d) {
+    if (split_eh) tp_split_eh_proj(T, seeds);
+    else for (int d = 0; d < 2; ++d) {
         use_dev(d);
+        if (mtp_cost && mtp_input_detail) CK(cudaEventRecord(mtp_input_events[d][0], st));
         const float* local_seeds = d == home ? seeds : h; // tp_enter copied these before h is reused
         K::iq_embed_rows(m->embd_type, embd_d, m->embd_row, tok_m, T, N, y, st);
         if (map_on) k_put_rows<<<T, kThreads, 0, st>>>(y, d_img, d_map, N);
@@ -27,11 +33,27 @@ void Engine::tp_forward_mtp(int T, int64_t p0, const float* seeds, bool draft) {
             k_rms_ld<<<T, kThreads, 0, st>>>(y, N, m->mtp_enorm, mtp_cat, 2*N, N, m->eps);
             k_rms_ld<<<T, kThreads, 0, st>>>(local_seeds, N, m->mtp_hnorm, mtp_cat+N, 2*N, N, m->eps);
         }
+        if (mtp_cost && mtp_input_detail) CK(cudaEventRecord(mtp_input_events[d][1], st));
         mm(m->eh_proj, mtp_cat, x, T);
+        if (mtp_cost && mtp_input_detail) CK(cudaEventRecord(mtp_input_events[d][2], st));
         k_rms<<<T, kThreads, 0, st>>>(x, m->mtp.attn_norm, h, N, m->eps);
+        if (mtp_cost && mtp_input_detail) CK(cudaEventRecord(mtp_input_events[d][3], st));
     }
     if (mtp_cost) {
         for_devs([&](int) { CK(cudaStreamSynchronize(st)); });
+        if (mtp_input_detail) {
+            const int bucket = T == 1 ? 0 : 1;
+            ++mtp_input_phase_calls[bucket];
+            for (int d = 0; d < 2; ++d) {
+                use_dev(d);
+                for (int phase = 0; phase < 3; ++phase) {
+                    float ms = 0.f;
+                    CK(cudaEventElapsedTime(&ms, mtp_input_events[d][phase], mtp_input_events[d][phase+1]));
+                    mtp_input_phase_ms[bucket][d][phase] += ms;
+                }
+            }
+            use_dev(home);
+        }
         const double t = ms_since(cost_start);
         mtp_input_ms += t;
         if (T == 1) mtp_t1_input_ms += t;

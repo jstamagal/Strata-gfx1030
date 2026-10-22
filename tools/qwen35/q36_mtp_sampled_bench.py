@@ -73,6 +73,14 @@ def main():
                  for m in re.finditer(r"MTP_STAGE_T1: (\d+) calls; input\+eh_proj ([\d.]+) ms/call, "
                                       r"attention\+mixer ([\d.]+) ms/call, MoE\+shared ([\d.]+) ms/call, "
                                       r"draft head ([\d.]+) ms/call", log_text)]
+    input_detail = [{"window": m.group(1), "rank": int(m.group(2)), "calls": int(m.group(3)),
+                     "embedding_norm_ms": float(m.group(4)), "eh_projection_exchange_ms": float(m.group(5)),
+                     "postnorm_ms": float(m.group(6))}
+                    for m in re.finditer(r"MTP_INPUT_DETAIL (T=1|batched) rank (\d+): (\d+) calls, "
+                                         r"embedding\+norm ([\d.]+) ms, eh_proj\+exchange ([\d.]+) ms, "
+                                         r"postnorm ([\d.]+) ms", log_text)]
+    chains = [{"steps": int(m.group(1)), "calls_per_step": float(m.group(2))}
+              for m in re.finditer(r"MTP_DEVICE_CHAIN: (\d+) steps, ([\d.]+) queued MTP calls/step", log_text)]
     stage_share = None
     if cost and stages and stats and sum(s["steps"] for s in stats):
         steps = sum(s["steps"] for s in stats)
@@ -88,6 +96,8 @@ def main():
                                        "temperature": 1.0, "top_p": 0.95, "top_k": 20},
                                    "rows": rows, "mtp_stats": stats, "lookup_stats": lookups,
                                    "mtp_cost": cost, "mtp_stages": stages, "mtp_t1_stages": t1_stages,
+                                   "mtp_input_detail": input_detail,
+                                   "mtp_device_chain": chains,
                                    "mtp_stage_share": stage_share}, indent=2) + "\n")
     print(f"median {statistics.median(r['tok_s'] for r in rows):.1f} tok/s; "
           f"drafts {sum(r['accepted'] for r in rows)}/{sum(r['offered'] for r in rows)} accepted")
@@ -112,6 +122,12 @@ def main():
         print(f"MTP T=1: {s['calls']} calls; input {s['input_ms']:.3f}, "
               f"mixer {s['mixer_ms']:.3f}, MoE {s['moe_ms']:.3f}, "
               f"head {s['head_ms']:.3f} ms/call (diagnostic mode)")
+    for s in input_detail:
+        print(f"MTP input {s['window']} rank {s['rank']}: embedding+norm {s['embedding_norm_ms']:.3f}, "
+              f"eh_proj+exchange {s['eh_projection_exchange_ms']:.3f}, postnorm {s['postnorm_ms']:.3f} ms/call "
+              "(GPU events, diagnostic mode)")
+    if chains:
+        print(f"device chain: {chains[-1]['steps']} steps, {chains[-1]['calls_per_step']:.3f} queued MTP calls/step")
     if stage_share:
         print(f"MTP {stage_share['mtp_ms_per_step']:.3f} ms/step from "
               f"{stage_share['block_calls_per_step']:.2f} block calls and "
