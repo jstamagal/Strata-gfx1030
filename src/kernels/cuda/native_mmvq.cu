@@ -49,6 +49,9 @@
 #include <unordered_map>
 #include <cstdio>
 #include <vector>
+#include <mutex>
+#include <set>
+#include <tuple>
 
 namespace strata::kernels {
 namespace {
@@ -2111,6 +2114,19 @@ void small_mmvq(const void* weights, const void* x_q8_1, float* y,
         launch_multi<SmallTraits<Weight, Qi>>(weights, x_q8_1, y, n_in, n_out, ncols, stream);
         launch_check();
         return;
+    }
+    if constexpr (std::is_same_v<Weight, Q80Block>) {
+        static const bool trace = [] { const char* v = std::getenv("STRATA_Q36_TP_SMALL_TRACE"); return v && std::strcmp(v, "1") == 0; }();
+        if (trace) {
+            static std::mutex lock;
+            static std::set<std::tuple<int, int, int, std::uintptr_t>> seen;
+            int device = 0;
+            (void) cudaGetDevice(&device);
+            std::lock_guard<std::mutex> hold(lock);
+            if (seen.emplace(device, n_in, n_out, reinterpret_cast<std::uintptr_t>(weights)).second)
+                std::fprintf(stderr, "strata-q36 TP_SMALL_TRACE native_small_mmvq Q8 rank %d: n_in=%d n_out=%d, weights=%p\n",
+                             device, n_in, n_out, weights);
+        }
     }
     const auto* w = static_cast<const Weight*>(weights);
     const auto* x = static_cast<const Q81Block*>(x_q8_1);

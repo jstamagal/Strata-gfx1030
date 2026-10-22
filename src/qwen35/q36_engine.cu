@@ -32,6 +32,7 @@
 #include "q36_tp_moe_join.cuh"
 #include "q36_tp_fuse2.cuh"
 #include "q36_tp_join_row.cuh"
+#include "q36_tp_partial_split.cuh"
 #include "q36_tp_fuse3.cuh"
 #include "q36_decode.cuh"
 #include "q36_experts.hpp"
@@ -1977,16 +1978,20 @@ struct Engine {
     /// native_small_mmvq_kernel; the same bits.
     bool q8_small(const Mat& w, const void* q, float* out, int T) {
         if (!fast_k || w.type != 8 || T < 1 || T > 8 || w.n_in % 32 != 0) return false;
-        if (K::native_q8_0_packed_eligible(w.n_in, w.n_out) && K::native_q8_0_packed_enabled()) return false;
+        const bool tp_rows = tp && tp_small_rows && w.n_out <= 16384; // verification scratch holds 8 x 16384
+        if (!tp_rows && K::native_q8_0_packed_eligible(w.n_in, w.n_out) &&
+            K::native_q8_0_packed_enabled()) return false;
         const int nb = w.n_in / 32;
-        if (nb > 64) return false;
+        if (nb > (tp_rows ? 128 : 64)) return false;
+        if (nb > 64 && T > 4) return false; // keep the larger per-row register image to short TP windows
         const void* wp = w.d;
         const half* dpl = nullptr;
-        const int NJ = nb <= 32 ? 1 : 2;
 #define Q36_Q8(NCV)                                                                                          \
     case NCV:                                                                                                \
-        if (NJ == 1) q36k::launch_q8_rows<NCV, 1, false>(wp, dpl, q, out, nb, w.n_out, st);                  \
-        else q36k::launch_q8_rows<NCV, 2, false>(wp, dpl, q, out, nb, w.n_out, st);                          \
+        if (nb <= 32) q36k::launch_q8_rows<NCV, 1, false>(wp, dpl, q, out, nb, w.n_out, st);                 \
+        else if (nb <= 64) q36k::launch_q8_rows<NCV, 2, false>(wp, dpl, q, out, nb, w.n_out, st);            \
+        else if (nb <= 96) q36k::launch_q8_rows<NCV, 3, false>(wp, dpl, q, out, nb, w.n_out, st);            \
+        else q36k::launch_q8_rows<NCV, 4, false>(wp, dpl, q, out, nb, w.n_out, st);                           \
         break;
         switch (T) { Q36_Q8(1) Q36_Q8(2) Q36_Q8(3) Q36_Q8(4) Q36_Q8(5) Q36_Q8(6) Q36_Q8(7) Q36_Q8(8) }
 #undef Q36_Q8
@@ -2527,9 +2532,14 @@ struct Engine {
                                   g.n_expert == 256 && Kp == 8 && N % 4 == 0;
         if (fused_router) {
             if (tp_stats_capturing) ++tp_stats_router[cur_dev];
-            q36tp_fuse2::router_group<<<rows8(router_rows) * T, kThreads, 0, st>>>(
-                ext ? L.router_ext : L.router, h, logits_r, N, router_rows, T, router_rows, ids, ewts,
-                L.blobs, L.stride, grp_ptr, grp_start, n_groups, ent_dst, ent_tok, tp_route_done[cur_dev]);
+            if (tp_router_fence)
+                q36tp_fuse2::router_group<true><<<rows8(router_rows) * T, kThreads, 0, st>>>(
+                    ext ? L.router_ext : L.router, h, logits_r, N, router_rows, T, router_rows, ids, ewts,
+                    L.blobs, L.stride, grp_ptr, grp_start, n_groups, ent_dst, ent_tok, tp_route_done[cur_dev]);
+            else
+                q36tp_fuse2::router_group<false><<<rows8(router_rows) * T, kThreads, 0, st>>>(
+                    ext ? L.router_ext : L.router, h, logits_r, N, router_rows, T, router_rows, ids, ewts,
+                    L.blobs, L.stride, grp_ptr, grp_start, n_groups, ent_dst, ent_tok, tp_route_done[cur_dev]);
             grouped_by_route = true;
             if (verify_k) {
                 if (!vbuf) CK(cudaMalloc((void**) &vbuf, (size_t) 8 * 16384 * 4));
@@ -3481,8 +3491,9 @@ struct Engine {
     double pf_mtp = 0, pf_ver = 0, pf_commit = 0, pf_host = 0, pf_cpu0 = 0;
     long long pf_steps = 0, pf_rows = 0;
     int spec_verify(int x_tok, const std::vector<int32_t>& fix, int D, std::vector<int32_t>& drafts,
-                    const std::vector<int32_t>* lookup = nullptr) {
+                    const std::vector<int32_t>* lookup = nullptr, bool sampled_logits = false) {
         const int N = (int) m->g.n_embd;
+        lg_prefetched = 0;
         const auto pt0 = Clock::now();
         // (one device: a window never steps over a rebalance position, so plain and speculative decoding see the same slot
         // tables everywhere; a layer split lets it - the rebalance then follows the window - for whole drafts every step)
@@ -3569,9 +3580,16 @@ struct Engine {
         CK(cudaMemcpyAsync(tok, hpin + 16, (size_t) T * 4, cudaMemcpyHostToDevice, st));
         CK(cudaMemcpyAsync(pos0, hpin + 1, 4, cudaMemcpyHostToDevice, st));
         rows_deferred = true;
+        tp_sampled_verify = tp && tp_logits_prefetch && sampled_logits;
         graph_run(gs().gv[T], [&] { forward(T, pos, T, use_graph, true); });
+        tp_sampled_verify = false;
         rows_deferred = false;
-        CK(cudaMemcpyAsync(hpin + 2, pick, (size_t) T * 4, cudaMemcpyDeviceToHost, st));
+        if (tp && tp_logits_prefetch && sampled_logits) {
+            const size_t V = (size_t) m->g.n_vocab;
+            if (!lg_pin) CK(cudaHostAlloc((void**) &lg_pin, (size_t) kVerify * V * 4, cudaHostAllocPortable));
+            CK(cudaMemcpyAsync(lg_pin, logits, (size_t) T * V * 4, cudaMemcpyDeviceToHost, st));
+            lg_prefetched = T;
+        } else CK(cudaMemcpyAsync(hpin + 2, pick, (size_t) T * 4, cudaMemcpyDeviceToHost, st));
         CK(cudaStreamSynchronize(st));
         if (prof) {
             pf_mtp += std::chrono::duration<double, std::milli>(pt1 - pt0).count();
@@ -3606,9 +3624,12 @@ struct Engine {
     }
     /// The first n rows of `logits` (a verify window's) in pinned host memory (valid until the next call).
     float* lg_pin = nullptr;
+    int lg_prefetched = 0;
     float* host_logits_rows(int n) {
         const size_t V = (size_t) m->g.n_vocab;
         if (!lg_pin) CK(cudaHostAlloc((void**) &lg_pin, (size_t) kVerify * V * 4, cudaHostAllocPortable));
+        if (tp && tp_logits_prefetch && lg_prefetched == n) { lg_prefetched = 0; return lg_pin; }
+        lg_prefetched = 0;
         CK(cudaMemcpyAsync(lg_pin, logits, (size_t) n * V * 4, cudaMemcpyDeviceToHost, st));
         CK(cudaStreamSynchronize(st));
         return lg_pin;
@@ -5095,7 +5116,7 @@ struct Serve {
                 E.g_seed = gseed;
                 E.g_inv_t = gum ? 1.f / smp.temperature : 1.f;
                 E.g_top_k = smp.top_k > 0 ? smp.top_k : 64;
-                const int D = E.spec_verify(nx, fix, adapt.choose(E.mtp_d), drafts, lkd.empty() ? nullptr : &lkd);
+                const int D = E.spec_verify(nx, fix, adapt.choose(E.mtp_d), drafts, lkd.empty() ? nullptr : &lkd, true);
                 E.gumbel_on = false;
                 E.pen_on = false;
                 float* rows_lg = E.host_logits_rows(D + 1);
