@@ -1,0 +1,352 @@
+{
+  "design": "A: F16 CPU mtmd encoder; no GPU encoder",
+  "cpu": "AMD Ryzen 9 9950X 16-Core Processor",
+  "threads": 16,
+  "llama_cpp_path": "/home/admin/work/llama.cpp-ggml-org",
+  "llama_cpp_commit": "839a572a4cdecdb80d211297b8e7d7323a6e99d2",
+  "projector": "/home/admin/work/models/mmproj-Ornith-1.5-122B-f16.gguf",
+  "projector_sha256": "f17b37e3939ea58d878cc4e7c9b3df8538255cbad5340b5b813192ce593ca6d0",
+  "tensors": {
+    "F16": 112,
+    "F32": 222
+  },
+  "flash_attention": false,
+  "small_images": {
+    "comparisons": [
+      {
+        "image": "/home/admin/work/lanes/vis/build/vision-check-current/square.png",
+        "shape_n_nx_ny_width": [
+          64,
+          8,
+          8,
+          3072
+        ],
+        "image_sha256": "7a9193288db02d223f149e2f6f13dc8ab55f9b0ad6371ce93419ce50c6fdd3e5",
+        "strata_sha256": "b1dee6951bdafafbd47b8fdddcc6b10e26c26db6b7a6e5718e96e13be62ac5cb",
+        "reference_sha256": "b1dee6951bdafafbd47b8fdddcc6b10e26c26db6b7a6e5718e96e13be62ac5cb",
+        "max_abs": 0.0,
+        "max_relative_floor_1e-8": 0.0,
+        "relative_l2": 0.0,
+        "bit_identical": true,
+        "passed": true
+      },
+      {
+        "image": "/home/admin/work/lanes/vis/build/vision-check-current/wide.png",
+        "shape_n_nx_ny_width": [
+          98,
+          14,
+          7,
+          3072
+        ],
+        "image_sha256": "edc1847da3f2fd00c62db203d69a9fd2c8dc6c112459827ca489faa6bfd759c6",
+        "strata_sha256": "9d828b64e4279936e2f665f2e6db698eb1d52183100e68bb60abdcb85dfd84da",
+        "reference_sha256": "9d828b64e4279936e2f665f2e6db698eb1d52183100e68bb60abdcb85dfd84da",
+        "max_abs": 0.0,
+        "max_relative_floor_1e-8": 0.0,
+        "relative_l2": 0.0,
+        "bit_identical": true,
+        "passed": true
+      },
+      {
+        "image": "/home/admin/work/lanes/vis/build/vision-check-current/tall.png",
+        "shape_n_nx_ny_width": [
+          98,
+          7,
+          14,
+          3072
+        ],
+        "image_sha256": "a2a95713c0ea0ef16bf77e0eb10e656182de8d41d87bfc46d3423dce955caaf7",
+        "strata_sha256": "87ab8132c3f12434e5a6784b8a0c6eae2375bb2191d93224a4174b00e263248b",
+        "reference_sha256": "87ab8132c3f12434e5a6784b8a0c6eae2375bb2191d93224a4174b00e263248b",
+        "max_abs": 0.0,
+        "max_relative_floor_1e-8": 0.0,
+        "relative_l2": 0.0,
+        "bit_identical": true,
+        "passed": true
+      }
+    ],
+    "commands": [
+      [
+        "/home/admin/work/lanes/vis/build/vision/bin/strata-vision",
+        "--model",
+        "/srv/models/huggingface/hub/models--unsloth--Ornith-1.5-122B-GGUF/snapshots/3842d003341507c216295c6f28dfcd30349925c6/UD-Q3_K_XL/Ornith-1.5-122B-UD-Q3_K_XL-00001-of-00003.gguf",
+        "--mmproj",
+        "/home/admin/work/models/mmproj-Ornith-1.5-122B-f16.gguf",
+        "--native-f16",
+        "--threads",
+        "16",
+        "--max-tokens",
+        "1024",
+        "--min-tokens",
+        "64"
+      ],
+      [
+        "/home/admin/work/lanes/vis/build/vision-reference/bin/mtmd-embedding-reference",
+        "/srv/models/huggingface/hub/models--unsloth--Ornith-1.5-122B-GGUF/snapshots/3842d003341507c216295c6f28dfcd30349925c6/UD-Q3_K_XL/Ornith-1.5-122B-UD-Q3_K_XL-00001-of-00003.gguf",
+        "/home/admin/work/models/mmproj-Ornith-1.5-122B-f16.gguf",
+        "/home/admin/work/lanes/vis/build/vision-check-current/square.png",
+        "/home/admin/work/lanes/vis/build/vision-check-current/0.mtmd.sve",
+        "16",
+        "1024",
+        "64"
+      ],
+      [
+        "/home/admin/work/lanes/vis/build/vision/bin/strata-vision",
+        "--model",
+        "/srv/models/huggingface/hub/models--unsloth--Ornith-1.5-122B-GGUF/snapshots/3842d003341507c216295c6f28dfcd30349925c6/UD-Q3_K_XL/Ornith-1.5-122B-UD-Q3_K_XL-00001-of-00003.gguf",
+        "--mmproj",
+        "/home/admin/work/models/mmproj-Ornith-1.5-122B-f16.gguf",
+        "--native-f16",
+        "--threads",
+        "16",
+        "--max-tokens",
+        "1024",
+        "--min-tokens",
+        "64"
+      ],
+      [
+        "/home/admin/work/lanes/vis/build/vision-reference/bin/mtmd-embedding-reference",
+        "/srv/models/huggingface/hub/models--unsloth--Ornith-1.5-122B-GGUF/snapshots/3842d003341507c216295c6f28dfcd30349925c6/UD-Q3_K_XL/Ornith-1.5-122B-UD-Q3_K_XL-00001-of-00003.gguf",
+        "/home/admin/work/models/mmproj-Ornith-1.5-122B-f16.gguf",
+        "/home/admin/work/lanes/vis/build/vision-check-current/wide.png",
+        "/home/admin/work/lanes/vis/build/vision-check-current/1.mtmd.sve",
+        "16",
+        "1024",
+        "64"
+      ],
+      [
+        "/home/admin/work/lanes/vis/build/vision/bin/strata-vision",
+        "--model",
+        "/srv/models/huggingface/hub/models--unsloth--Ornith-1.5-122B-GGUF/snapshots/3842d003341507c216295c6f28dfcd30349925c6/UD-Q3_K_XL/Ornith-1.5-122B-UD-Q3_K_XL-00001-of-00003.gguf",
+        "--mmproj",
+        "/home/admin/work/models/mmproj-Ornith-1.5-122B-f16.gguf",
+        "--native-f16",
+        "--threads",
+        "16",
+        "--max-tokens",
+        "1024",
+        "--min-tokens",
+        "64"
+      ],
+      [
+        "/home/admin/work/lanes/vis/build/vision-reference/bin/mtmd-embedding-reference",
+        "/srv/models/huggingface/hub/models--unsloth--Ornith-1.5-122B-GGUF/snapshots/3842d003341507c216295c6f28dfcd30349925c6/UD-Q3_K_XL/Ornith-1.5-122B-UD-Q3_K_XL-00001-of-00003.gguf",
+        "/home/admin/work/models/mmproj-Ornith-1.5-122B-f16.gguf",
+        "/home/admin/work/lanes/vis/build/vision-check-current/tall.png",
+        "/home/admin/work/lanes/vis/build/vision-check-current/2.mtmd.sve",
+        "16",
+        "1024",
+        "64"
+      ]
+    ],
+    "atol": 1e-06,
+    "rtol": 1e-06
+  },
+  "production_images": {
+    "comparisons": [
+      {
+        "image": "/home/admin/work/lanes/vis/build/vision-check-production/square.png",
+        "shape_n_nx_ny_width": [
+          1024,
+          32,
+          32,
+          3072
+        ],
+        "image_sha256": "7a9193288db02d223f149e2f6f13dc8ab55f9b0ad6371ce93419ce50c6fdd3e5",
+        "strata_sha256": "063be573348c1b5e313b0028a5ed94d5689db7b9cf4bd7b1ec731c7ed95f2c90",
+        "reference_sha256": "063be573348c1b5e313b0028a5ed94d5689db7b9cf4bd7b1ec731c7ed95f2c90",
+        "max_abs": 0.0,
+        "max_relative_floor_1e-8": 0.0,
+        "relative_l2": 0.0,
+        "bit_identical": true,
+        "passed": true
+      },
+      {
+        "image": "/home/admin/work/lanes/vis/build/vision-check-production/wide.png",
+        "shape_n_nx_ny_width": [
+          1058,
+          46,
+          23,
+          3072
+        ],
+        "image_sha256": "edc1847da3f2fd00c62db203d69a9fd2c8dc6c112459827ca489faa6bfd759c6",
+        "strata_sha256": "80dcb5faa5cb2e7b9a316bedb72134525afc5f66c35e22e4c5f86829ab27e441",
+        "reference_sha256": "80dcb5faa5cb2e7b9a316bedb72134525afc5f66c35e22e4c5f86829ab27e441",
+        "max_abs": 0.0,
+        "max_relative_floor_1e-8": 0.0,
+        "relative_l2": 0.0,
+        "bit_identical": true,
+        "passed": true
+      },
+      {
+        "image": "/home/admin/work/lanes/vis/build/vision-check-production/tall.png",
+        "shape_n_nx_ny_width": [
+          1058,
+          23,
+          46,
+          3072
+        ],
+        "image_sha256": "a2a95713c0ea0ef16bf77e0eb10e656182de8d41d87bfc46d3423dce955caaf7",
+        "strata_sha256": "885af0b7c43e97435f7e95875d953061e10664adef2c314975b5d3c00d6aeae2",
+        "reference_sha256": "885af0b7c43e97435f7e95875d953061e10664adef2c314975b5d3c00d6aeae2",
+        "max_abs": 0.0,
+        "max_relative_floor_1e-8": 0.0,
+        "relative_l2": 0.0,
+        "bit_identical": true,
+        "passed": true
+      }
+    ],
+    "commands": [
+      [
+        "/home/admin/work/lanes/vis/build/vision/bin/strata-vision",
+        "--model",
+        "/srv/models/huggingface/hub/models--unsloth--Ornith-1.5-122B-GGUF/snapshots/3842d003341507c216295c6f28dfcd30349925c6/UD-Q3_K_XL/Ornith-1.5-122B-UD-Q3_K_XL-00001-of-00003.gguf",
+        "--mmproj",
+        "/home/admin/work/models/mmproj-Ornith-1.5-122B-f16.gguf",
+        "--native-f16",
+        "--threads",
+        "16",
+        "--max-tokens",
+        "4096",
+        "--min-tokens",
+        "1024"
+      ],
+      [
+        "/home/admin/work/lanes/vis/build/vision-reference/bin/mtmd-embedding-reference",
+        "/srv/models/huggingface/hub/models--unsloth--Ornith-1.5-122B-GGUF/snapshots/3842d003341507c216295c6f28dfcd30349925c6/UD-Q3_K_XL/Ornith-1.5-122B-UD-Q3_K_XL-00001-of-00003.gguf",
+        "/home/admin/work/models/mmproj-Ornith-1.5-122B-f16.gguf",
+        "/home/admin/work/lanes/vis/build/vision-check-production/square.png",
+        "/home/admin/work/lanes/vis/build/vision-check-production/0.mtmd.sve",
+        "16",
+        "4096",
+        "1024"
+      ],
+      [
+        "/home/admin/work/lanes/vis/build/vision/bin/strata-vision",
+        "--model",
+        "/srv/models/huggingface/hub/models--unsloth--Ornith-1.5-122B-GGUF/snapshots/3842d003341507c216295c6f28dfcd30349925c6/UD-Q3_K_XL/Ornith-1.5-122B-UD-Q3_K_XL-00001-of-00003.gguf",
+        "--mmproj",
+        "/home/admin/work/models/mmproj-Ornith-1.5-122B-f16.gguf",
+        "--native-f16",
+        "--threads",
+        "16",
+        "--max-tokens",
+        "4096",
+        "--min-tokens",
+        "1024"
+      ],
+      [
+        "/home/admin/work/lanes/vis/build/vision-reference/bin/mtmd-embedding-reference",
+        "/srv/models/huggingface/hub/models--unsloth--Ornith-1.5-122B-GGUF/snapshots/3842d003341507c216295c6f28dfcd30349925c6/UD-Q3_K_XL/Ornith-1.5-122B-UD-Q3_K_XL-00001-of-00003.gguf",
+        "/home/admin/work/models/mmproj-Ornith-1.5-122B-f16.gguf",
+        "/home/admin/work/lanes/vis/build/vision-check-production/wide.png",
+        "/home/admin/work/lanes/vis/build/vision-check-production/1.mtmd.sve",
+        "16",
+        "4096",
+        "1024"
+      ],
+      [
+        "/home/admin/work/lanes/vis/build/vision/bin/strata-vision",
+        "--model",
+        "/srv/models/huggingface/hub/models--unsloth--Ornith-1.5-122B-GGUF/snapshots/3842d003341507c216295c6f28dfcd30349925c6/UD-Q3_K_XL/Ornith-1.5-122B-UD-Q3_K_XL-00001-of-00003.gguf",
+        "--mmproj",
+        "/home/admin/work/models/mmproj-Ornith-1.5-122B-f16.gguf",
+        "--native-f16",
+        "--threads",
+        "16",
+        "--max-tokens",
+        "4096",
+        "--min-tokens",
+        "1024"
+      ],
+      [
+        "/home/admin/work/lanes/vis/build/vision-reference/bin/mtmd-embedding-reference",
+        "/srv/models/huggingface/hub/models--unsloth--Ornith-1.5-122B-GGUF/snapshots/3842d003341507c216295c6f28dfcd30349925c6/UD-Q3_K_XL/Ornith-1.5-122B-UD-Q3_K_XL-00001-of-00003.gguf",
+        "/home/admin/work/models/mmproj-Ornith-1.5-122B-f16.gguf",
+        "/home/admin/work/lanes/vis/build/vision-check-production/tall.png",
+        "/home/admin/work/lanes/vis/build/vision-check-production/2.mtmd.sve",
+        "16",
+        "4096",
+        "1024"
+      ]
+    ],
+    "atol": 1e-06,
+    "rtol": 1e-06
+  },
+  "initial_pinned_llama_commit": "3cf03257f219afbe7334045ff7c6a06ac68c627d",
+  "initial_pinned_comparisons": [
+    {
+      "image": "/home/admin/work/lanes/vis/build/vision-check/square.png",
+      "shape_n_nx_ny_width": [
+        64,
+        8,
+        8,
+        3072
+      ],
+      "image_sha256": "7a9193288db02d223f149e2f6f13dc8ab55f9b0ad6371ce93419ce50c6fdd3e5",
+      "strata_sha256": "b1dee6951bdafafbd47b8fdddcc6b10e26c26db6b7a6e5718e96e13be62ac5cb",
+      "reference_sha256": "b1dee6951bdafafbd47b8fdddcc6b10e26c26db6b7a6e5718e96e13be62ac5cb",
+      "max_abs": 0.0,
+      "max_relative_floor_1e-8": 0.0,
+      "relative_l2": 0.0,
+      "bit_identical": true,
+      "passed": true
+    },
+    {
+      "image": "/home/admin/work/lanes/vis/build/vision-check/wide.png",
+      "shape_n_nx_ny_width": [
+        98,
+        14,
+        7,
+        3072
+      ],
+      "image_sha256": "edc1847da3f2fd00c62db203d69a9fd2c8dc6c112459827ca489faa6bfd759c6",
+      "strata_sha256": "e09a2ed4bbd70e23d27fbc7f76cae22f805dcbdef9b808f8071008ba0fe4c692",
+      "reference_sha256": "9d828b64e4279936e2f665f2e6db698eb1d52183100e68bb60abdcb85dfd84da",
+      "max_abs": 0.017261981964111328,
+      "max_relative_floor_1e-8": 77.27594936708861,
+      "relative_l2": 0.0014785441625236786,
+      "bit_identical": false,
+      "passed": false
+    },
+    {
+      "image": "/home/admin/work/lanes/vis/build/vision-check/tall.png",
+      "shape_n_nx_ny_width": [
+        98,
+        7,
+        14,
+        3072
+      ],
+      "image_sha256": "a2a95713c0ea0ef16bf77e0eb10e656182de8d41d87bfc46d3423dce955caaf7",
+      "strata_sha256": "5d162ab6e84c87aa3e309176b606ffbf3134e1479d9d963fb9f4cd0742226355",
+      "reference_sha256": "87ab8132c3f12434e5a6784b8a0c6eae2375bb2191d93224a4174b00e263248b",
+      "max_abs": 0.0060482025146484375,
+      "max_relative_floor_1e-8": 61.96521739130435,
+      "relative_l2": 0.0007449918568991014,
+      "bit_identical": false,
+      "passed": false
+    }
+  ],
+  "production_encode_ms": [
+    5858,
+    6385,
+    6836
+  ],
+  "checks_run": [
+    "HIP gfx1030 strata and strata-q36 build",
+    "CPU strata-vision and independent mtmd reference build",
+    "square/wide/tall embeddings and all mtmd grid positions",
+    "production Vision reader startup, encode, cached encode and reference bytes",
+    "reject Q8 projector and conflicting --gpu",
+    "11 existing server vision tests",
+    "GPU test inputs and both HTTP payloads prepared"
+  ],
+  "not_run": [
+    "GPU TP eager/graph/MTP inference",
+    "HTTP image requests and visual answer quality",
+    "same-text GPU parity",
+    "decode speed benchmark",
+    "CUDA build (nvcc unavailable)",
+    "SYCL build (engine file not part of that backend)"
+  ]
+}

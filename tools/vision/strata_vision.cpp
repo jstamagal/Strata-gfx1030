@@ -5,7 +5,7 @@
 // rows at the image's pad tokens and gives them their 2-D M-RoPE positions (see --serve GENI in generate.cpp).
 //
 //   strata-vision --mmproj <mmproj.gguf> --model <text model .gguf, first split> [--gpu] [--threads N]
-//                 [--max-tokens N] [--min-tokens N] [--flash-attn on|off|auto]
+//                 [--max-tokens N] [--min-tokens N] [--flash-attn on|off|auto] [--native-f16]
 // Flash attention defaults to auto, and to off on the CPU when ggml is built with AVX-512 (see main).
 //
 // Resident: prints "READY <n_embd>", then per stdin line
@@ -125,7 +125,11 @@ int main(int argc, char** argv) {
     }
     if (mmproj.empty() || model.empty()) {
         std::fprintf(stderr, "usage: strata-vision --mmproj <mmproj.gguf> --model <model.gguf> [--gpu] [--threads N] "
-                             "[--max-tokens N] [--min-tokens N] [--flash-attn on|off|auto]\n");
+                             "[--max-tokens N] [--min-tokens N] [--flash-attn on|off|auto] [--native-f16]\n");
+        return 2;
+    }
+    if (native_f16 && (gpu || (fa_given && fa != LLAMA_FLASH_ATTN_TYPE_DISABLED))) {
+        std::fprintf(stderr, "--native-f16 requires CPU and --flash-attn off (or omitted)\n");
         return 2;
     }
     // On the CPU the GPU stays unseen: a CUDA build otherwise opens a context there (measured: 0.4-0.7 GB of VRAM,
@@ -196,10 +200,6 @@ int main(int argc, char** argv) {
     // accepting a different tower. mtmd loads these tensor types unchanged. Its CPU
     // F16 matmuls use floating-point operands; non-flash attention retains F32 K/V.
     if (native_f16) {
-        if (gpu || (fa_given && fa != LLAMA_FLASH_ATTN_TYPE_DISABLED)) {
-            std::fprintf(stderr, "--native-f16 requires CPU and --flash-attn off (or omitted)\n");
-            return 2;
-        }
         gguf_init_params gp{true, nullptr};
         gguf_context* gg = gguf_init_from_file(mmproj.c_str(), gp);
         if (!gg) return 2;
