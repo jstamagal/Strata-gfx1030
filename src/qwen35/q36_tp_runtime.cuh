@@ -61,6 +61,9 @@ void Engine::tp_init(const Model& a, const Model& b, int context, int chunk, int
         CK(cudaEventCreateWithFlags(&tp_copy_done[d], cudaEventDisableTiming));
         tp_logits[d] = dalloc((size_t) kVerify * m->head.n_out);
         CK(cudaEventCreateWithFlags(&tp_event[d], cudaEventDisableTiming));
+        if (mtp_split_eh) CK(cudaEventCreateWithFlags(&mtp_eh_done[d], cudaEventDisableTiming));
+        if (mtp_input_detail)
+            for (auto& ev : mtp_input_events[d]) CK(cudaEventCreate(&ev));
         CK(cudaHostAlloc((void**)&tp_host[d], (size_t) tmax * g.n_embd * 4, cudaHostAllocPortable | cudaHostAllocMapped));
         CK(cudaHostAlloc((void**)&tp_flags_host[d], q36tp::join_blocks * q36tp::flag_stride * sizeof(unsigned),
                          cudaHostAllocPortable | cudaHostAllocMapped));
@@ -355,6 +358,10 @@ void Engine::tp_forward(int T, int64_t p0, int heads, bool verify) {
 
 void Engine::tp_head(int T, int heads, bool mtp, bool draft, float* output, int32_t* picks) {
     const int N = (int)m->g.n_embd, V = (int)m->g.n_vocab, half = m->head.n_out;
+    if (mtp && draft && heads == 1 && mtp_head_peer) {
+        tp_split_draft_head(T);
+        return;
+    }
     // A limited draft vocabulary entirely on rank zero needs neither rank one's
     // head projection nor a full-vocabulary peer copy. The target still verifies it.
     const bool short_draft = mtp && draft && mtp_short_head && draft_n > 0 && draft_n < V &&
