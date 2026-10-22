@@ -1525,8 +1525,8 @@ struct Engine {
     int32_t* ami;
     int n_chunk = 0, att_rows = 0;   // attention partials: att_rows query rows x n_chunk chunks
     std::vector<float*> conv, S, kc, vc, kc_hot, vc_hot; // current session; MTP at index n_layers
-    int kv_resident = 0, kv_prefetch = 0; // 0: the original fully resident allocation
-    float *pref_kc = nullptr, *pref_vc = nullptr; // per-card cold-window staging
+    int kv_resident = 0, kv_prefetch = 0; // hot ring + shared prefetch <= --kv-resident; 0: fully resident
+    float *pref_kc = nullptr, *pref_vc = nullptr; // per-card cold-window staging aliases idle prompt FP16 scratch
     // verify windows (T <= kVerify): the GDN inputs of every row per layer, kept for the commit
     static constexpr int kVerify = 8;
     static_assert(kVerify == q36kvstream::rollback_guard);
@@ -1707,6 +1707,8 @@ struct Engine {
                                                            (int) m->g.head_dim)
                                               : (size_t) m->g.n_head_kv * ctx * m->g.head_dim * sizeof(float); }
     size_t kv_full_bytes() const { return q36kv8::bytes((int) m->g.n_head_kv, ctx, (int) m->g.head_dim); }
+    size_t kv_stage_bytes() const { return kv_prefetch ? 2 * q36kv8::bytes((int) m->g.n_head_kv, kv_prefetch,
+                                                                            (int) m->g.head_dim) : 0; }
     float* kv_alloc() const {
         if (!kv_int8) return dalloc((size_t) m->g.n_head_kv * ctx * m->g.head_dim);
         float* p = nullptr; CK(cudaMalloc((void**) &p, kv_bytes())); return p;
@@ -1873,7 +1875,7 @@ struct Engine {
                 size_t layers = m->has_mtp && d == home ? 1 : 0;
                 for (size_t li = 0; li < m->layers.size(); ++li) if (m->layers[li].attn && (tp || dev_of[li] == d)) ++layers;
                 std::fprintf(stderr, "strata-q36: device %d STRATA_Q36_KV=int8 (--kv int8), KV %.2f GiB GPU, %.2f GiB host (%d slots, %zu attention blocks)\n",
-                             d, (double) (2 * kv_bytes() * layers * n_sess) / (1ull << 30),
+                             d, (double) (2 * kv_bytes() * layers * n_sess + kv_stage_bytes()) / (1ull << 30),
                              kv_resident ? (double) (2 * kv_full_bytes() * layers * n_sess) / (1ull << 30) : 0., n_sess, layers);
             }
             size_t fr = 0, tot = 0;
@@ -1914,11 +1916,24 @@ struct Engine {
         att_s = dalloc(kAttScoreFloats);
         sk_part = dalloc((size_t) kSplitK * T * (g.n_expert + 1));
         att_p16 = dalloc_t<__half>(kAttScoreFloats);
-        k16 = dalloc_t<__half>((size_t) g.n_head_kv * ctx * g.head_dim);
-        v16 = dalloc_t<__half>((size_t) g.n_head_kv * ctx * g.head_dim);
+        // Streamed prompts past the resident window use split attention below. Keep
+        // the FP16 GEMM operands bounded too, so increasing --max-context cannot
+        // take expert VRAM away through these scratch allocations.
+        const size_t prompt_cells = kv_resident ? (size_t) kv_resident : (size_t) ctx;
+        const size_t prompt_elems = (size_t) g.n_head_kv * prompt_cells * g.head_dim;
+        k16 = dalloc_t<__half>(prompt_elems);
+        v16 = dalloc_t<__half>(prompt_elems);
         if (kv_prefetch) {
-            CK(cudaMalloc((void**) &pref_kc, q36kv8::bytes((int) g.n_head_kv, kv_prefetch, (int) g.head_dim)));
-            CK(cudaMalloc((void**) &pref_vc, q36kv8::bytes((int) g.n_head_kv, kv_prefetch, (int) g.head_dim)));
+            // The GEMM buffers are idle once a prompt grows beyond the hot ring,
+            // which is exactly when a cold prefetch can contain cells. Reuse them
+            // instead of adding a second device KV allocation beyond the N-cell cap.
+            if (q36kv8::bytes((int) g.n_head_kv, kv_prefetch, (int) g.head_dim) >
+                prompt_elems * sizeof(__half)) {
+                std::fprintf(stderr, "strata-q36: streamed KV prefetch exceeds prompt scratch\n");
+                std::exit(1);
+            }
+            pref_kc = reinterpret_cast<float*>(k16);
+            pref_vc = reinterpret_cast<float*>(v16);
         }
         q16 = dalloc_t<__half>(T * g.n_head * g.head_dim);
         bool use_mmq = MMQ::built() && std::getenv("STRATA_Q36_NO_MMQ") == nullptr;
@@ -2599,7 +2614,7 @@ struct Engine {
             }
             if (stream.prefetch) q36kvstream::prefetch<<<grid1((int64_t) HKV * stream.prefetch * HD), kThreads, 0, st>>>(
                 kc[li], vc[li], pref_kc, pref_vc, dpos, T, ctx, kv_resident, stream.prefetch, HKV, HD);
-            if (T > kGemmT) {
+            if (T > kGemmT && (!kv_resident || p0 + T <= kv_resident)) {
                 // a prompt chunk: scores = Q K^T and out = P V as FP16 GEMMs (FP32 accumulation, FP32 scores) per KV
                 // head (its query heads one strided batch over the shared K / V), the causal softmax in between writing
                 // FP16 probabilities; the queries in slices whose scores fit
@@ -5726,10 +5741,11 @@ int strata::qwen35::run(int argc, char** argv) {
     }
     E.tp_graph = graph;
     E.kv_int8 = kv_int8;
-    E.kv_resident = kv_resident > 0 && kv_resident < ctx ? kv_resident : 0;
-    E.kv_prefetch = E.kv_resident ? std::min(E.kv_resident, 8192) : 0;
+    E.kv_prefetch = kv_resident > 0 && kv_resident < ctx ? std::min(kv_resident / 4, 8192) : 0;
+    E.kv_resident = E.kv_prefetch ? kv_resident - E.kv_prefetch : 0;
     if (E.kv_resident) std::fprintf(stderr, "strata-q36: --kv-resident %d, mapped host backing to %d cells, "
-                                          "graph-safe prefetch %d cells per card\n", E.kv_resident, ctx, E.kv_prefetch);
+                                          "hot ring %d + graph-safe prefetch %d cells per card\n",
+                                          kv_resident, ctx, E.kv_resident, E.kv_prefetch);
     strata::kernels::RopeScaling rope_sc;
     if (!q36rope::resolve(m.file->meta(), m.rope_base, rope_opt, rope_sc, err)) {
         std::fprintf(stderr, "strata-q36: %s\n", err.c_str()); return 2;

@@ -44,7 +44,7 @@ void Engine::tp_init(const Model& a, const Model& b, int context, int chunk, int
             size_t blocks = m->has_mtp ? 1 : 0;
             for (const Layer& L : m->layers) if (L.attn) ++blocks;
             std::fprintf(stderr, "strata-q36: device %d STRATA_Q36_KV=int8 (--kv int8), KV %.2f GiB GPU, %.2f GiB host (%d slots, %zu attention blocks)\n",
-                         d, (double) (2 * kv_bytes() * blocks * n_sess) / (1ull << 30),
+                         d, (double) (2 * kv_bytes() * blocks * n_sess + kv_stage_bytes()) / (1ull << 30),
                          kv_resident ? (double) (2 * kv_full_bytes() * blocks * n_sess) / (1ull << 30) : 0., n_sess, blocks);
         }
         conv = sess[cur].conv; S = sess[cur].S; kc = sess[cur].kc; vc = sess[cur].vc;
