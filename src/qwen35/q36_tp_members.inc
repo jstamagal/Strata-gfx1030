@@ -20,7 +20,8 @@
     void tp_prepare_launch_stats(int requested_mtp);
     void tp_enter(int T, bool mtp = false, const float* seeds = nullptr);
     void tp_join(float* partial, int T);
-    void tp_join_norm(float* partial, const float* w, float* hout, int T, bool quantized, bool published = false);
+    void tp_join_norm(float* partial, const float* w, float* hout, int T, bool quantized,
+                      bool published = false, bool emit_q8 = true);
     bool tp_row_defer_ack(int T, int n) const;
     void tp_moe_end(int T, const int32_t* prow, const float* shared, const float* sgate,
                     const float* wn, float* hout, int sgs);
@@ -39,6 +40,13 @@
     bool tp_attn_rows = q36tp::enabled("STRATA_Q36_TP_ATTN_ROWS");
     bool tp_attn_graph_rows = q36tp::enabled("STRATA_Q36_TP_ATTN_GRAPH_ROWS");
     bool tp_join_row = q36tp::enabled("STRATA_Q36_TP_JOIN_ROW");
+    bool tp_join_wide = q36tp::enabled("STRATA_Q36_TP_JOIN_WIDE");
+    bool tp_join_split = q36tp::enabled("STRATA_Q36_TP_JOIN_SPLIT");
+    bool tp_join_q8_router = q36tp::enabled("STRATA_Q36_TP_JOIN_Q8_ROUTER");
+    bool tp_join_q8_check = q36tp::enabled("STRATA_Q36_TP_JOIN_Q8_CHECK");
+    void* tp_join_q8_ref[2] = {};
+    unsigned *tp_join_publish_done[2] = {}, *tp_join_sum_done[2] = {};
+    float* tp_join_lane_sums[2] = {};
     bool tp_join_peer_first = q36tp::enabled("STRATA_Q36_TP_JOIN_PEER_FIRST");
     bool tp_join_fast_submit = q36tp::enabled("STRATA_Q36_TP_JOIN_FAST_SUBMIT");
     bool tp_join_moe_publish = q36tp::enabled("STRATA_Q36_TP_JOIN_MOE_PUBLISH");

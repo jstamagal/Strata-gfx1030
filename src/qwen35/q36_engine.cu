@@ -34,6 +34,7 @@
 #include "q36_tp_router_pair.cuh"
 #include "q36_tp_skew.cuh"
 #include "q36_tp_join_row.cuh"
+#include "q36_tp_join_fast.cuh"
 #include "q36_tp_partial_split.cuh"
 #include "q36_tp_fuse3.cuh"
 #include "q36_decode.cuh"
@@ -2313,6 +2314,13 @@ struct Engine {
         if (tp && tp_phase != 2) tp_gdn_defer_hist[cur_dev] = nullptr;
         const bool fused_mixer_norm = tp && tp_fuse2_join_norm && fast_k && !verify_k &&
                                       T >= 1 && T <= 4 && N % 32 == 0;
+        const bool router_q8 = fused_mixer_norm && tp_join_row && tp_join_q8_router &&
+                               (tp_join_split || (tp_join_wide && ((size_t)N + 256) * 4 <= 48 * 1024)) &&
+                               tp_fuse2_router && !rows_mode && !lhy(li) &&
+                               g.n_expert == 256 && Kp == 8 && N % 4 == 0 &&
+                               N / 32 <= (tp_router_4w && T == 1
+                                           ? ((g.n_expert + 1 + 3) / 4) * 4
+                                           : ((g.n_expert + 1 + 7) / 8) * 8);
         if (tp_phase != 2) {
         if (!L.attn) {
             float* qkv_b = verify ? v_qkv[li] : qkv;
@@ -2553,7 +2561,7 @@ struct Engine {
         if (tp_phase == 1) return;
         if (fused_mixer_norm) {
             if (tp_stats_capturing) ++tp_stats_join_norm[cur_dev];
-            tp_join_norm(y, L.post_norm, h, T, true);
+            tp_join_norm(y, L.post_norm, h, T, true, false, !router_q8);
             xq_post = true;
         } else add_rms_post(L, T);
         if (!tp || cur_dev == home) layer_dump.mixer(x, st);
@@ -2571,23 +2579,39 @@ struct Engine {
                                   g.n_expert == 256 && Kp == 8 && N % 4 == 0;
         if (fused_router) {
             if (tp_stats_capturing) ++tp_stats_router[cur_dev];
-            if (tp_router_pair && T >= 2)
+            if (router_q8 && tp_router_4w && T == 1)
+                q36tp_fuse2::router_group<false, 4, true><<<(router_rows + 3) / 4, 128, 0, st>>>(
+                    ext ? L.router_ext : L.router, h, logits_r, N, router_rows, T, router_rows, ids, ewts,
+                    L.blobs, L.stride, grp_ptr, grp_start, n_groups, ent_dst, ent_tok, tp_route_done[cur_dev], (q36k::QB*)xq);
+            else if (router_q8)
+                q36tp_fuse2::router_group<false, 8, true><<<rows8(router_rows) * T, kThreads, 0, st>>>(
+                    ext ? L.router_ext : L.router, h, logits_r, N, router_rows, T, router_rows, ids, ewts,
+                    L.blobs, L.stride, grp_ptr, grp_start, n_groups, ent_dst, ent_tok, tp_route_done[cur_dev], (q36k::QB*)xq);
+            else if (tp_router_pair && T >= 2)
                 q36tp_router_pair::router_group<<<rows8(router_rows) * ((T + 1) / 2), kThreads, 0, st>>>(
                     ext ? L.router_ext : L.router, h, logits_r, N, router_rows, T, router_rows, ids, ewts,
                     L.blobs, L.stride, grp_ptr, grp_start, n_groups, ent_dst, ent_tok, tp_route_done[cur_dev]);
             else if (tp_router_4w && T == 1)
                 q36tp_fuse2::router_group<false, 4><<<(router_rows + 3) / 4, 128, 0, st>>>(
                     ext ? L.router_ext : L.router, h, logits_r, N, router_rows, T, router_rows, ids, ewts,
-                    L.blobs, L.stride, grp_ptr, grp_start, n_groups, ent_dst, ent_tok, tp_route_done[cur_dev]);
+                    L.blobs, L.stride, grp_ptr, grp_start, n_groups, ent_dst, ent_tok, tp_route_done[cur_dev], nullptr);
             else if (tp_router_fence)
                 q36tp_fuse2::router_group<true><<<rows8(router_rows) * T, kThreads, 0, st>>>(
                     ext ? L.router_ext : L.router, h, logits_r, N, router_rows, T, router_rows, ids, ewts,
-                    L.blobs, L.stride, grp_ptr, grp_start, n_groups, ent_dst, ent_tok, tp_route_done[cur_dev]);
+                    L.blobs, L.stride, grp_ptr, grp_start, n_groups, ent_dst, ent_tok, tp_route_done[cur_dev], nullptr);
             else
                 q36tp_fuse2::router_group<false><<<rows8(router_rows) * T, kThreads, 0, st>>>(
                     ext ? L.router_ext : L.router, h, logits_r, N, router_rows, T, router_rows, ids, ewts,
-                    L.blobs, L.stride, grp_ptr, grp_start, n_groups, ent_dst, ent_tok, tp_route_done[cur_dev]);
+                    L.blobs, L.stride, grp_ptr, grp_start, n_groups, ent_dst, ent_tok, tp_route_done[cur_dev], nullptr);
             grouped_by_route = true;
+            if (router_q8 && tp_join_q8_check) {
+                // verify_q8 caches scratch in vq; keep a separate allocation for each TP device.
+                void* saved_vq = vq;
+                vq = tp_join_q8_ref[cur_dev];
+                verify_q8("TP join/router q8", h, T, " layer " + std::to_string(li));
+                tp_join_q8_ref[cur_dev] = vq;
+                vq = saved_vq;
+            }
             if (verify_k) {
                 if (!vbuf) CK(cudaMalloc((void**) &vbuf, (size_t) 8 * 16384 * 4));
                 k_gemv_f32<<<dim3(rows8(router_rows), T), kThreads, 0, st>>>(
@@ -5533,7 +5557,8 @@ int strata::qwen35::run(int argc, char** argv) {
                 }
             }
             if (E.tp && E.tp_check) std::fprintf(stderr, "strata-q36 TP_CHECK: %lld bit-equal replica comparisons\n", E.tp_checks);
-            if (E.verify_k) std::fprintf(stderr, "strata-q36 VERIFY: %lld comparisons, %lld mismatches\n", E.v_calls, E.v_bad);
+            if (E.verify_k || E.tp_join_q8_check)
+                std::fprintf(stderr, "strata-q36 VERIFY: %lld comparisons, %lld mismatches\n", E.v_calls, E.v_bad);
             if (E.verify_k)
                 for (const auto& kv : E.v_by)
                     std::fprintf(stderr, "strata-q36 VERIFY   %s: %lld mismatches\n", kv.first.c_str(), kv.second);

@@ -4,7 +4,8 @@ long long Engine::tp_graph_key(int T, bool verify, bool mtp, bool short_attn) co
              (kVerify+1) + T) * 2 + (int)verify) * 4 + (int)mtp * 2 + (int)short_attn;
 }
 bool Engine::tp_graph_run(int T, int64_t p0, bool verify, bool mtp, const float* seeds, bool capture_only) {
-    if (!tp_graph || layer_dump.enabled() || verify_k || T > kVerify || map_on || mtab_now ||
+    if (!tp_graph || layer_dump.enabled() || verify_k || (tp_join_q8_router && tp_join_q8_check) ||
+        T > kVerify || map_on || mtab_now ||
         (tp_attn_rows && !tp_attn_graph_rows && p0 + T <= kChunkCells * 4)) return false;
     // Main callers always stage MTP seeds here. Other seed addresses use eager execution, never a stale capture.
     use_dev(home);

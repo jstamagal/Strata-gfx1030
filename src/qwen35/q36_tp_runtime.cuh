@@ -54,6 +54,13 @@ void Engine::tp_init(const Model& a, const Model& b, int context, int chunk, int
             d_gslot = dalloc_t<int32_t>(kVerify); d_grow0 = dalloc_t<int32_t>(kVerify); d_gcnt = dalloc_t<int32_t>(kVerify);
         }
         tp_token[d] = dalloc_t<unsigned>(q36tp::join_blocks);
+        if (tp_join_split) {
+            tp_join_publish_done[d] = dalloc_t<unsigned>(kVerify);
+            tp_join_sum_done[d] = dalloc_t<unsigned>(kVerify);
+            tp_join_lane_sums[d] = dalloc((size_t)kVerify * 256);
+            CK(cudaMemset(tp_join_publish_done[d], 0, kVerify * sizeof(unsigned)));
+            CK(cudaMemset(tp_join_sum_done[d], 0, kVerify * sizeof(unsigned)));
+        }
         if (tp_partial_split) tp_partial_done[d] = dalloc_t<unsigned>(kVerify);
         if (tp_fuse2_router) tp_route_done[d] = dalloc_t<unsigned>(1);
         tp_remote[d] = dalloc((size_t)tmax * g.n_embd);
@@ -100,7 +107,9 @@ void Engine::tp_init(const Model& a, const Model& b, int context, int chunk, int
     use_mmq = dev_mmq[0] && dev_mmq[1];
     if (tp_check) std::fprintf(stderr, "strata-q36: STRATA_Q36_TP_CHECK=1: compare both residual replicas at each forward boundary (host readback)\n");
     for (const char* flag : {"STRATA_Q36_TP_ATTN_ROWS", "STRATA_Q36_TP_ATTN_GRAPH_ROWS",
-                             "STRATA_Q36_TP_JOIN_ROW", "STRATA_Q36_TP_JOIN_PEER_FIRST", "STRATA_Q36_TP_JOIN_FAST_SUBMIT",
+                             "STRATA_Q36_TP_JOIN_ROW", "STRATA_Q36_TP_JOIN_WIDE", "STRATA_Q36_TP_JOIN_SPLIT",
+                             "STRATA_Q36_TP_JOIN_Q8_ROUTER", "STRATA_Q36_TP_JOIN_Q8_CHECK",
+                             "STRATA_Q36_TP_JOIN_PEER_FIRST", "STRATA_Q36_TP_JOIN_FAST_SUBMIT",
                              "STRATA_Q36_TP_JOIN_MOE_PUBLISH",
                              "STRATA_Q36_TP_JOIN_DEFER_ACK",
                              "STRATA_Q36_TP_PARTIAL_SPLIT",
@@ -323,10 +332,11 @@ void Engine::tp_report_skew() {
         std::fprintf(stderr,
             "strata-q36 TP_SKEW layer %zu %s %s: samples %u/%u, prepublish %.2f/%.2f us, "
             "peer wait %.2f/%.2f us, arrival skew estimate %+0.2f us (positive = rank 0 early), "
-            "join %.2f/%.2f us, next-arrival %.2f/%.2f us\n",
+            "post-peer %.2f/%.2f us, join %.2f/%.2f us, next-arrival %.2f/%.2f us\n",
             li, li == m->layers.size() ? "MTP" : m->layers[li].attn ? "attention" : "GDN",
             kind ? "MoE" : "mixer", n[0], n[1], prep[0], prep[1], wait[0], wait[1],
-            wait[0] - wait[1], total[0], total[1], following[0], following[1]);
+            wait[0] - wait[1], total[0] - prep[0] - wait[0], total[1] - prep[1] - wait[1],
+            total[0], total[1], following[0], following[1]);
     }
     CK(cudaSetDevice(home));
 }
@@ -366,36 +376,42 @@ bool Engine::tp_row_defer_ack(int T, int n) const {
            fast_k && !verify_k &&
            T >= 1 && T <= 4 && n % 32 == 0;
 }
-void Engine::tp_join_norm(float* partial, const float* w, float* hout, int T, bool quantized, bool published) {
+void Engine::tp_join_norm(float* partial, const float* w, float* hout, int T, bool quantized, bool published, bool emit_q8) {
     const int N = (int) m->g.n_embd;
     if (tp_join_row && T <= 4 && N % 32 == 0) {
         float* mine = tp_row_mapped[cur_dev][cur_dev];
         const float* peer = tp_row_mapped[cur_dev][1-cur_dev];
         unsigned* token = tp_token[cur_dev];
         const bool defer_ack = tp_row_defer_ack(T, N);
+        const int mode = tp_join_split ? 2 : tp_join_wide && ((size_t)N + 256) * sizeof(float) <= 48 * 1024 ? 1 : 0;
         q36tp_skew::Sample* samples = tp_skew_mapped[cur_dev];
         unsigned* counts = tp_skew_counts[cur_dev];
         const int skew_slot = tp_skew_layer * 2 + (quantized ? 0 : 1);
         if (quantized && defer_ack)
-            q36tp_row::launch_join_norm<true, false, true>(
-                partial, mine, peer, token, cur_dev, x, w, hout, (q36k::QB*) xq, N, m->eps,
-                T, st, samples, counts, skew_slot);
+            q36tp_fast::launch<true, false, true>(
+                partial, mine, peer, token, tp_join_publish_done[cur_dev], tp_join_sum_done[cur_dev], tp_join_lane_sums[cur_dev],
+                cur_dev, x, w, hout, (q36k::QB*) xq, N, m->eps,
+                T, st, mode, emit_q8, samples, counts, skew_slot);
         else if (quantized)
-            q36tp_row::launch_join_norm<true, false, false>(
-                partial, mine, peer, token, cur_dev, x, w, hout, (q36k::QB*) xq, N, m->eps,
-                T, st, samples, counts, skew_slot);
+            q36tp_fast::launch<true, false, false>(
+                partial, mine, peer, token, tp_join_publish_done[cur_dev], tp_join_sum_done[cur_dev], tp_join_lane_sums[cur_dev],
+                cur_dev, x, w, hout, (q36k::QB*) xq, N, m->eps,
+                T, st, mode, emit_q8, samples, counts, skew_slot);
         else if (published && defer_ack)
-            q36tp_row::launch_join_norm<false, true, true>(
-                partial, mine, peer, token, cur_dev, x, w, hout, nullptr, N, m->eps,
-                T, st, samples, counts, skew_slot);
+            q36tp_fast::launch<false, true, true>(
+                partial, mine, peer, token, tp_join_publish_done[cur_dev], tp_join_sum_done[cur_dev], tp_join_lane_sums[cur_dev],
+                cur_dev, x, w, hout, nullptr, N, m->eps,
+                T, st, mode, emit_q8, samples, counts, skew_slot);
         else if (published)
-            q36tp_row::launch_join_norm<false, true, false>(
-                partial, mine, peer, token, cur_dev, x, w, hout, nullptr, N, m->eps,
-                T, st, samples, counts, skew_slot);
+            q36tp_fast::launch<false, true, false>(
+                partial, mine, peer, token, tp_join_publish_done[cur_dev], tp_join_sum_done[cur_dev], tp_join_lane_sums[cur_dev],
+                cur_dev, x, w, hout, nullptr, N, m->eps,
+                T, st, mode, emit_q8, samples, counts, skew_slot);
         else
-            q36tp_row::launch_join_norm<false, false, false>(
-                partial, mine, peer, token, cur_dev, x, w, hout, nullptr, N, m->eps,
-                T, st, samples, counts, skew_slot);
+            q36tp_fast::launch<false, false, false>(
+                partial, mine, peer, token, tp_join_publish_done[cur_dev], tp_join_sum_done[cur_dev], tp_join_lane_sums[cur_dev],
+                cur_dev, x, w, hout, nullptr, N, m->eps,
+                T, st, mode, emit_q8, samples, counts, skew_slot);
     } else if (quantized)
         q36tp_fuse2::join_norm<true><<<q36tp::join_blocks, kThreads, 0, st>>>(
             partial, tp_mapped[cur_dev][cur_dev], tp_mapped[cur_dev][1-cur_dev], (size_t) T * N,
