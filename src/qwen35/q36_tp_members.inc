@@ -36,11 +36,17 @@
     bool tp_join_peer_first = q36tp::enabled("STRATA_Q36_TP_JOIN_PEER_FIRST");
     bool tp_join_fast_submit = q36tp::enabled("STRATA_Q36_TP_JOIN_FAST_SUBMIT");
     bool tp_join_moe_publish = q36tp::enabled("STRATA_Q36_TP_JOIN_MOE_PUBLISH");
+    bool tp_partial_split = q36tp::enabled("STRATA_Q36_TP_PARTIAL_SPLIT");
+    bool tp_head_rows = q36tp::enabled("STRATA_Q36_TP_HEAD_ROWS");
+    bool tp_small_rows = q36tp::enabled("STRATA_Q36_TP_SMALL_ROWS");
+    bool tp_logits_prefetch = q36tp::enabled("STRATA_Q36_TP_LOGITS_PREFETCH");
+    bool tp_sampled_verify = false;
     bool tp_head_q8 = q36tp::enabled("STRATA_Q36_TP_HEAD_Q8");
     bool tp_moe_join = q36tp::enabled("STRATA_Q36_TP_MOE_JOIN");
     bool tp_fuse2_conv_ab = q36tp::enabled("STRATA_Q36_TP_FUSE2_CONV_AB");
     bool tp_fuse2_gdn_q8 = q36tp::enabled("STRATA_Q36_TP_FUSE2_GDN_Q8");
     bool tp_fuse2_router = q36tp::enabled("STRATA_Q36_TP_FUSE2_ROUTER");
+    bool tp_router_fence = q36tp::enabled("STRATA_Q36_TP_ROUTER_FENCE");
     bool tp_fuse2_join_norm = q36tp::enabled("STRATA_Q36_TP_FUSE2_JOIN_NORM");
     bool tp_fuse2_moe_norm = q36tp::enabled("STRATA_Q36_TP_FUSE2_MOE_NORM");
     bool tp_fuse3_gdn_all = q36tp::enabled("STRATA_Q36_TP_FUSE3_GDN_ALL");
@@ -52,6 +58,7 @@
     float* tp_gdn_ref_hist[2] = {};
     bool tp_launch_stats = q36tp::enabled("STRATA_Q36_TP_LAUNCH_STATS");
     unsigned* tp_route_done[2] = {};
+    unsigned* tp_partial_done[2] = {};
     bool tp_stats_capturing = false;
     bool tp_stats_warmup = false;
     bool tp_stats_baseline = false;

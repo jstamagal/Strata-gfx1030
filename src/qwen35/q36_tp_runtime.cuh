@@ -54,6 +54,7 @@ void Engine::tp_init(const Model& a, const Model& b, int context, int chunk, int
             d_gslot = dalloc_t<int32_t>(kVerify); d_grow0 = dalloc_t<int32_t>(kVerify); d_gcnt = dalloc_t<int32_t>(kVerify);
         }
         tp_token[d] = dalloc_t<unsigned>(q36tp::join_blocks);
+        if (tp_partial_split) tp_partial_done[d] = dalloc_t<unsigned>(kVerify);
         if (tp_fuse2_router) tp_route_done[d] = dalloc_t<unsigned>(1);
         tp_remote[d] = dalloc((size_t)tmax * g.n_embd);
         CK(cudaEventCreateWithFlags(&tp_copy_ready[d], cudaEventDisableTiming));
@@ -87,12 +88,36 @@ void Engine::tp_init(const Model& a, const Model& b, int context, int chunk, int
     for (const char* flag : {"STRATA_Q36_TP_ATTN_ROWS", "STRATA_Q36_TP_ATTN_GRAPH_ROWS",
                              "STRATA_Q36_TP_JOIN_ROW", "STRATA_Q36_TP_JOIN_PEER_FIRST", "STRATA_Q36_TP_JOIN_FAST_SUBMIT",
                              "STRATA_Q36_TP_JOIN_MOE_PUBLISH",
+                             "STRATA_Q36_TP_PARTIAL_SPLIT",
+                             "STRATA_Q36_TP_HEAD_ROWS", "STRATA_Q36_TP_SMALL_ROWS", "STRATA_Q36_TP_LOGITS_PREFETCH",
+                             "STRATA_Q36_TP_ROUTER_FENCE",
+                             "STRATA_Q36_TP_SMALL_TRACE",
                              "STRATA_Q36_TP_HEAD_Q8", "STRATA_Q36_TP_MOE_JOIN",
                              "STRATA_Q36_TP_FUSE2_CONV_AB", "STRATA_Q36_TP_FUSE2_GDN_Q8", "STRATA_Q36_TP_FUSE2_ROUTER",
                              "STRATA_Q36_TP_FUSE2_JOIN_NORM", "STRATA_Q36_TP_FUSE2_MOE_NORM",
                              "STRATA_Q36_TP_FUSE3_GDN_ALL", "STRATA_Q36_TP_FUSE3_SHARED",
                              "STRATA_Q36_TP_LAUNCH_STATS"})
         if (q36tp::enabled(flag)) std::fprintf(stderr, "strata-q36: %s=1 (experimental TP decode)\n", flag);
+    if (q36tp::enabled("STRATA_Q36_TP_SMALL_TRACE")) {
+        for (int d = 0; d < 2; ++d) {
+            const Model& tm = *tp_models[d];
+            auto log_mat = [&](const char* label, const Mat& w, int layer) {
+                if (w.type == 8 && w.d)
+                    std::fprintf(stderr, "strata-q36 TP_SMALL_TRACE rank %d layer %d %s: n_in=%d n_out=%d, weights=%p\n",
+                                 d, layer, label, w.n_in, w.n_out, w.d);
+            };
+            log_mat("head", tm.head, -1);
+            log_mat("mtp_head", tm.mtp_head, -1);
+            log_mat("eh_proj", tm.eh_proj, -1);
+            auto log_layer = [&](const Layer& L, int li) {
+                log_mat("qkv", L.qkv, li); log_mat("zg", L.zg, li); log_mat("ssm_out", L.ssm_out, li);
+                log_mat("wq", L.wq, li); log_mat("wk", L.wk, li); log_mat("wv", L.wv, li); log_mat("wo", L.wo, li);
+                log_mat("sh_gate", L.sh_gate, li); log_mat("sh_up", L.sh_up, li); log_mat("sh_down", L.sh_down, li);
+            };
+            for (size_t li = 0; li < tm.layers.size(); ++li) log_layer(tm.layers[li], (int)li);
+            if (tm.has_mtp) log_layer(tm.mtp, (int)tm.layers.size());
+        }
+    }
     if (tp_launch_stats)
         std::fprintf(stderr, "strata-q36 TP_LAUNCH_STATS: T=1 heads=1 submits 4 transfer calls "
                              "(token, position, two vocab halves), or 5 for MTP with peer seed; "
@@ -242,6 +267,7 @@ void Engine::tp_moe_end(int T, const int32_t* prow, const float* shared, const f
     const int N = (int)m->g.n_embd;
     const bool fused_norm = tp_fuse2_moe_norm && !tp_moe_join && !verify_k && wn && T <= 4 && N % 32 == 0;
     const bool direct_publish = fused_norm && tp_join_row && tp_join_moe_publish && !tp_gdn_defer_hist[cur_dev];
+    const bool split_partial = tp_partial_split && T <= 4 && !tp_moe_join && !tp_gdn_defer_hist[cur_dev];
     if (tp_moe_join && T <= kVerify)
         q36tp::moe_join<<<q36tp::join_blocks, kThreads, 0, st>>>(moe_out, eparts, prow, ewts, (int)m->top_k,
             shared, sgate, sgs, N, T, tp_mapped[cur_dev][cur_dev], tp_mapped[cur_dev][1-cur_dev],
@@ -257,11 +283,28 @@ void Engine::tp_moe_end(int T, const int32_t* prow, const float* shared, const f
             tp_gdn_ref_alloc[cur_dev] = tp_gdn_ref_hist[cur_dev] = nullptr;
         }
         tp_gdn_defer_hist[cur_dev] = nullptr;
+    } else if (split_partial) {
+        const int slices = (N + kThreads - 1) / kThreads;
+        if (direct_publish)
+            q36tp_partial::combine<true><<<dim3(slices, T), kThreads, 0, st>>>(
+                moe_out, tp_row_mapped[cur_dev][cur_dev], eparts, prow, ewts, (int)m->top_k,
+                shared, sgate, sgs, N, tp_token[cur_dev], tp_partial_done[cur_dev]);
+        else
+            q36tp_partial::combine<false><<<dim3(slices, T), kThreads, 0, st>>>(
+                moe_out, nullptr, eparts, prow, ewts, (int)m->top_k,
+                shared, sgate, sgs, N, nullptr, nullptr);
     } else if (direct_publish)
         q36tp_row::partial_moe_publish<<<T, kThreads, 0, st>>>(moe_out, tp_row_mapped[cur_dev][cur_dev],
             eparts, prow, ewts, (int)m->top_k, shared, sgate, sgs, N,
             tp_token[cur_dev]);
     else q36tp::partial_moe<<<T, kThreads, 0, st>>>(moe_out, eparts, prow, ewts, (int)m->top_k, shared, sgate, sgs, N);
+    if (split_partial && verify_k) {
+        float* reference = nullptr;
+        CK(cudaMalloc((void**)&reference, (size_t) T * N * sizeof(float)));
+        q36tp::partial_moe<<<T, kThreads, 0, st>>>(reference, eparts, prow, ewts, (int)m->top_k, shared, sgate, sgs, N);
+        verify_cmp("tp partial split", moe_out, reference, (size_t) T * N);
+        CK(cudaFree(reference));
+    }
     xq_ready = false;
     if (T > kVerify) return; // prompt epilogue follows the copy-engine join
     if (fused_norm) {
@@ -301,7 +344,23 @@ void Engine::tp_head(int T, int heads, bool mtp, bool draft, float* output, int3
         use_dev(d);
         if (heads && !short_draft) {
             const float* src = (mtp ? hmtp : hmain) + (size_t)(T-heads) * N;
-            if (tp_head_q8 && decode_q8_ok(m->head, heads)) {
+            const int nb = m->head.n_in / 32;
+            if (tp_head_rows && heads == 1 && m->head.type == 8 && m->head.n_in % 32 == 0 && nb <= 128) {
+                prep(src, m->head.n_in, 1, q8);
+                const uint8_t* pk = nullptr;
+                for (const auto& p : m->packed) if (std::get<0>(p) == m->head.d) pk = std::get<1>(p);
+                const __half* scales = pk ? (const __half*)(pk + (size_t) m->head.n_in * m->head.n_out) : nullptr;
+#define Q36_TP_HEAD_ROW(NJ) do { \
+    if (pk) q36k::launch_q8_rows<1, NJ, true>(pk, scales, q8, tp_logits[d], nb, half, st); \
+    else q36k::launch_q8_rows<1, NJ, false>(m->head.d, nullptr, q8, tp_logits[d], nb, half, st); \
+} while (0)
+                if (nb <= 32) Q36_TP_HEAD_ROW(1);
+                else if (nb <= 64) Q36_TP_HEAD_ROW(2);
+                else if (nb <= 96) Q36_TP_HEAD_ROW(3);
+                else Q36_TP_HEAD_ROW(4);
+#undef Q36_TP_HEAD_ROW
+                decode_check_mat("tp head rows", m->head, q8, tp_logits[d], 1);
+            } else if (tp_head_q8 && decode_q8_ok(m->head, heads)) {
                 prep(src, m->head.n_in, heads, q8);
                 q36decode::project(decode_mat(m->head, tp_logits[d]), {}, {}, q8, {}, heads, st);
                 decode_check_mat("tp head q8", m->head, q8, tp_logits[d], heads);
@@ -322,6 +381,9 @@ void Engine::tp_head(int T, int heads, bool mtp, bool draft, float* output, int3
     }
     const int sample_v = draft && draft_n > 0 ? std::min(draft_n, V) : V;
     if (draft) draft_hooks(sample_v);
+    // Sampled verification consumes the complete logits on the CPU. Its argmax
+    // result is never read, so the two reduction launches can be omitted.
+    if (tp_sampled_verify) return;
     k_argmax<<<dim3(kArgBlocks, heads), kThreads, 0, st>>>(dst, sample_v, pk, amv, ami, false);
     k_argmax<<<dim3(1, heads), kThreads, 0, st>>>(dst, kArgBlocks, pk, amv, ami, true);
     if (draft) draft_picked_prob(sample_v);

@@ -220,6 +220,7 @@ __device__ __forceinline__ void route_group_body(const float* __restrict__ logit
     }
 }
 
+template <bool LightFence = false>
 __global__ void __launch_bounds__(256) router_group(const float* W, const float* x, float* logits,
         int n_in, int n_out, int n_tok, int ld, int32_t* ids, float* weights,
         const uint8_t* blobs, unsigned long long blob, unsigned long long* grp_ptr,
@@ -240,12 +241,26 @@ __global__ void __launch_bounds__(256) router_group(const float* W, const float*
         for (int m = 16; m > 0; m >>= 1) acc += __shfl_xor_sync(0xffffffffu, acc, m);
         if (lane == 0) logits[(size_t) tk * n_out + o] = acc;
     }
-    __syncthreads();
-    __threadfence();
-    __syncthreads();
+    if constexpr (LightFence) {
+        // Only warp leaders stored logits. Drain those stores before the CTA
+        // announces completion; the other lanes have nothing to fence.
+        if (lane == 0 && o < n_out) __threadfence();
+        __syncthreads();
+    } else {
+        __syncthreads();
+        __threadfence();
+        __syncthreads();
+    }
     __shared__ int last;
     if (threadIdx.x == 0) {
-        const unsigned old = atomicAdd(done, 1u);
+        unsigned old;
+#if defined(__HIPCC__)
+        if constexpr (LightFence)
+            old = __hip_atomic_fetch_add(done, 1u, __ATOMIC_ACQ_REL, __HIP_MEMORY_SCOPE_AGENT);
+        else old = atomicAdd(done, 1u);
+#else
+        old = atomicAdd(done, 1u);
+#endif
         last = old + 1u == (unsigned) gridDim.x;
         if (last) atomicExch(done, 0u);
     }
