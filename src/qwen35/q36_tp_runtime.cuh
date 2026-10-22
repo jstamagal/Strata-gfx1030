@@ -37,6 +37,12 @@ void Engine::tp_init(const Model& a, const Model& b, int context, int chunk, int
             v_beta.push_back(L.attn ? nullptr : dalloc((size_t) kVerify * g.ssm_v_heads));
         }
         for (Sess& ss : sess) alloc_session(ss);
+        if (kv_int8) {
+            size_t blocks = m->has_mtp ? 1 : 0;
+            for (const Layer& L : m->layers) if (L.attn) ++blocks;
+            std::fprintf(stderr, "strata-q36: device %d KV int8 %.2f GiB (%d slots, %zu attention blocks)\n",
+                         d, (double) (2 * kv_bytes() * blocks * n_sess) / (1ull << 30), n_sess, blocks);
+        }
         conv = sess[cur].conv; S = sess[cur].S; kc = sess[cur].kc; vc = sess[cur].vc; hlast = sess[cur].hlast;
         if (n_sess > 1) {
             const size_t count = conv.size() * n_sess;
