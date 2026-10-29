@@ -7826,7 +7826,12 @@ def main(argv=None, *, lifecycle_event=None, interrupt_exit_code: int = 0) -> in
                             env=vision_env(cfg, env), lazy=lazy)
         print("model unloaded; the first request loads it ..." if lazy else
               "loading the model (the first start takes a minute or two) ...", flush=True)
-        warn_budget_over_ram(engine_args(cfg) if "args" in cfg else [])      # #1080
+        startup_args = engine_args(cfg) if "args" in cfg else []
+        if "--kv-cache-type" in startup_args:
+            kv_index = startup_args.index("--kv-cache-type")
+            if kv_index + 1 < len(startup_args):
+                print(f"[strata] KV cache: {startup_args[kv_index + 1].upper()} (configured)", flush=True)
+        warn_budget_over_ram(startup_args)      # #1080
         if layer_split_of(cfg):
             try:
                 split = layer_split_value(cfg)          # #644: before the (minutes-long) start
