@@ -295,12 +295,71 @@
   ],
   "repo": "ukisai/Swift-1.5-Qwen3.8-Flash-Next-GSQ-RCO-GGUF"
  },
+ "bartowski-swift/Q4_0": {
+  "arch": "qwen4exp",
+  "tensors": 1224,
+  "bytes": 100588229120,
+  "expert_bytes": {
+   "Q4_0": 65116569600,
+   "Q4_1": 3145728000
+  },
+  "experts_bpw": 4.521,
+  "bpw": 4.548,
+  "files": [
+   "ukisai_Swift-Qwen3.8-Flash-Next-Q4_0-00001-of-00003.gguf",
+   "ukisai_Swift-Qwen3.8-Flash-Next-Q4_0-00002-of-00003.gguf",
+   "ukisai_Swift-Qwen3.8-Flash-Next-Q4_0-00003-of-00003.gguf"
+  ],
+  "repo": "bartowski/ukisai_Swift-Qwen3.8-Flash-Next-GGUF"
+ },
+ "sc117-abl/IQ3_S": {
+  "arch": "qwen4exp",
+  "tensors": 1224,
+  "bytes": 83852561920,
+  "expert_bytes": {
+   "IQ2_S": 10747904000,
+   "IQ3_S": 7208960000,
+   "IQ3_XXS": 10918297600,
+   "IQ4_NL": 18402508800,
+   "IQ4_XS": 891289600,
+   "Q2_0": 2123366400
+  },
+  "experts_bpw": 3.331,
+  "bpw": 3.791,
+  "files": [
+   "Qwen3.8-Flash-Next-GSQ-RCO-abliterated-IQ3_S-00001-of-00002.gguf",
+   "Qwen3.8-Flash-Next-GSQ-RCO-abliterated-IQ3_S-00002-of-00002.gguf"
+  ],
+  "repo": "SC117/Qwen3.8-Flash-Next-GSQ-RCO-abliterated-GGUF"
+ },
+ "sc117-swift-abl/IQ3_XXS": {
+  "arch": "qwen4exp",
+  "tensors": 1224,
+  "bytes": 75816931840,
+  "expert_bytes": {
+   "IQ2_S": 5373952000,
+   "IQ2_XS": 4849664000,
+   "IQ2_XXS": 3892838400,
+   "IQ3_S": 9371648000,
+   "IQ3_XXS": 3853516800,
+   "IQ4_NL": 8493465600,
+   "Q2_0": 7077888000
+  },
+  "experts_bpw": 2.842,
+  "bpw": 3.428,
+  "files": [
+   "Swift-Qwen3.8-Flash-Next-GSQ-RCO-abliterated-IQ3_XXS-00001-of-00002.gguf",
+   "Swift-Qwen3.8-Flash-Next-GSQ-RCO-abliterated-IQ3_XXS-00002-of-00002.gguf"
+  ],
+  "repo": "SC117/Swift-1.5-Qwen3.8-Flash-Next-GSQ-RCO-abliterated-GGUF"
+ },
  "_roles": {
   "blk.N.attn_gate.weight": [
    "IQ3_S",
    "IQ4_XS",
    "Q2_0",
    "Q3_K",
+   "Q4_0",
    "Q4_K",
    "Q5_K",
    "Q6_K",
@@ -321,6 +380,7 @@
   "blk.N.attn_output.weight": [
    "IQ3_S",
    "IQ4_XS",
+   "Q4_0",
    "Q4_K",
    "Q5_K",
    "Q6_K",
@@ -331,6 +391,7 @@
    "IQ4_XS",
    "Q2_0",
    "Q3_K",
+   "Q4_0",
    "Q4_K",
    "Q5_K",
    "Q6_K",
@@ -344,6 +405,7 @@
    "IQ4_XS",
    "Q2_0",
    "Q3_K",
+   "Q4_0",
    "Q4_K",
    "Q5_K",
    "Q6_K",
@@ -360,6 +422,8 @@
   "blk.N.ffn_down_exps.weight": [
    "IQ4_NL",
    "Q2_0",
+   "Q4_0",
+   "Q4_1",
    "Q5_1",
    "Q8_0",
    "TQ2_T",
@@ -381,6 +445,7 @@
    "IQ3_XXS",
    "IQ4_XS",
    "Q2_0",
+   "Q4_0",
    "Q4_K",
    "Q5_K",
    "TQ2_T",
@@ -400,6 +465,7 @@
    "Q2_0",
    "Q3_K",
    "Q4_K",
+   "Q5_0",
    "Q5_K",
    "Q6_K",
    "Q8_0"
@@ -413,6 +479,7 @@
    "IQ3_XXS",
    "IQ4_XS",
    "Q2_0",
+   "Q4_0",
    "Q4_K",
    "Q5_K",
    "TQ2_T",
@@ -424,12 +491,14 @@
    "Q2_0",
    "Q3_K",
    "Q4_K",
+   "Q5_0",
    "Q5_K",
    "Q6_K",
    "Q8_0"
   ],
   "blk.N.hc_attn_down.weight": [
    "BF16",
+   "Q4_0",
    "Q6_K",
    "Q8_0"
   ],
@@ -443,10 +512,12 @@
   ],
   "blk.N.hc_attn_up.weight": [
    "BF16",
+   "Q4_0",
    "Q8_0"
   ],
   "blk.N.hc_ffn_down.weight": [
    "BF16",
+   "Q4_0",
    "Q6_K",
    "Q8_0"
   ],
@@ -460,6 +531,7 @@
   ],
   "blk.N.hc_ffn_up.weight": [
    "BF16",
+   "Q4_0",
    "Q8_0"
   ],
   "blk.N.indexer.k_norm.weight": [
@@ -481,6 +553,7 @@
   "blk.N.ple_key.weight": [
    "BF16",
    "Q2_0",
+   "Q4_0",
    "Q6_K",
    "Q8_0"
   ],
@@ -495,6 +568,7 @@
   ],
   "blk.N.ple_value.weight": [
    "BF16",
+   "Q4_0",
    "Q6_K",
    "Q8_0"
   ],
@@ -524,6 +598,7 @@
    "IQ3_S",
    "IQ4_XS",
    "Q3_K",
+   "Q4_0",
    "Q4_K",
    "Q5_K",
    "Q6_K",
@@ -549,12 +624,14 @@
    "Q8_0"
   ],
   "per_layer_token_embd.weight": [
-   "IQ4_NL"
+   "IQ4_NL",
+   "Q4_0"
   ],
   "token_embd.weight": [
    "IQ3_S",
    "IQ4_XS",
    "Q3_K",
+   "Q4_0",
    "Q6_K",
    "Q8_0"
   ]

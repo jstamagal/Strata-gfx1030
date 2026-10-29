@@ -37,7 +37,9 @@ SHARD = re.compile(r"(.+)-(\d{5})-of-(\d{5})\.gguf\Z", re.I)
 SUPPORTED_SELECTIONS = frozenset({"qwen/Q2_0", "qwen/IQ2_XS", "qwen/IQ3_XXS", "qwen/IQ3_S",
                                    "swift/IQ2_XS", "swift/IQ3_XXS", "swift/IQ3_S", "coder/IQ1_M",
                                    "unsloth/UD-IQ4_XS", "unsloth/UD-Q4_K_XL", "unsloth/UD-Q5_K_XL", "unsloth/UD-Q6_K_XL",
-                                   "unsloth/Q8_0", "gyro/Gyro-S", "gyro/Gyro-M"})
+                                   "unsloth/Q8_0", "gyro/Gyro-S", "gyro/Gyro-M",
+                                   # this fork's community builds (setup.py COMMUNITY_SHARDS)
+                                   "bartowski-swift/Q4_0", "sc117-abl/IQ3_S", "sc117-swift-abl/IQ3_XXS"})
 
 
 def settings_path() -> Path:
