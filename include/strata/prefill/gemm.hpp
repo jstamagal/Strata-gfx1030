@@ -92,6 +92,12 @@ public:
     /// table (count, ms, and for a product its GFLOP/s) and clears it.  Off: both return at once.
     void tmark(const char* what, int64_t T = 0, int64_t N = 0, int64_t K = 0);
     void tdump(const char* tag);
+    /// STRATA_DEQUANT_SIDE=1 (gemm_dequant_side): a second dequant scratch of scratch_elems() elements, caller-owned
+    /// like the first.  native() then dequantizes on a side stream into the two in turn, so a weight's dequant runs
+    /// while the kernels queued ahead of its GEMM do; events order every write and read of each scratch, so the
+    /// products are the serial form's, bit for bit.  nullptr: the serial form.  Called after init_external and
+    /// after every rebind (the "scratch free" events are re-armed on the compute stream).  CUDA only.
+    bool set_dequant_side(uint16_t* scratch2, std::string& err);
 
     uint16_t* scratch() const { return scratch_; }
     int64_t scratch_elems() const { return scratch_elems_; }
@@ -104,6 +110,14 @@ private:
     int64_t scratch_elems_ = 0;
     void* workspace_ = nullptr;
     bool external_ = false;
+    // STRATA_DEQUANT_SIDE (set_dequant_side): the second scratch, the side stream and, per scratch, "the dequant
+    // landed" (recorded on the side stream) and "the GEMM read it" (recorded on the compute stream); side_cur_ is
+    // the scratch the next native() dequantizes into (0: scratch_, 1: side_scratch_)
+    uint16_t* side_scratch_ = nullptr;
+    void* side_stream_ = nullptr;
+    void* side_ready_[2] = {};
+    void* side_free_[2] = {};
+    int side_cur_ = 0;
     void* hipblaslt_state_ = nullptr;
     void* rocblas_state_ = nullptr;   // HIP: the rocBLAS solution table of f16_inplace (STRATA_ROCBLAS_TUNING)
     void* dense_timer_ = nullptr;     // STRATA_DENSE_TIMING
@@ -127,6 +141,12 @@ private:
     int64_t tc_x_elems_ = 0;
     bool native_mmq(const uint16_t* X, int ggml_type, const void* W_blocks, float* Y, int64_t T, int64_t N, int64_t K,
                     int64_t ldy);
+    /// A padded X (ldx > K) that no kernel above took: its T rows copied to a contiguous FP16 buffer of stride K, grown
+    /// as needed; nullptr when the allocation or the copy failed (then the caller reports it).  The padded product is
+    /// the gfx11 matrix cores' (STRATA_PF_PAD), so this is the path of another card whose activations arrived padded.
+    const uint16_t* unpad_x(const uint16_t* X, int64_t T, int64_t K, int64_t ldx);
+    uint16_t* unpadded_x_ = nullptr;
+    int64_t unpadded_x_elems_ = 0;
     void* mmq_ctx_ = nullptr;
     void* mmq_buf_ = nullptr;
     bool mmq_failed_ = false;
@@ -145,6 +165,11 @@ void gemm_set_dense_f32(int mode);
 /// BF16 in -> FP32 out runs ~6x slower), so the prompt path's 16-bit GEMMs run in FP16 (Gemm::set_f16_io,
 /// set_act_f16).  Cached per device (a layer split can mix cards).  STRATA_HIP_PROMPT_F16=0/1 overrides.
 bool prompt_f16();
+
+/// STRATA_DEQUANT_SIDE=1: the prompt path's dense-weight dequant on a side stream with a second GEMM scratch
+/// (Gemm::set_dequant_side; the prompt path takes the scratch from its borrowed region when this is on).  Off by
+/// default; always off on HIP (its padded / MMQ paths use the scratch on the compute stream without the events).
+bool gemm_dequant_side();
 
 
 
