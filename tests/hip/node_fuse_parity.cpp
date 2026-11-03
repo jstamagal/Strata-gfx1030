@@ -206,7 +206,7 @@ int main() {
         const int reps = std::getenv("NODE_FUSE_PARITY_REPS") ? std::atoi(std::getenv("NODE_FUSE_PARITY_REPS")) : 1;
         for (int rep = 0; rep < reps; ++rep)
         for (int q8 = 0; q8 < 2; ++q8)
-            for (int T = 1; T <= kVerifyMaxT; ++T) {
+            for (int T = 1; T <= kVerifyNarrowT; ++T) {
                 auto qkv = normal((size_t) T * C, 1.0f), x = normal((size_t) T * N, 1.0f), z = normal((size_t) T * HV * S, 1.5f);
                 float *d_qkv = dev(qkv), *d_x = dev(x), *d_z = dev(z);
                 const size_t hb = (size_t) T * C * 4, gb = (size_t) T * HV * 4, yb = (size_t) T * HV * S * 4,

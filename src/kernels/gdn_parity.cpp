@@ -396,7 +396,7 @@ int main(int argc, char** argv) {
 
     // ================= 5. the verify-window kernels, T = 1..12, bitwise against the single-token kernels =================
     // gdn_ab_multi and gdn_step_norm_multi are documented as bitwise `fused_gdn_ab` / `fused_gdn_step_norm` per
-    // token (verify_kernels.hpp). Every T from 1 to kLookupMaxT is its own exact-T instantiation, so each is run,
+    // token (verify_kernels.hpp). Every T from 1 to kVerifyMaxT is its own exact-T instantiation, so each is run,
     // and every output and the state are compared with memcmp (not a tolerance).
     {
         const int n_embd = 2560, qk = S * h_k, C = 2 * qk + S * h_v, vd = S * h_v;
@@ -435,7 +435,7 @@ int main(int argc, char** argv) {
         auto d_sa = (float*) up(ssm_a.data(), ssm_a.size() * 4);
         auto d_gm = (float*) up(gamma.data(), gamma.size() * 4);
         int ab_bad = 0, sn_bad = 0, ab_n = 0, sn_n = 0;
-        for (int T = 1; T <= strata::kernels::kLookupMaxT; ++T) {
+        for (int T = 1; T <= strata::kernels::kVerifyMaxT; ++T) {
             // --- alpha/beta
             std::vector<float> x((size_t) T * n_embd);
             for (auto& v : x) v = gauss(rng);
@@ -560,7 +560,7 @@ int main(int argc, char** argv) {
     // (gdn_conv_commit + gdn_step_norm_multi with n_keep, no outputs) is the reference.  Several layers with their own
     // state, rows and gate/beta; n_keep 1..T; memcmp on the whole state arena (states and conv histories).
     {
-        const int qk = S * h_k, C = 2 * qk + S * h_v, L = 5, MT = strata::kernels::kLookupMaxT;
+        const int qk = S * h_k, C = 2 * qk + S * h_v, L = 5, MT = strata::kernels::kVerifyMaxT;
         const int64_t conv_off = (int64_t) S * h_v * S, stride = conv_off + (int64_t) C * 3;
         std::vector<float> st0((size_t) (stride * L)), hb((size_t) L * MT * C), qkv((size_t) L * MT * C),
             gt((size_t) L * MT * h_v), bt((size_t) L * MT * h_v), zdummy((size_t) MT * S * h_v), gm(S, 1.0f);
