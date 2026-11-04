@@ -45,7 +45,13 @@ void Engine::tp_layer_pair(size_t li, int T, int64_t p0, bool verify, bool mtp) 
         mtp_moe_start = Clock::now();
     }
     if (T > kVerify) tp_copy_join(T, false);
+    // Hybrid layers: phase 2 queues both ranks' GPU halves (their joins wait on each other on the device), and only
+    // then phase 3 waits on the host for each rank's routing and runs its CPU-pool experts.  Waiting inside phase 2
+    // would block the host before the peer's half of the join was queued.
+    tp_hy_split = true;
     run(2);
+    tp_hy_split = false;
+    if (tp_hy_pending[0] || tp_hy_pending[1]) run(3);
     if (mtp && mtp_cost) {
         for_devs([&](int) { CK(cudaStreamSynchronize(st)); });
         const double t = ms_since(mtp_moe_start);

@@ -3,9 +3,17 @@
     const Model* tp_models[2] = {};
     struct TpState {
         std::vector<Sess> sessions;
-        std::vector<float*> conv, S, kc, vc, v_qkv, v_hc, v_alpha, v_beta;
+        std::vector<float*> conv, S, kc, vc, kc_hot, vc_hot, v_qkv, v_hc, v_alpha, v_beta;
         float* hlast = nullptr;
     } tp_state[2];
+    std::vector<Hy> tp_hy[2]; // inactive rank's expert slots; the active rank is in hy
+    // hybrid TP: the inactive rank's routing copy for the CPU pool (both ranks' GPU halves are queued before
+    // either host half reads its copy); the active rank's are h_ids / h_h
+    int32_t* tp_h_ids[2] = {};
+    float* tp_h_h[2] = {};
+    bool tp_hy_split = false;           // layer(): phase 2 stops before the hybrid host half
+    bool tp_hy_pending[2] = {};         // rank d's host half is due in phase 3
+    bool tp_rebalancing = false;
     float *tp_host[2] = {}, *tp_mapped[2][2] = {}, *tp_logits[2] = {};
     float *tp_row_host[2] = {}, *tp_row_mapped[2][2] = {};
     q36tp_skew::Sample *tp_skew_host[2] = {}, *tp_skew_mapped[2] = {};

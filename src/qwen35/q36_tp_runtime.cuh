@@ -2,18 +2,24 @@
 void Engine::tp_swap(int from, int to) {
     auto swap = [&](TpState& s) {
         std::swap(conv, s.conv); std::swap(S, s.S); std::swap(kc, s.kc); std::swap(vc, s.vc);
+        std::swap(kc_hot, s.kc_hot); std::swap(vc_hot, s.vc_hot);
         std::swap(v_qkv, s.v_qkv); std::swap(v_hc, s.v_hc);
         std::swap(v_alpha, s.v_alpha); std::swap(v_beta, s.v_beta); std::swap(hlast, s.hlast);
         s.sessions.resize(sess.size());
         for (size_t i = 0; i < sess.size(); ++i) {
             std::swap(sess[i].conv, s.sessions[i].conv); std::swap(sess[i].S, s.sessions[i].S);
             std::swap(sess[i].kc, s.sessions[i].kc); std::swap(sess[i].vc, s.sessions[i].vc);
+            std::swap(sess[i].kc_hot, s.sessions[i].kc_hot); std::swap(sess[i].vc_hot, s.sessions[i].vc_hot);
+            std::swap(sess[i].kc_host, s.sessions[i].kc_host); std::swap(sess[i].vc_host, s.sessions[i].vc_host);
             std::swap(sess[i].hlast, s.sessions[i].hlast);
             std::swap(sess[i].snap_conv, s.sessions[i].snap_conv); std::swap(sess[i].snap_S, s.sessions[i].snap_S);
             std::swap(sess[i].snap_hlast, s.sessions[i].snap_hlast);
         }
     };
     swap(tp_state[from]); swap(tp_state[to]);
+    std::swap(hy, tp_hy[from]); std::swap(hy, tp_hy[to]);
+    std::swap(h_ids, tp_h_ids[from]); std::swap(h_ids, tp_h_ids[to]);
+    std::swap(h_h, tp_h_h[from]); std::swap(h_h, tp_h_h[to]);
     m = tp_models[to];
 }
 
@@ -25,7 +31,7 @@ void Engine::tp_init(const Model& a, const Model& b, int context, int chunk, int
     dev_of.assign(a.layers.size() + 1, 0); devs.resize(2);
     const auto& g = a.g;
     n_chunk = (ctx + kChunkCells - 1) / kChunkCells;
-    att_rows = (int) (g.n_head * std::min(tmax, 64));
+    att_rows = (int) (g.n_head * std::min(tmax, kVerify));   // as init(): the split-K windows only
     CK(cudaHostAlloc((void**) &hpin, 64 * sizeof(int32_t), cudaHostAllocPortable));
     if (n_sess > 1) CK(cudaHostAlloc((void**) &hrow, 128 * sizeof(int32_t), cudaHostAllocPortable));
     if (vision) CK(cudaHostAlloc((void**) &h_map, (size_t) tmax * sizeof(int32_t), cudaHostAllocPortable));
@@ -39,16 +45,26 @@ void Engine::tp_init(const Model& a, const Model& b, int context, int chunk, int
             v_beta.push_back(L.attn ? nullptr : dalloc((size_t) kVerify * g.ssm_v_heads));
         }
         for (Sess& ss : sess) alloc_session(ss);
-        conv = sess[cur].conv; S = sess[cur].S; kc = sess[cur].kc; vc = sess[cur].vc; hlast = sess[cur].hlast;
+        if (kv_resident) {
+            size_t blocks = m->has_mtp ? 1 : 0;
+            for (const Layer& L : m->layers) if (L.attn) ++blocks;
+            std::fprintf(stderr, "strata-q36: TP rank %d --kv-resident: K / V rings %.2f GiB of VRAM, host copies %.2f GiB "
+                         "(%d slots, %zu attention blocks)\n", d, (double) (2 * kv_ring_bytes() * blocks * n_sess) / (1ull << 30),
+                         (double) (2 * kv_full_bytes() * blocks * n_sess) / (1ull << 30), n_sess, blocks);
+        }
+        conv = sess[cur].conv; S = sess[cur].S; kc = sess[cur].kc; vc = sess[cur].vc;
+        kc_hot = sess[cur].kc_hot; vc_hot = sess[cur].vc_hot; hlast = sess[cur].hlast;
         if (n_sess > 1) {
             const size_t count = conv.size() * n_sess;
-            for (int kind = 0; kind < 4; ++kind) {
+            for (int kind = 0; kind < 6; ++kind) {
                 std::vector<float*> table(count);
                 for (size_t li = 0; li < conv.size(); ++li) for (int s = 0; s < n_sess; ++s) {
                     const Sess& ss = sess[s];
-                    table[li * n_sess + s] = (kind == 0 ? ss.conv : kind == 1 ? ss.S : kind == 2 ? ss.kc : ss.vc)[li];
+                    table[li * n_sess + s] = (kind == 0 ? ss.conv : kind == 1 ? ss.S : kind == 2 ? ss.kc :
+                                             kind == 3 ? ss.vc : kind == 4 ? ss.kc_hot : ss.vc_hot)[li];
                 }
-                float*** out = kind == 0 ? &d_conv_tab : kind == 1 ? &d_S_tab : kind == 2 ? &d_kc_tab : &d_vc_tab;
+                float*** out = kind == 0 ? &d_conv_tab : kind == 1 ? &d_S_tab : kind == 2 ? &d_kc_tab :
+                               kind == 3 ? &d_vc_tab : kind == 4 ? &d_kc_hot_tab : &d_vc_hot_tab;
                 CK(cudaMalloc((void**)out, count * sizeof(float*)));
                 CK(cudaMemcpy(*out, table.data(), count * sizeof(float*), cudaMemcpyHostToDevice));
             }
@@ -181,8 +197,8 @@ void Engine::tp_init(const Model& a, const Model& b, int context, int chunk, int
         std::fprintf(stderr, "strata-q36 TP_LAUNCH_STATS: T=1 heads=1 submits 4 transfer calls "
                              "(token, position, two vocab halves), or 5 for MTP with peer seed; "
                              "MTP seed staging adds device copies; ordinary TP forward has no host stream wait\n");
-    std::fprintf(stderr, "strata-q36: STRATA_Q36_TP=1: two equal tensor shards, all experts on both GPUs; "
-                         "mapped-host decode joins, copy-engine prompt joins, replicated residual, %s; CPU/hybrid experts unsupported\n",
+    std::fprintf(stderr, "strata-q36: STRATA_Q36_TP=1: two equal tensor shards; "
+                         "mapped-host decode joins, copy-engine prompt joins, replicated residual, %s\n",
                          tp_graph && !verify_k ? "per-device graphs" : "eager streams");
 }
 
@@ -516,28 +532,31 @@ void Engine::tp_head(int T, int heads, bool mtp, bool draft, float* output, int3
         use_dev(d);
         if (heads && !short_draft) {
             const float* src = (mtp ? hmtp : hmain) + (size_t)(T-heads) * N;
-            const int nb = m->head.n_in / 32;
-            q36tpx::dense_trace(m->head.name, m->head.type, m->head.n_in, m->head.n_out, "tp_head_dispatch", heads, m->head.d);
-            if (tp_head_rows && heads == 1 && m->head.type == 8 && m->head.n_in % 32 == 0 && nb <= 128) {
-                prep(src, m->head.n_in, 1, q8);
+            const Mat& head = mtp && m->mtp_head.d &&
+                              (q36tp::enabled("STRATA_Q36_TP_HYBRID") || q36tp::enabled("STRATA_Q36_TP_MTP_HEAD")) ?
+                              m->mtp_head : m->head;
+            const int nb = head.n_in / 32;
+            q36tpx::dense_trace(head.name, head.type, head.n_in, head.n_out, "tp_head_dispatch", heads, head.d);
+            if (tp_head_rows && heads == 1 && head.type == 8 && head.n_in % 32 == 0 && nb <= 128) {
+                prep(src, head.n_in, 1, q8);
                 const uint8_t* pk = nullptr;
-                for (const auto& p : m->packed) if (std::get<0>(p) == m->head.d) pk = std::get<1>(p);
-                const __half* scales = pk ? (const __half*)(pk + (size_t) m->head.n_in * m->head.n_out) : nullptr;
+                for (const auto& p : m->packed) if (std::get<0>(p) == head.d) pk = std::get<1>(p);
+                const __half* scales = pk ? (const __half*)(pk + (size_t) head.n_in * head.n_out) : nullptr;
 #define Q36_TP_HEAD_ROW(NJ) do { \
     if (pk) q36k::launch_q8_rows<1, NJ, true>(pk, scales, q8, tp_logits[d], nb, half, st); \
-    else q36k::launch_q8_rows<1, NJ, false>(m->head.d, nullptr, q8, tp_logits[d], nb, half, st); \
+    else q36k::launch_q8_rows<1, NJ, false>(head.d, nullptr, q8, tp_logits[d], nb, half, st); \
 } while (0)
                 if (nb <= 32) Q36_TP_HEAD_ROW(1);
                 else if (nb <= 64) Q36_TP_HEAD_ROW(2);
                 else if (nb <= 96) Q36_TP_HEAD_ROW(3);
                 else Q36_TP_HEAD_ROW(4);
 #undef Q36_TP_HEAD_ROW
-                decode_check_mat("tp head rows", m->head, q8, tp_logits[d], 1);
-            } else if (tp_head_q8 && decode_q8_ok(m->head, heads)) {
-                prep(src, m->head.n_in, heads, q8);
-                q36decode::project(decode_mat(m->head, tp_logits[d]), {}, {}, q8, {}, heads, st);
-                decode_check_mat("tp head q8", m->head, q8, tp_logits[d], heads);
-            } else mm(m->head, src, tp_logits[d], heads);
+                decode_check_mat("tp head rows", head, q8, tp_logits[d], 1);
+            } else if (tp_head_q8 && decode_q8_ok(head, heads)) {
+                prep(src, head.n_in, heads, q8);
+                q36decode::project(decode_mat(head, tp_logits[d]), {}, {}, q8, {}, heads, st);
+                decode_check_mat("tp head q8", head, q8, tp_logits[d], heads);
+            } else mm(head, src, tp_logits[d], heads);
         }
         CK(cudaEventRecord(tp_event[d], st));
     }
@@ -562,53 +581,7 @@ void Engine::tp_head(int T, int heads, bool mtp, bool draft, float* output, int3
     if (draft) draft_picked_prob(sample_v);
 }
 
-bool place_experts_tp(Model& a, Model& b, Engine& E, std::string& err) {
-    Model* models[2] = {&a, &b};
-    // Preflight BOTH cards before allocating any expert, so failure is clean and never starts hybrid offload.
-    for (int d = 0; d < 2; ++d) {
-        E.use_dev(d);
-        Model& m = *models[d];
-        size_t need = 0, fr = 0, total = 0;
-        for (const Layer& L : m.layers) need += L.stride * m.g.n_expert + kMmqTail;
-        if (m.has_mtp) need += m.mtp.stride * m.g.n_expert + kMmqTail;
-        CK(cudaMemGetInfo(&fr, &total));
-        const size_t reserve = (size_t)256 << 20;
-        const bool drop_packed = q36tp::enabled("STRATA_Q36_DROP_PACKED");
-        if ((drop_packed || need + reserve > fr) && !m.packed.empty()) {
-            for (const auto& p : m.packed) { K::native_q8_0_packed_unregister(std::get<0>(p)); CK(cudaFree(std::get<1>(p))); }
-            m.packed.clear(); m.packed_dev.clear();
-            CK(cudaMemGetInfo(&fr, &total));
-            std::fprintf(stderr, "strata-q36: TP device %d: released packed dense copies (%s)\n", d,
-                         drop_packed ? "STRATA_Q36_DROP_PACKED=1" : "to fit expert shards");
-        }
-        if (need + reserve > fr) {
-            err = "TP device " + std::to_string(d) + " needs " + std::to_string(need >> 20) +
-                  " MiB for expert shards plus 256 MiB reserve; free " + std::to_string(fr >> 20) +
-                  " MiB. CPU/hybrid experts are unsupported in TP; reduce --chunk, --max-context or --batch.";
-            E.use_dev(E.home); return false;
-        }
-    }
-    for (int d = 0; d < 2; ++d) {
-        E.use_dev(d);
-        Model& m = *models[d];
-        std::vector<Layer*> layers;
-        for (Layer& L : m.layers) layers.push_back(&L);
-        if (m.has_mtp) layers.push_back(&m.mtp);
-        size_t bytes = 0;
-        for (Layer* L : layers) {
-            const size_t nb = L->stride * m.g.n_expert + kMmqTail;
-            CK(cudaMalloc((void**)&L->blobs, nb)); CK(cudaMemset(L->blobs, 0, nb));
-            std::vector<uint8_t> blob(L->stride, 0);
-            for (int64_t e = 0; e < m.g.n_expert; ++e) {
-                expert_blob(*L, e, blob.data());
-                CK(cudaMemcpy(L->blobs + e * L->stride, blob.data(), L->stride, cudaMemcpyHostToDevice));
-            }
-            L->n_slots = (int)m.g.n_expert; bytes += nb;
-        }
-        std::fprintf(stderr, "strata-q36: TP device %d: %.2f GiB expert shards, half of every expert resident\n", d, bytes / double(1ull << 30));
-    }
-    E.use_dev(E.home); return true;
-}
+#include "q36_tp_hybrid.cuh"
 
 // Diagnostic only, at call boundaries: never inserts a host wait between layers.
 void Engine::tp_check_residual(int T, bool mtp) {
