@@ -50,6 +50,16 @@ int main() {
     unsigned long long count = 1;
     GPU(cudaMemcpy(&count, lines, 8, cudaMemcpyDeviceToHost));
     if (count != 0) { std::fprintf(stderr, "completed flag read %llu lines\n", count); return 1; }
+    strata::kernels::stall_read_ahead(ranges, nullptr, 1, mapped, max_bytes, 4, s, lines, 8);
+    GPU(cudaStreamSynchronize(s)); GPU(cudaMemcpy(&count, lines, 8, cudaMemcpyDeviceToHost));
+    if (count != 0) { std::fprintf(stderr, "device skip read %llu lines\n", count); return 1; }
+    strata::kernels::StallReadAhead small;
+    small.p[0] = weights; small.bytes[0] = 1028;
+    small.p[1] = hot; small.bytes[1] = 131; small.n = 2;
+    strata::kernels::stall_read_ahead(small, nullptr, 1, nullptr, 1092, 4, s, lines, 8);
+    GPU(cudaStreamSynchronize(s)); GPU(cudaMemcpy(&count, lines, 8, cudaMemcpyDeviceToHost));
+    if (count != 18) { std::fprintf(stderr, "range budget read %llu lines\n", count); return 1; }
+    GPU(cudaMemset(lines, 0, 8));
     *flag = 0;
     GPU(cudaGraphLaunch(exec, s)); GPU(cudaStreamSynchronize(s));
     GPU(cudaMemcpy(&count, lines, 8, cudaMemcpyDeviceToHost));

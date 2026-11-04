@@ -1,0 +1,137 @@
+{
+  "test": "Basalt host-policy port on Strata Qwen3.8-Flash-Next",
+  "base": "137b2d4ce",
+  "reference": "Basalt release 0.2.1, content comparison from 31d0e750",
+  "host": "yoda",
+  "gpu_microbenchmark": {
+    "device_selection": "HIP_VISIBLE_DEVICES=1",
+    "architecture": "gfx1030",
+    "model_loaded": false,
+    "server_started": false,
+    "initial_csv": "2026-11-04-basalt38-read-ahead.csv",
+    "initial_poll_chunks": 1,
+    "initial_checks": {
+      "graph_fork_join": "PASS",
+      "completed_flag_does_no_reads": "PASS",
+      "bounded_full_pass": "PASS",
+      "host_stop_lines_read": 78848,
+      "host_stop_full_pass_lines": 2097152
+    },
+    "revised_poll_chunks": 8,
+    "revised_csv": "2026-11-04-basalt38-read-ahead-chunks.csv",
+    "revised_sweep": "PASS",
+    "revised_checks": {
+      "graph_fork_join": "PASS",
+      "completed_flag_does_no_reads": "PASS",
+      "device_skip_does_no_reads": "PASS",
+      "cross_range_byte_budget": "PASS",
+      "bounded_full_pass": "PASS",
+      "host_stop_lines_read": 245760,
+      "host_stop_full_pass_lines": 2097152,
+      "host_stop_to_stream_sync_us": 12.01,
+      "stop_time_note": "Includes host synchronization overhead, not a pure device tail measurement"
+    },
+    "synthetic_medians": {
+      "read_32mib_blocks_4_chunks_8": {
+        "next_off_us": 91.14,
+        "next_on_us": 64.34,
+        "hot_16mib_off_us": 38.60,
+        "hot_16mib_on_us": 38.52,
+        "full_prefetch_us": 226.82
+      },
+      "read_32mib_blocks_4_chunks_1_full_prefetch_us": 688.28,
+      "read_32mib_blocks_16_chunks_8_full_prefetch_us": 78.02,
+      "read_128mib_blocks_4_chunks_8": {
+        "next_off_us": 345.60,
+        "next_on_us": 345.60,
+        "hot_16mib_off_us": 38.56,
+        "hot_16mib_on_us": 51.18
+      },
+      "serving_speed_claim": "NONE: synthetic full scans only; actual CPU waits may end after a partial pass"
+    }
+  },
+  "build": {
+    "result": "PASS",
+    "type": "Release HIP gfx1030",
+    "memory_cap": "20G",
+    "jobs": 8,
+    "ggml_dir": "/home/ronald_rump/Strata_donttouch/third_party/llama.cpp",
+    "stable_ab_executable": "build/strata-basalt38-ab",
+    "sha256": "efef3efbde1adecfe4a223370fe3adcabb1579dc194077b5cbb7169d1dbcaf7f",
+    "warnings": "The HIP build emits warnings; no build errors."
+  },
+  "cpu_tests": {
+    "adapt_rank_test": "PASS: device/size groups, promotion cap, randomized invariants, legacy ordering, copy leases",
+    "draft_cum_test": "PASS: cold start, censoring, online calibration, CPU-byte pressure, host-chain agreement",
+    "draft_context_test": "PASS: subset exclusion, deduplication, reply reserve, prompt suffix, reset",
+    "expert_warm_test": "PASS: parallel predictor, CPU-only selection, cancellation",
+    "pool_idle_test": "PASS: repeated cancellation, including zero-job run and replacement",
+    "exchange_storage_test": "PASS: 12304 byte/alias/ownership exchanges",
+    "pool_idle_numa_test": "PASS: STRATA_NUMA_SPLIT=test, 6068 entered and joined",
+    "pool_stress": "PASS: 2 seconds, 3724 batches, 67 after sleeping, 0 jobs not run"
+  },
+  "owner_reported_serving_observations_not_measured_by_this_port": {
+    "live_adaptive_mean_tok_s": 74.4,
+    "frozen_placement_tok_s_range": [67.0, 67.2],
+    "frozen_text_md5_prefix": "d5dcd30186c2",
+    "adapt_every_4": "No change against the live baseline",
+    "expert_swap_gpu_ms_per_window_approx": 1.65,
+    "decode_ms_per_window": 26.8,
+    "tokens_per_window": 1.72,
+    "swaps_per_window": 5.2,
+    "cpu_experts_per_layer_window": 0.42,
+    "gpu_reach_wait_ms_per_window": 19.0,
+    "host_ms_per_layer": 0.69,
+    "mapped_copy_calls_per_window": [6.2, 2.2],
+    "mapped_copy_us_per_call": [109, 438],
+    "mapped_copy_attribution": "Adaptive refills definitely use this kernel and grid cap; large residual and draft copies can use it too, so the name/grid alone is not a unique swap attribution.",
+    "prompt_36k_gpu_coverage_approx": 0.53,
+    "prompt_pipeline_work": "Untouched; assigned to another agent"
+  },
+  "switch_defaults": {
+    "STRATA_ADAPT_EARLY_RANK": 0,
+    "STRATA_ADAPT_ACROSS": 0,
+    "STRATA_ADAPT_ONCE": 0,
+    "STRATA_ADAPT_IDLE_GAPS": 0,
+    "STRATA_STALL_READAHEAD": 0,
+    "STRATA_STALL_READAHEAD_MB": 32,
+    "STRATA_STALL_READAHEAD_BLOCKS": 4,
+    "STRATA_STALL_READAHEAD_CHUNKS": 8,
+    "STRATA_STALL_READAHEAD_FFN": 1,
+    "STRATA_CPU_EXPERT_WARM": 0,
+    "STRATA_CPU_EXPERT_WARM_TRACE": 0,
+    "STRATA_DRAFT_CUM": 0,
+    "STRATA_DRAFT_CUM_TRACE": 0,
+    "STRATA_DRAFT_CUM_THRESHOLD": "unset: spec_min_p squared, then acceptance and observed CPU-byte calibration",
+    "STRATA_DRAFT_CONTEXT": 0,
+    "STRATA_MTP_KV_SIDE": 0
+  },
+  "reference_walk": {
+    "adaptive": ["edf40b03", "24199ece", "0c8e2087", "557d4428", "3f853287"],
+    "stall_read_ahead": ["abccf9af", "88964a44", "d7d3577e"],
+    "next_expert_hints": ["7dcf8ac3", "3963f3d1"],
+    "cumulative_drafting": ["47f6192f", "5ec431db", "7af4a2c6"],
+    "draft_context_candidates": ["0a8e1ea2"],
+    "additional_measured_host_scheduling_port": {
+      "commit": "09e317b3",
+      "reference_measurement_not_this_hardware": "Blackwell draft GPU time -7 to -11 us/window; serving +0.25% on two cards",
+      "hip_adaptation": "Overlap the independent K/V append with query work; keep existing fused projections and join before attention"
+    },
+    "not_imported": [
+      "The persistent CUDA peer-tier predictor and peer placement/loan protocols: this topology has per-stage expert caches, not a peer expert tier",
+      "Approximate target-head optimizations: forbidden by the unchanged-target-arithmetic constraint",
+      "Prompt splitting/chunking changes: outside this decode port and being investigated by another agent",
+      "Unconditional larger adaptive bursts: the live refill cost argues for bounding copies first"
+    ]
+  },
+  "owner_ab_plan": {
+    "loads_per_side": 2,
+    "essays_per_load": 4,
+    "order": "interleaved baseline and each switch alone",
+    "placement_policy_trials": "live adaptive configuration",
+    "draft_output_checks": "freeze placement with --adapt-swaps 0; repeat winners on normal adaptation",
+    "long_context_trials": "continued conversations and topic shifts, especially promotion and ranking policies"
+  },
+  "serving_ab": "NOT RUN: owner runs all full-model A/B tests",
+  "placement_numerics": "CPU and GPU experts can round differently. Placement and landing-time changes can change text; target arithmetic was not changed."
+}
