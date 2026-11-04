@@ -873,3 +873,18 @@ edit passes, traces. The COHERENT arm was cut (CLR maps the memory coherent alre
 
 - Fewer gaps (3 in 8 arms vs a census of ~0.74 per arm, p ~0.13 by Poisson): suggestive, not significant. Not
   adopted on this alone; it rides along if HWQ (running now) leaves the stalls.
+
+## Window HWQ: GPU_MAX_HW_QUEUES 4 vs 16 (17:17-17:31, stopped)
+
+Raw: `strata-ab/windowhwq.out`, arms `hq_*`. q4 (live) arms ran normally (hq_q4_edit_1 368.8 tok/s). **With 16 queues
+the engine ran at 1.8 tok/s** (warm-up 55-token prompt 9.6 tok/s, 16 tokens in 10 s; the first agent case at
+1159/1200 tokens after 637 s), and the kernel log printed "Runlist is getting oversubscribed due to too many queues"
+46 times in two minutes, all on card 0 (03:00.0). Stopped by the coordinator after the first 16-queue arm.
+
+- Reading (inference): past the HWS runlist's slots the scheduler time-slices queues, and a queue whose head kernel
+  spin-waits on a host flag (the zero-doorbell `wait_flag_ge` family) burns its slices while the work it waits for is
+  descheduled. That is the stall mechanism in its extreme form, and it shows that queue mapping and spin-waits interact
+  on this card. The live 4 does not oversubscribe (no kernel lines in any 4-queue run today), so the stalls at 4 would
+  be the in-order sharing form, not time-slicing.
+- Window HWQ2 (head of insert 53): probes 8, 6, 5 with a watchdog that kills a probe on the first oversubscription
+  line, then a 4+4-pass A/B of 4 against the largest count that fits.
