@@ -2557,6 +2557,11 @@ struct Engine {
     void* vgrp = nullptr;
     float *vx_ = nullptr, *vh_ = nullptr;
     /// The MoE block's end (k_moe_out) for T rows.
+    /// the router product carries the shared expert's gate as its last row (one token, or a decode batch of up to 8)
+    bool moe_ext(int T) const {
+        static const bool no_ext = std::getenv("STRATA_Q36_NO_EXT") != nullptr;
+        return T == 1 || (fast_k && !no_ext && !verify_k && T <= kGemmT && m->g.n_expert == 256 && m->top_k == 8);
+    }
     void moe_end(int T, const int32_t* prow, const float* shared, const float* sgate, const float* wn, float* hout, int sgs = 1) {
         if (tp) { tp_moe_end(T, prow, shared, sgate, wn, hout, sgs); return; }
         const int N = (int) m->g.n_embd, Kp = (int) m->top_k;
@@ -2611,6 +2616,14 @@ struct Engine {
         const int HK = (int) g.ssm_k_heads, HV = (int) g.ssm_v_heads, D = (int) g.ssm_state_size;
         const int C = (int) g.ssm_conv_channels;
         const int H = (int) g.n_head, HKV = (int) g.n_head_kv, HD = (int) g.head_dim;
+        if (tp_phase == 3) {   // hybrid TP: this rank's CPU-pool experts and the combine, after both GPU halves
+            if (!tp_hy_pending[cur_dev]) return;
+            tp_hy_pending[cur_dev] = false;
+            const bool ext = moe_ext(T);
+            moe_hybrid_cpu(li, T);
+            moe_end(T, nullptr, sy, ext ? logits_r + g.n_expert : sgate, wn, hout, ext ? (int) g.n_expert + 1 : 1);
+            return;
+        }
         if (tp_skew) tp_skew_layer = (int) li;
         if (tp && tp_phase != 2) tp_gdn_defer_hist[cur_dev] = nullptr;
         const bool fused_mixer_norm = tp && tp_fuse2_join_norm && fast_k && !verify_k &&
@@ -2913,10 +2926,9 @@ struct Engine {
         const auto before_router = T <= 4 && xq_post && !router_q8 && !lhy(li)
             ? tp_branch_mark() : nullptr;
         // routed experts (one token: the router and the shared expert's gate in one product, the gate its last row)
-        const bool one = T == 1;
         // a decode batch of up to 8 rows takes the router and the shared expert's gate in one product too (rows of 257) when the fused
         // router follows; the prompt chunks and the checks keep the separate products
-        const bool ext = one || (fast_k && std::getenv("STRATA_Q36_NO_EXT") == nullptr && !verify_k && T <= kGemmT && g.n_expert == 256 && Kp == 8);
+        const bool ext = moe_ext(T);
         // the hybrid rows path: a batch of up to hybrid_t rows; when only the MTP block is hybrid, its every batch
         // (its prompt pass too: no staging buffers then)
         const bool hy_rows = lhy(li) && (T <= hybrid_t || !main_hybrid);
@@ -3073,7 +3085,10 @@ struct Engine {
             mm(L.sh_down, shh, sy, T);
         }
         if (!ext) f32mm(L.sh_gate_inp, h, sgate, N, 1, T);
-        if (hy_rows) moe_hybrid_cpu(li, T);   // the CPU pool's experts (while the GPU runs the rest), merged
+        if (hy_rows) {
+            if (tp_hy_split) { tp_hy_pending[cur_dev] = true; return; }   // tp_layer_pair's phase 3 finishes it
+            moe_hybrid_cpu(li, T);   // the CPU pool's experts (while the GPU runs the rest), merged
+        }
         if (after_routed)
             tp_branch_group({before_router ? before_router : before_routed, after_routed, tp_branch_mark()});
         // the combine, the shared expert's gate, the residual add and the next norm in one launch

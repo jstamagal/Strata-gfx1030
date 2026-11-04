@@ -208,6 +208,8 @@ bool place_experts_tp(Model& a, Model& b, Engine& E, int threads, double vram_gi
         CK(cudaHostAlloc((void**)&E.h_h, (size_t)E.tmax * N * 4, cudaHostAllocPortable | cudaHostAllocMapped));
         CK(cudaHostAlloc((void**)&E.cpu_out, entries * N * 4, cudaHostAllocPortable | cudaHostAllocMapped));
         CK(cudaHostAlloc((void**)&E.h_ids, entries * 4, cudaHostAllocPortable | cudaHostAllocMapped));
+        CK(cudaHostAlloc((void**)&E.tp_h_h[1 - E.home], (size_t)E.tmax * N * 4, cudaHostAllocPortable | cudaHostAllocMapped));
+        CK(cudaHostAlloc((void**)&E.tp_h_ids[1 - E.home], entries * 4, cudaHostAllocPortable | cudaHostAllocMapped));
         CK(cudaHostAlloc((void**)&E.h_miss, entries * 4, cudaHostAllocPortable | cudaHostAllocMapped));
         E.acts = (uint8_t*)std::malloc((size_t)E.tmax * strata::kernels::cpu::kNativeActBytes + 64);
         size_t wide = 0;

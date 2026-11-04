@@ -18,6 +18,8 @@ void Engine::tp_swap(int from, int to) {
     };
     swap(tp_state[from]); swap(tp_state[to]);
     std::swap(hy, tp_hy[from]); std::swap(hy, tp_hy[to]);
+    std::swap(h_ids, tp_h_ids[from]); std::swap(h_ids, tp_h_ids[to]);
+    std::swap(h_h, tp_h_h[from]); std::swap(h_h, tp_h_h[to]);
     m = tp_models[to];
 }
 
