@@ -1,0 +1,6 @@
+[strata] layer split across GPUs [0, 1] (24)
+[strata] Drafting: MTP (DFlash2 isn't available in this mode)
+[strata] loading the experts into RAM (tens of GB) and locking part of them for the GPU.
+         Please wait and don't close this window; the server says when it is ready.
+[strata] filling the GPU's expert cache (8966 experts, 26.17 GiB of VRAM) ...
+ready: http://127.0.0.1:8090/v1  (OpenAI: /v1/chat/completions, Anthropic: /v1/messages, context 262144 tokens, images on)
