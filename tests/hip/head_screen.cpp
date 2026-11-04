@@ -184,8 +184,16 @@ static int exercise(int type,std::vector<uint8_t> hw,int rows,bool bench,bool re
         std::printf("verify parity/bench uses captured post-norm inputs and their actual Q8_1 bytes\n");
     }
     ck(cudaMemcpy(x.p,hx.data(),hx.size()*4,cudaMemcpyHostToDevice),"upload x");
-    // A strongly aligned column exercises certified proxy pruning, not just its all-exact fallback.
-    if(!real)iq_dequant_f32(type,static_cast<const uint8_t*>(w.p),N,x.as<float>()+7*N,s);
+    // Separated winners inside the histogram range exercise certified proxy pruning.
+    if(!real) {
+        std::array<float,N> aligned;
+        iq_dequant_f32(type,static_cast<const uint8_t*>(w.p),N,x.as<float>()+7*N,s);ck(cudaStreamSynchronize(s),"aligned row");
+        ck(cudaMemcpy(aligned.data(),x.as<float>()+7*N,N*4,cudaMemcpyDeviceToHost),"aligned row down");
+        double norm2=0.0;for(float v:aligned)norm2+=double(v)*v;
+        const float scale=norm2>0.0?float(16.0/norm2):0.0f;
+        for(float& v:aligned)v*=scale;
+        ck(cudaMemcpy(x.as<float>()+7*N,aligned.data(),N*4,cudaMemcpyHostToDevice),"aligned row up");
+    }
     std::vector<float> a(size_t(rows)*MT),b(a.size());
     long cases=0,errors=0,tail=0;
     if(head_screen_supported(type,N,rows,1)) {
