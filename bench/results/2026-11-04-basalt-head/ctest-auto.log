@@ -1,0 +1,13 @@
+Test project /home/ronald_rump/inbox/agents/claude/strata-q38-head/build
+    Start 42: hip_head_screen_parity
+1/4 Test #42: hip_head_screen_parity ...........   Passed    0.29 sec
+    Start 43: hip_head_screen_parity_tsum
+2/4 Test #43: hip_head_screen_parity_tsum ......   Passed    0.29 sec
+    Start 44: hip_head_screen_proxy_bound
+3/4 Test #44: hip_head_screen_proxy_bound ......   Passed    0.29 sec
+    Start 45: hip_head_dump
+4/4 Test #45: hip_head_dump ....................   Passed    0.08 sec
+
+100% tests passed out of 4
+
+Total Test time (real) =   0.96 sec

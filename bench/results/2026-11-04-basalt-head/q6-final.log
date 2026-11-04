@@ -1,0 +1,15 @@
+head proxy policy: unset Q8_0=on Q6_K=off Q5_K=off, owned reserve=85176080 shared scratch=132880 bytes; explicit0/1 PASS
+head-only GGUF /home/ronald_rump/Strata-data/models/swift-abl-IQ3_S/Qwen3.8-Flash-Next-GSQ-RCO-abliterated-IQ3_S-00001-of-00002.gguf: type=14 shape=248320 x 2560 bytes=521472000
+screen parity type=14 rows=248320: 180 columns, 0 mismatches, 5092791 differing tail entries at K20
+BENCH type=14 rows=248320 K=20 old=HEAD_WIDE(Q6)/native_mmvq(Q8) us
+T,old_warm,new_warm,old_cold,new_cold,equal_logit_percent
+1,1006.7,1178.9,1005.6,1178.3,23.460
+2,1014.1,1393.7,1010.1,1384.4,24.727
+3,1013.1,1595.4,1006.8,1584.2,23.619
+4,1025.9,1895.4,1020.3,1849.8,25.262
+5,1039.2,2084.9,1027.7,1956.0,25.215
+6,1062.2,2162.1,1051.1,2036.8,26.052
+7,1151.8,2236.6,1133.2,2110.2,26.996
+8,1310.4,2286.0,1288.2,2165.8,26.694
+proxy parity type=14 rows=106299: 12 cases, exact chosen-row bits checked, changed drafts=0, total errors=0
+DRAFT type=14 rows=106299 old_warm=452.4 proxy_warm=224.3 old_cold=453.1 proxy_cold=353.4 us

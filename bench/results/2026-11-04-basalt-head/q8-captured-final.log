@@ -1,0 +1,19 @@
+head proxy policy: unset Q8_0=on Q6_K=off Q5_K=off, owned reserve=85176080 shared scratch=132880 bytes; explicit0/1 PASS
+input dump /home/ronald_rump/inbox/agents/claude/head-capture/qwen38-ud4-essay-code-36k.shd: verify=2801 draft=7054, retained 2801/7054 rows (deterministic reservoir)
+head-only GGUF /home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00002-of-00004.gguf: type=8 shape=248320 x 2560 bytes=675430400
+verify parity/bench uses captured post-norm inputs and their actual Q8_1 bytes
+captured verify sweep: 2801 inputs, 8403 exact top-K column checks (varying T1..8), cumulative errors=0
+screen parity type=8 rows=248320: 180 columns, 0 mismatches, 8925221 differing tail entries at K20
+BENCH type=8 rows=248320 K=20 old=HEAD_WIDE(Q6)/native_mmvq(Q8) us
+T,old_warm,new_warm,old_cold,new_cold,equal_logit_percent
+1,1261.2,1069.9,1260.3,1076.3,0.257
+2,1270.0,1105.0,1267.3,1122.1,0.201
+3,1277.6,1162.5,1273.6,1162.6,0.179
+4,1284.2,1271.1,1279.8,1253.3,0.180
+5,1335.6,1207.1,1342.1,1214.5,0.160
+6,1463.7,1210.1,1462.0,1204.6,0.156
+7,1615.6,1251.4,1605.8,1288.2,0.144
+8,1817.2,1254.9,1807.5,1265.5,0.138
+captured draft sweep: 7054 inputs, changed proposals=11, chosen-row bits exact, cumulative errors=0
+proxy parity type=8 rows=106299: 12 cases, exact chosen-row bits checked, changed drafts=0, total errors=0
+DRAFT type=8 rows=106299 old_warm=577.6 proxy_warm=110.7 old_cold=577.5 proxy_cold=229.8 us
