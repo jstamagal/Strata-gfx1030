@@ -303,14 +303,23 @@ __global__ void k_group_small(const int32_t* ids, int n_ent, int K_, const int32
     }
 }
 
+#include "q36_router_mask.cuh"
+
 /// route_topk<256, 8> (native_router.cu, copied: the same expressions) for n_tok <= 8 tokens (one warp each) and, in the same
 /// launch, k_group_small's grouping of the picks.  block (32, 8).  HY as k_group_small.
-template <bool HY>
+template <bool HY, bool Mask = true>
 __global__ void __launch_bounds__(256) k_route_group(const float* __restrict__ logits, int32_t* __restrict__ ids,
                                                      float* __restrict__ weights, int n_tok, int ld, const int32_t* slot_of,
                                                      const uint8_t* blobs, unsigned long long blob,
                                                      unsigned long long* grp_ptr, int32_t* grp_start, int32_t* n_groups,
                                                      int32_t* ent_dst, int32_t* ent_tok) {
+#if defined(__gfx1030__)
+    if constexpr (Mask) {
+        route_group_mask_body<HY>(logits, ids, weights, n_tok, ld, slot_of,
+            blobs, blob, grp_ptr, grp_start, n_groups, ent_dst, ent_tok);
+        return;
+    }
+#endif
     constexpr int NE = 256, K = 8, V = NE / 32;
     __shared__ int sids[64], sid[64];
     const int tk = threadIdx.y;
