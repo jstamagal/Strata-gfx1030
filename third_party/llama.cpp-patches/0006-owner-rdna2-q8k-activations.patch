@@ -494,7 +494,7 @@ Both activation layouts have distinct template specializations; the default q8_1
 +        char4 * yqs4 = (char4 *) y[ib].qs;
 +        yqs4[iqs/4] = q[0]; yqs4[iqs/4+1] = q[1];
 +        if (iqs%QK8_1 == 0) y[ib].dk.bs[iqs/QK8_1] = bsum;
-+        if (iqs == 0) y[ib].dk.d = d;
++        if (iqs == 0) { y[ib].dk.d = d; y[ib].d4[3] = 0.0f; } // deterministic unused metadata padding
 +    }
 +}
 +// Strata's native IQ prompt tiles share DK's quantizer, not the vendor IQ MMQ

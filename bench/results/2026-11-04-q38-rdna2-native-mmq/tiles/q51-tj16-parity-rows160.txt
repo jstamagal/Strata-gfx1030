@@ -1,0 +1,23 @@
+strata: prompt kernels: MMQ gate/up products read the experts from their own blobs, no group copy (STRATA_PF_DIRECT=1)
+strata: prompt kernels: Q5_1 down experts on native tiles (STRATA_PF_Q51=1, STRATA_PF_Q51_TJ selects token rows; same MMQ output bits)
+MMQ parity 344320 outputs: 0 different bits, rel L2 0.000e+00, max abs 0.000e+00
+PASS q5_1     gate+up W[1280 x 2560] 6 experts 269 rows: rel L2 vs FP64 8.199e-03, hash 8474815e94402571
+MMQ parity 344320 outputs: 0 different bits, rel L2 0.000e+00, max abs 0.000e+00
+MMQ parity 344320 outputs: 0 different bits, rel L2 0.000e+00, max abs 0.000e+00
+PASS q5_1     gate+up experts read from their own blobs: the same bits (hash 8474815e94402571)
+MMQ parity 3276800 outputs: 0 different bits, rel L2 0.000e+00, max abs 0.000e+00
+time q5_1     gate+up 16 x 160 rows, from their own blobs: product 0.578 ms = 14513 G MAC/s
+MMQ parity 3276800 outputs: 0 different bits, rel L2 0.000e+00, max abs 0.000e+00
+MMQ parity 6553600 outputs: 0 different bits, rel L2 0.000e+00, max abs 0.000e+00
+time q5_1     gate+up 16 x 160 rows: quantize 0.039 ms, product 0.576 ms = 14553 G MAC/s | skewed 5120 rows: 1.017 ms = 16494 G MAC/s
+MMQ parity 688640 outputs: 0 different bits, rel L2 0.000e+00, max abs 0.000e+00
+PASS q5_1     down    W[2560 x 640] 6 experts 269 rows: rel L2 vs FP64 7.149e-03, hash 14e9d798afb047a7
+MMQ parity 688640 outputs: 0 different bits, rel L2 0.000e+00, max abs 0.000e+00
+MMQ parity 688640 outputs: 0 different bits, rel L2 0.000e+00, max abs 0.000e+00
+PASS q5_1     down    experts read from their own blobs: the same bits (hash 14e9d798afb047a7)
+MMQ parity 6553600 outputs: 0 different bits, rel L2 0.000e+00, max abs 0.000e+00
+time q5_1     down    16 x 160 rows, from their own blobs: product 0.238 ms = 17625 G MAC/s
+MMQ parity 6553600 outputs: 0 different bits, rel L2 0.000e+00, max abs 0.000e+00
+MMQ parity 13107200 outputs: 0 different bits, rel L2 0.000e+00, max abs 0.000e+00
+time q5_1     down    16 x 160 rows: quantize 0.021 ms, product 0.237 ms = 17672 G MAC/s | skewed 5120 rows: 0.450 ms = 18651 G MAC/s
+ALL PASS

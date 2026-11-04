@@ -1,0 +1,19 @@
+strata: native IQ prompt tiles (STRATA_PF_IQ2S=1, STRATA_PF_IQ3=1, TJ=20, IQ_Q8K=0)
+MMQ parity 100282 outputs: 0 different bits, rel L2 0.000e+00, max abs 0.000e+00
+PASS iq2_s edge rows, reversed ids, padded destination: rel L2 5.366e-03
+MMQ parity 344320 outputs: 0 different bits, rel L2 0.000e+00, max abs 0.000e+00
+PASS iq2_s    gate+up W[1280 x 2560] 6 experts 269 rows: rel L2 vs FP64 5.424e-03, hash 526c459b3de03586
+MMQ parity 344320 outputs: 0 different bits, rel L2 0.000e+00, max abs 0.000e+00
+MMQ parity 344320 outputs: 0 different bits, rel L2 0.000e+00, max abs 0.000e+00
+PASS iq2_s    gate+up experts read from their own blobs: the same bits (hash 526c459b3de03586)
+MMQ parity 1638400 outputs: 0 different bits, rel L2 0.000e+00, max abs 0.000e+00
+time iq2_s    gate+up 16 x 80 rows, from their own blobs: product 0.259 ms = 16218 G MAC/s
+MMQ parity 1638400 outputs: 0 different bits, rel L2 0.000e+00, max abs 0.000e+00
+MMQ parity 6553600 outputs: 0 different bits, rel L2 0.000e+00, max abs 0.000e+00
+time iq2_s    gate+up 16 x 80 rows: quantize 0.023 ms, product 0.258 ms = 16288 G MAC/s | skewed 5120 rows: 0.844 ms = 19882 G MAC/s
+MMQ parity 688640 outputs: 0 different bits, rel L2 0.000e+00, max abs 0.000e+00
+PASS iq2_s    down    W[2560 x 768] 6 experts 269 rows: rel L2 vs FP64 5.383e-03, hash 733c9ee2d9db52b8
+MMQ parity 3276800 outputs: 0 different bits, rel L2 0.000e+00, max abs 0.000e+00
+MMQ parity 13107200 outputs: 0 different bits, rel L2 0.000e+00, max abs 0.000e+00
+time iq2_s    down    16 x 80 rows: quantize 0.016 ms, product 0.146 ms = 17215 G MAC/s | skewed 5120 rows: 0.506 ms = 19892 G MAC/s
+ALL PASS

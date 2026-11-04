@@ -734,14 +734,20 @@ void nl_run(const mmq::Product& p, void* stream) {
     const int tj = g_nl_tj > 0 ? g_nl_tj : env_tj > 0 ? env_tj : 32;
     const dim3 g((unsigned) ((p.w_rows + WI - 1) / WI), (unsigned) ((p.max_rows + tj - 1) / tj), (unsigned) p.n);
     static const bool perm = [] { const char* v = std::getenv("STRATA_PF_NL_PERM"); return v != nullptr && v[0] == '1'; }();
-    if (perm && tj == 32) nl_sload_kernel<32, true><<<g, WI, 0, s>>>(a);
-    else if (tj == 64) nl_sload_kernel<64><<<g, WI, 0, s>>>(a);
-    else if (tj == 48) nl_sload_kernel<48><<<g, WI, 0, s>>>(a);
-    else if (tj == 40) nl_sload_kernel<40><<<g, WI, 0, s>>>(a);
-    else if (tj == 24) nl_sload_kernel<24><<<g, WI, 0, s>>>(a);
-    else if (tj == 20) nl_sload_kernel<20><<<g, WI, 0, s>>>(a);
-    else if (tj == 16) nl_sload_kernel<16><<<g, WI, 0, s>>>(a);
-    else nl_sload_kernel<32><<<g, WI, 0, s>>>(a);
+    // The live IQ3_S config uses TJ=20 and PERM=1. Previously the v_perm
+    // decoder was only selected at TJ=32, silently ignoring that switch at 20.
+#define STRATA_NL_GO(J) do { \
+        if (perm) nl_sload_kernel<J, true><<<g, WI, 0, s>>>(a); \
+        else nl_sload_kernel<J><<<g, WI, 0, s>>>(a); \
+    } while (0)
+    if (tj == 64) STRATA_NL_GO(64);
+    else if (tj == 48) STRATA_NL_GO(48);
+    else if (tj == 40) STRATA_NL_GO(40);
+    else if (tj == 24) STRATA_NL_GO(24);
+    else if (tj == 20) STRATA_NL_GO(20);
+    else if (tj == 16) STRATA_NL_GO(16);
+    else STRATA_NL_GO(32);
+#undef STRATA_NL_GO
     ck(cudaGetLastError(), "product (iq4_nl)");
 }
 

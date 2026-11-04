@@ -1,0 +1,80 @@
+{
+  "scalar": {
+    "40": {
+      "ds_write_b32": 21,
+      "global_load_dword": 34,
+      "ds_read_u16": 16,
+      "ds_read_b128": 40,
+      "v_dot4c_i32_i8": 640,
+      "ds_read_b64": 2,
+      "ds_read_b32": 5
+    },
+    "64": {
+      "ds_write_b32": 23,
+      "global_load_dword": 40,
+      "ds_read_b128": 64,
+      "v_dot4c_i32_i8": 1024,
+      "ds_read_u16": 16,
+      "ds_read_b32": 8
+    },
+    "80": {
+      "ds_write_b32": 21,
+      "global_load_dword": 46,
+      "ds_read_b128": 80,
+      "v_dot4c_i32_i8": 1280,
+      "ds_read_u16": 16,
+      "ds_read_b32": 10
+    },
+    "128": {
+      "ds_write_b32": 21,
+      "global_load_dword": 58,
+      "ds_read_b128": 128,
+      "ds_read_u16": 16,
+      "v_dot4c_i32_i8": 2048,
+      "ds_read_b32": 16
+    }
+  },
+  "vector": {
+    "40": {
+      "ds_write_b32": 21,
+      "global_load_dword": 22,
+      "global_load_dwordx2": 6,
+      "ds_write_b64": 6,
+      "ds_read_u16": 16,
+      "ds_read_b128": 40,
+      "v_dot4c_i32_i8": 640,
+      "ds_read_b64": 2,
+      "ds_read_b32": 5
+    },
+    "64": {
+      "ds_write_b32": 21,
+      "global_load_dword": 22,
+      "global_load_dwordx2": 10,
+      "ds_write_b64": 10,
+      "ds_read_b128": 64,
+      "v_dot4c_i32_i8": 1024,
+      "ds_read_u16": 16,
+      "ds_read_b32": 8
+    },
+    "80": {
+      "ds_write_b32": 21,
+      "global_load_dword": 22,
+      "global_load_dwordx2": 12,
+      "ds_write_b64": 12,
+      "ds_read_b128": 80,
+      "v_dot4c_i32_i8": 1280,
+      "ds_read_u16": 16,
+      "ds_read_b32": 10
+    },
+    "128": {
+      "ds_write_b32": 21,
+      "global_load_dword": 22,
+      "global_load_dwordx2": 18,
+      "ds_write_b64": 2,
+      "ds_read_b128": 128,
+      "ds_read_u16": 16,
+      "v_dot4c_i32_i8": 2048,
+      "ds_read_b32": 16
+    }
+  }
+}

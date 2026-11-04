@@ -1,0 +1,93 @@
+llama.cpp PR 30493 (head 9e37a8578f47936fb7f89cbb45f4e98affc134a9): int2 activation tile copies.
+Base: pinned 3cf03257 plus Strata patches 0001..0006.
+Compile STRATA_MMQ_VEC_COPY to opt in; no arithmetic change.
+LDS base is explicitly 16-byte aligned, J is even, rows remain 144-byte multiples of 16.
+Host launch checks source int2 alignment. Partial thread groups copy only logical tile words;
+the allocator/padded K tail contract is unchanged and fewer unused padding words are read.
+
+--- a/ggml/src/ggml-cuda/mmq.cuh
++++ b/ggml/src/ggml-cuda/mmq.cuh
+@@ -963,7 +963,12 @@
+     constexpr ggml_cuda_mmq_vec_dot_t    vec_dot    = ggml_cuda_mmq_get_vec_dot<type, J, fallback, q8_K>();
+     constexpr ggml_cuda_mmq_write_back_t write_back = ggml_cuda_mmq_get_write_back<type, J, fallback>();
+ 
+-#if defined(GGML_USE_HIP) && (defined(RDNA2) || defined(RDNA3)) && (GGML_HIP_RDNA_WIDE_LDS_Q4_K || GGML_HIP_RDNA_WIDE_LDS_Q5_K || GGML_HIP_RDNA_WIDE_LDS_Q6_K)
++#if defined(STRATA_MMQ_VEC_COPY)
++    extern __shared__ int4 data_mul_mat_q_vector[];
++    int * data_mul_mat_q = reinterpret_cast<int *>(data_mul_mat_q_vector);
++    static_assert(J % 2 == 0 && MMQ_TILE_Y_K % 4 == 0 && sizeof(block_q8_1_mmq) % 16 == 0,
++                  "MMQ activation copies need aligned int2 groups");
++#elif defined(GGML_USE_HIP) && (defined(RDNA2) || defined(RDNA3)) && (GGML_HIP_RDNA_WIDE_LDS_Q4_K || GGML_HIP_RDNA_WIDE_LDS_Q5_K || GGML_HIP_RDNA_WIDE_LDS_Q6_K)
+     int * data_mul_mat_q;
+     if constexpr (J >= GGML_HIP_RDNA_WIDE_LDS_MIN_J) {
+         extern __shared__ int4 data_mul_mat_q_aligned[]; // 16-byte aligned: the wide activation loads
+@@ -996,12 +1001,28 @@
+         load_tiles(x, tile_x, offset_x + kb0, tile_x_max_i, stride_row_x);
+         {
+             const int * by0 = y + ncols_y * (kb0 * qk / ne_block) * sz;
++#if defined(STRATA_MMQ_VEC_COPY)
++            // llama.cpp PR 30493: no arithmetic change; unlike the scalar path,
++            // a partial final thread group does not copy the unused LDS padding.
++            if constexpr ((J * MMQ_TILE_Y_K / 2) % (nwarps * warp_size) == 0) {
++#pragma unroll
++                for (int l0 = 0; l0 < J * MMQ_TILE_Y_K / 2; l0 += nwarps * warp_size) {
++                    const int l = l0 + threadIdx.y*warp_size + threadIdx.x;
++                    ((int2 *) tile_y)[l] = ((const int2 *) by0)[l];
++                }
++            } else {
++#pragma unroll
++                for (int l = threadIdx.y*warp_size + threadIdx.x; l < J * MMQ_TILE_Y_K / 2; l += nwarps * warp_size) {
++                    ((int2 *) tile_y)[l] = ((const int2 *) by0)[l];
++                }
++            }
++#else
+ #pragma unroll
+             for (int l0 = 0; l0 < J * MMQ_TILE_Y_K; l0 += nwarps * warp_size) {
+                 int l = l0 + threadIdx.y*warp_size + threadIdx.x;
+-
+                 tile_y[l] = by0[l];
+             }
++#endif
+         }
+ 
+         __syncthreads();
+@@ -1012,12 +1033,28 @@
+ 
+         {
+             const int * by0 = y + ncols_y * ((kb0 * qk / ne_block) * sz + sz);
++#if defined(STRATA_MMQ_VEC_COPY)
++            // llama.cpp PR 30493: no arithmetic change; unlike the scalar path,
++            // a partial final thread group does not copy the unused LDS padding.
++            if constexpr ((J * MMQ_TILE_Y_K / 2) % (nwarps * warp_size) == 0) {
++#pragma unroll
++                for (int l0 = 0; l0 < J * MMQ_TILE_Y_K / 2; l0 += nwarps * warp_size) {
++                    const int l = l0 + threadIdx.y*warp_size + threadIdx.x;
++                    ((int2 *) tile_y)[l] = ((const int2 *) by0)[l];
++                }
++            } else {
++#pragma unroll
++                for (int l = threadIdx.y*warp_size + threadIdx.x; l < J * MMQ_TILE_Y_K / 2; l += nwarps * warp_size) {
++                    ((int2 *) tile_y)[l] = ((const int2 *) by0)[l];
++                }
++            }
++#else
+ #pragma unroll
+             for (int l0 = 0; l0 < J * MMQ_TILE_Y_K; l0 += nwarps * warp_size) {
+                 int l = l0 + threadIdx.y*warp_size + threadIdx.x;
+-
+                 tile_y[l] = by0[l];
+             }
++#endif
+         }
+ 
+         __syncthreads();
+@@ -1517,6 +1554,9 @@
+     GGML_ASSERT(config.nthreads % warp_size == 0);
+     const int nwarps = config.nthreads / warp_size;
+     const int nbytes_shared = mmq_get_nbytes_shared(config, cc);
++#if defined(STRATA_MMQ_VEC_COPY)
++    GGML_ASSERT((reinterpret_cast<uintptr_t>(args.y) & (alignof(int2)-1)) == 0);
++#endif
+ 
+     const dim3 block_dims(warp_size, nwarps, 1);
+ 

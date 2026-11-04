@@ -1,0 +1,23 @@
+strata: prompt kernels: MMQ gate/up products read the experts from their own blobs, no group copy (STRATA_PF_DIRECT=1)
+strata: prompt kernels: Q2_0 down experts on the 256-row tiles (STRATA_PF_Q2=1: MMQ's output bits)
+MMQ parity 344320 outputs: 0 different bits, rel L2 0.000e+00, max abs 0.000e+00
+PASS q2_0     gate+up W[1280 x 2560] 6 experts 269 rows: rel L2 vs FP64 5.240e-03, hash 05c519686f22b249
+MMQ parity 344320 outputs: 0 different bits, rel L2 0.000e+00, max abs 0.000e+00
+MMQ parity 344320 outputs: 0 different bits, rel L2 0.000e+00, max abs 0.000e+00
+PASS q2_0     gate+up experts read from their own blobs: the same bits (hash 05c519686f22b249)
+MMQ parity 819200 outputs: 0 different bits, rel L2 0.000e+00, max abs 0.000e+00
+time q2_0     gate+up 16 x 40 rows, from their own blobs: product 0.158 ms = 13305 G MAC/s
+MMQ parity 819200 outputs: 0 different bits, rel L2 0.000e+00, max abs 0.000e+00
+MMQ parity 6553600 outputs: 0 different bits, rel L2 0.000e+00, max abs 0.000e+00
+time q2_0     gate+up 16 x 40 rows: quantize 0.018 ms, product 0.158 ms = 13301 G MAC/s | skewed 5120 rows: 0.962 ms = 17438 G MAC/s
+MMQ parity 688640 outputs: 0 different bits, rel L2 0.000e+00, max abs 0.000e+00
+PASS q2_0     down    W[2560 x 640] 6 experts 269 rows: rel L2 vs FP64 5.369e-03, hash 15eca85d4f5aa998
+MMQ parity 688640 outputs: 0 different bits, rel L2 0.000e+00, max abs 0.000e+00
+MMQ parity 688640 outputs: 0 different bits, rel L2 0.000e+00, max abs 0.000e+00
+PASS q2_0     down    experts read from their own blobs: the same bits (hash 15eca85d4f5aa998)
+MMQ parity 1638400 outputs: 0 different bits, rel L2 0.000e+00, max abs 0.000e+00
+time q2_0     down    16 x 40 rows, from their own blobs: product 0.093 ms = 11290 G MAC/s
+MMQ parity 1638400 outputs: 0 different bits, rel L2 0.000e+00, max abs 0.000e+00
+MMQ parity 13107200 outputs: 0 different bits, rel L2 0.000e+00, max abs 0.000e+00
+time q2_0     down    16 x 40 rows: quantize 0.015 ms, product 0.093 ms = 11302 G MAC/s | skewed 5120 rows: 0.503 ms = 16693 G MAC/s
+ALL PASS

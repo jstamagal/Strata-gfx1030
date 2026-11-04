@@ -1,0 +1,4 @@
+strata: prompt kernels: MMQ gate/up products read the experts from their own blobs, no group copy (STRATA_PF_DIRECT=1)
+time q4_K     gate+up 16 x 80 rows, from their own blobs: product 0.310 ms = 13524 G MAC/s
+time q4_K     gate+up 16 x 80 rows: quantize 0.024 ms, product 0.311 ms = 13501 G MAC/s | skewed 5120 rows: 1.128 ms = 14872 G MAC/s
+ALL PASS

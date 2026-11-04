@@ -43,7 +43,7 @@ __device__ __forceinline__ int strata_dp4a(const int a, const int b, const int c
 #endif
 
 #ifdef STRATA_RDNA2_DOT_Z
-[[maybe_unused]] static constexpr bool strata_rdna2_dot_z_build = true;
+[[maybe_unused]] static constexpr int strata_rdna2_dot_z_build = STRATA_RDNA2_DOT_Z;
 #else
 [[maybe_unused]] static constexpr bool strata_rdna2_dot_z_build = false;
 #endif
@@ -55,8 +55,14 @@ __device__ __forceinline__ int strata_dp4a_z(int a, int b, int c) {
 #if defined(STRATA_RDNA2_DOT_Z) && defined(__HIP_DEVICE_COMPILE__) && \
     (defined(__gfx1030__) || defined(__gfx1031__) || defined(__gfx1032__))
     if (__builtin_constant_p(c) && c == 0) {
+#if STRATA_RDNA2_DOT_Z == 2
+        // A zero head is a sum of only four signed-byte products, |sum| <= 65536:
+        // clamp cannot change it, and forces VOP3P while preserving compiler latency knowledge.
+        return __builtin_amdgcn_sdot4(a, b, 0, true);
+#else
         asm("v_dot4_i32_i8 %0, %1, %2, 0" : "=v"(c) : "v"(a), "v"(b));
         return c;
+#endif
     }
 #endif
     return STRATA_DP4A(a, b, c);

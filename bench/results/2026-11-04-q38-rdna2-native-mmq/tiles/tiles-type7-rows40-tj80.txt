@@ -1,0 +1,7 @@
+strata: prompt kernels: MMQ gate/up products read the experts from their own blobs, no group copy (STRATA_PF_DIRECT=1)
+strata: prompt kernels: Q5_1 down experts on native tiles (STRATA_PF_Q51=1, STRATA_PF_Q51_TJ selects token rows; same MMQ output bits)
+time q5_1     gate+up 16 x 40 rows, from their own blobs: product 0.174 ms = 12066 G MAC/s
+time q5_1     gate+up 16 x 40 rows: quantize 0.018 ms, product 0.165 ms = 12698 G MAC/s | skewed 5120 rows: 1.017 ms = 16494 G MAC/s
+time q5_1     down    16 x 40 rows, from their own blobs: product 0.148 ms = 7079 G MAC/s
+time q5_1     down    16 x 40 rows: quantize 0.015 ms, product 0.161 ms = 6513 G MAC/s | skewed 5120 rows: 0.713 ms = 11770 G MAC/s
+ALL PASS

@@ -286,7 +286,7 @@ __device__ __forceinline__ int q51_ld32(const void* p) {
 }
 
 #ifdef STRATA_RDNA2_DOT_Z
-[[maybe_unused]] static constexpr bool strata_prompt_dot_z_build = true;
+[[maybe_unused]] static constexpr int strata_prompt_dot_z_build = STRATA_RDNA2_DOT_Z;
 #else
 [[maybe_unused]] static constexpr bool strata_prompt_dot_z_build = false;
 #endif
@@ -295,8 +295,12 @@ __device__ __forceinline__ int strata_prompt_dp4a(int a, int b, int c) {
 #if defined(STRATA_RDNA2_DOT_Z) && defined(__HIP_DEVICE_COMPILE__) && \
     (defined(__gfx1030__) || defined(__gfx1031__) || defined(__gfx1032__))
     if (__builtin_constant_p(c) && c == 0) {
+#if STRATA_RDNA2_DOT_Z == 2
+        return __builtin_amdgcn_sdot4(a, b, 0, true); // four i8 products cannot overflow: exact, scheduler-visible
+#else
         asm("v_dot4_i32_i8 %0, %1, %2, 0" : "=v"(c) : "v"(a), "v"(b));
         return c;
+#endif
     }
 #endif
     return ggml_cuda_dp4a(a, b, c);
@@ -588,8 +592,10 @@ void iq_tile_run(const Product& p, cudaStream_t s) {
     static const bool said = [] {
         const char* iq2 = std::getenv("STRATA_PF_IQ2S");
         const char* iq3 = std::getenv("STRATA_PF_IQ3");
-        std::fprintf(stderr, "strata: prompt kernels: IQ experts on 256 x 16 tiles (STRATA_PF_IQ2S=%s, STRATA_PF_IQ3=%s)\n",
-                     iq2 ? iq2 : "0", iq3 ? iq3 : "0");
+        const char* tj = std::getenv("STRATA_PF_IQ_TJ");
+        const char* q8k = std::getenv("STRATA_PF_IQ_Q8K");
+        std::fprintf(stderr, "strata: native IQ prompt tiles (STRATA_PF_IQ2S=%s, STRATA_PF_IQ3=%s, TJ=%s, IQ_Q8K=%s)\n",
+                     iq2 ? iq2 : "0", iq3 ? iq3 : "0", tj ? tj : "16", q8k ? q8k : "0");
         return true;
     }();
     (void) said;

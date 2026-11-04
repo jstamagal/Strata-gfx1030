@@ -5,22 +5,30 @@ The host-visible build marker keeps device-only switches distinct to compiler ca
 
 --- a/ggml/src/ggml-cuda/common.cuh
 +++ b/ggml/src/ggml-cuda/common.cuh
-@@ -757,6 +757,23 @@
+@@ -757,6 +757,31 @@
  #endif // defined(GGML_USE_HIP)
  }
  
 +#if defined(STRATA_MMQ_RDNA2_DOT_Z_OFF) && !defined(STRATA_RDNA2_DOT_Z)
 +[[maybe_unused]] static constexpr bool ggml_rdna2_dot_z_build = false;
 +#else
++#if defined(STRATA_RDNA2_DOT_Z)
++[[maybe_unused]] static constexpr int ggml_rdna2_dot_z_build = STRATA_RDNA2_DOT_Z;
++#else
 +[[maybe_unused]] static constexpr bool ggml_rdna2_dot_z_build = true;
++#endif
 +#endif
 +// Owner dfb9b770b: literal-zero VOP3P chain heads on RDNA2. Keep ordinary dp4a for
 +// the remaining links and for Q4_K/Q5_K, where the inline asm scheduled worse.
 +static __device__ __forceinline__ int ggml_cuda_dp4a_z(const int a, const int b, int c) {
 +#if defined(GGML_USE_HIP) && defined(RDNA2) && (!defined(STRATA_MMQ_RDNA2_DOT_Z_OFF) || defined(STRATA_RDNA2_DOT_Z))
 +    if (__builtin_constant_p(c) && c == 0) {
++#if defined(STRATA_RDNA2_DOT_Z) && STRATA_RDNA2_DOT_Z == 2
++        return __builtin_amdgcn_sdot4(a, b, 0, true); // four i8 products cannot overflow; keep scheduler latency knowledge
++#else
 +        asm("v_dot4_i32_i8 %0, %1, %2, 0" : "=v"(c) : "v"(a), "v"(b));
 +        return c;
++#endif
 +    }
 +#endif
 +    return ggml_cuda_dp4a(a, b, c);
