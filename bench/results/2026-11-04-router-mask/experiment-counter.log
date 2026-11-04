@@ -1,0 +1,58 @@
+device 1: AMD Radeon Pro V620 gfx1030; N=3072 experts=256 K=8
+PASS 8704 cases: all output bytes, including sentinels and q8; counters reset
+BENCH T=1 old=25.234 new=24.912 mask_only=24.684 speedup=1.013x group_old=6.297 group_new=5.923 us
+TUNE T=1 variant=0 mode=2 us=24.806
+TUNE T=1 variant=0 mode=4 us=25.023
+TUNE T=1 variant=0 mode=5 us=18.901
+TUNE T=1 variant=1 mode=2 us=24.970
+TUNE T=1 variant=1 mode=4 us=24.749
+TUNE T=1 variant=1 mode=5 us=18.777
+TUNE T=1 variant=4 mode=2 us=24.263
+TUNE T=1 variant=4 mode=4 us=24.370
+TUNE T=1 variant=4 mode=5 us=18.997
+TUNE T=1 variant=5 mode=2 us=25.178
+TUNE T=1 variant=5 mode=4 us=24.295
+TUNE T=1 variant=5 mode=5 us=18.965
+BENCH T=2 old=25.855 new=25.434 mask_only=24.713 speedup=1.017x group_old=6.805 group_new=5.962 us
+TUNE T=2 variant=0 mode=2 us=24.637
+TUNE T=2 variant=0 mode=4 us=24.695
+TUNE T=2 variant=0 mode=5 us=19.943
+TUNE T=2 variant=1 mode=2 us=24.731
+TUNE T=2 variant=1 mode=4 us=24.589
+TUNE T=2 variant=1 mode=5 us=19.954
+TUNE T=2 variant=4 mode=2 us=25.110
+TUNE T=2 variant=4 mode=4 us=25.137
+TUNE T=2 variant=4 mode=5 us=20.722
+TUNE T=2 variant=5 mode=2 us=25.066
+TUNE T=2 variant=5 mode=4 us=25.075
+TUNE T=2 variant=5 mode=5 us=20.749
+BENCH T=3 old=26.374 new=31.307 mask_only=24.847 speedup=0.842x group_old=7.227 group_new=5.965 us
+TUNE T=3 variant=0 mode=2 us=24.817
+TUNE T=3 variant=0 mode=4 us=24.857
+TUNE T=3 variant=0 mode=5 us=23.753
+TUNE T=3 variant=1 mode=2 us=24.712
+TUNE T=3 variant=1 mode=4 us=24.907
+TUNE T=3 variant=1 mode=5 us=23.743
+TUNE T=3 variant=4 mode=2 us=26.328
+TUNE T=3 variant=4 mode=4 us=26.137
+TUNE T=3 variant=4 mode=5 us=25.499
+TUNE T=3 variant=5 mode=2 us=26.244
+TUNE T=3 variant=5 mode=4 us=26.261
+TUNE T=3 variant=5 mode=5 us=25.528
+BENCH T=4 old=27.986 new=37.436 mask_only=26.485 speedup=0.748x group_old=7.614 group_new=5.963 us
+TUNE T=4 variant=0 mode=2 us=26.681
+TUNE T=4 variant=0 mode=4 us=26.409
+TUNE T=4 variant=0 mode=5 us=25.973
+TUNE T=4 variant=1 mode=2 us=26.372
+TUNE T=4 variant=1 mode=4 us=26.544
+TUNE T=4 variant=1 mode=5 us=26.008
+TUNE T=4 variant=4 mode=2 us=27.354
+TUNE T=4 variant=4 mode=4 us=27.492
+TUNE T=4 variant=4 mode=5 us=27.943
+TUNE T=4 variant=5 mode=2 us=27.449
+TUNE T=4 variant=5 mode=4 us=27.356
+TUNE T=4 variant=5 mode=5 us=27.868
+BENCH T=5 old=30.082 new=32.555 mask_only=26.050 speedup=0.924x group_old=8.135 group_new=6.057 us
+BENCH T=6 old=31.222 new=35.413 mask_only=26.374 speedup=0.882x group_old=8.533 group_new=6.056 us
+BENCH T=7 old=33.968 new=37.011 mask_only=27.564 speedup=0.918x group_old=8.977 group_new=6.068 us
+BENCH T=8 old=34.063 new=36.401 mask_only=27.142 speedup=0.936x group_old=9.360 group_new=6.061 us

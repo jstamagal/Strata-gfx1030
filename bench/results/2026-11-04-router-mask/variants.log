@@ -1,0 +1,45 @@
+device 1: AMD Radeon Pro V620 gfx1030; N=3072 experts=256 K=8 verify_max=16
+VARIANT T=1 LF=0 waves=8 q8=1 old=26.359 new=12.486 us speedup=2.111x
+VARIANT T=1 LF=1 waves=8 q8=1 old=26.650 new=12.912 us speedup=2.064x
+VARIANT T=1 LF=0 waves=8 q8=0 old=25.597 new=12.199 us speedup=2.098x
+VARIANT T=1 LF=1 waves=8 q8=0 old=25.791 new=12.278 us speedup=2.101x
+VARIANT T=1 LF=0 waves=4 q8=1 old=24.094 new=13.064 us speedup=1.844x
+VARIANT T=1 LF=1 waves=4 q8=1 old=24.222 new=13.314 us speedup=1.819x
+VARIANT T=1 LF=0 waves=4 q8=0 old=23.704 new=12.469 us speedup=1.901x
+VARIANT T=1 LF=1 waves=4 q8=0 old=24.482 new=12.518 us speedup=1.956x
+VARIANT T=2 LF=0 waves=8 q8=1 old=26.115 new=14.728 us speedup=1.773x
+VARIANT T=2 LF=1 waves=8 q8=1 old=26.123 new=14.773 us speedup=1.768x
+VARIANT T=2 LF=0 waves=8 q8=0 old=26.118 new=14.643 us speedup=1.784x
+VARIANT T=2 LF=1 waves=8 q8=0 old=26.066 new=14.706 us speedup=1.772x
+VARIANT T=2 LF=0 waves=4 q8=1 old=26.433 new=15.062 us speedup=1.755x
+VARIANT T=2 LF=1 waves=4 q8=1 old=26.266 new=15.133 us speedup=1.736x
+VARIANT T=2 LF=0 waves=4 q8=0 old=25.940 new=14.968 us speedup=1.733x
+VARIANT T=2 LF=1 waves=4 q8=0 old=25.957 new=15.020 us speedup=1.728x
+VARIANT T=3 LF=0 waves=8 q8=1 old=25.483 new=15.673 us speedup=1.626x
+VARIANT T=3 LF=1 waves=8 q8=1 old=25.543 new=16.094 us speedup=1.587x
+VARIANT T=3 LF=0 waves=8 q8=0 old=25.334 new=16.159 us speedup=1.568x
+VARIANT T=3 LF=1 waves=8 q8=0 old=25.278 new=16.111 us speedup=1.569x
+VARIANT T=3 LF=0 waves=4 q8=1 old=26.033 new=17.393 us speedup=1.497x
+VARIANT T=3 LF=1 waves=4 q8=1 old=26.113 new=17.381 us speedup=1.502x
+VARIANT T=3 LF=0 waves=4 q8=0 old=26.021 new=17.163 us speedup=1.516x
+VARIANT T=3 LF=1 waves=4 q8=0 old=26.221 new=17.396 us speedup=1.507x
+VARIANT T=4 LF=0 waves=8 q8=1 old=26.778 new=15.993 us speedup=1.674x
+VARIANT T=4 LF=1 waves=8 q8=1 old=26.893 new=16.272 us speedup=1.653x
+VARIANT T=4 LF=0 waves=8 q8=0 old=26.405 new=16.759 us speedup=1.576x
+VARIANT T=4 LF=1 waves=8 q8=0 old=26.404 new=16.958 us speedup=1.557x
+VARIANT T=4 LF=0 waves=4 q8=1 old=27.738 new=20.925 us speedup=1.326x
+VARIANT T=4 LF=1 waves=4 q8=1 old=28.153 new=20.701 us speedup=1.360x
+VARIANT T=4 LF=0 waves=4 q8=0 old=27.424 new=20.414 us speedup=1.343x
+VARIANT T=4 LF=1 waves=4 q8=0 old=27.676 new=20.802 us speedup=1.330x
+HY T=1 missing=none old=6.975 new=6.113 us speedup=1.141x
+HY T=1 missing=half old=6.566 new=6.113 us speedup=1.074x
+HY T=1 missing=all old=5.648 new=5.656 us speedup=0.999x
+HY T=2 missing=none old=7.958 new=6.223 us speedup=1.279x
+HY T=2 missing=half old=7.992 new=6.488 us speedup=1.232x
+HY T=2 missing=all old=6.059 new=5.973 us speedup=1.015x
+HY T=3 missing=none old=9.098 new=6.487 us speedup=1.402x
+HY T=3 missing=half old=8.845 new=6.604 us speedup=1.339x
+HY T=3 missing=all old=6.298 new=6.089 us speedup=1.034x
+HY T=4 missing=none old=9.990 new=6.606 us speedup=1.512x
+HY T=4 missing=half old=9.484 new=6.606 us speedup=1.436x
+HY T=4 missing=all old=6.413 new=6.091 us speedup=1.053x

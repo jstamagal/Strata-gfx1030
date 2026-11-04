@@ -2,6 +2,7 @@
 // Each row keeps the original warp's accumulation and shuffle order.
 #pragma once
 namespace q36tp_router_pair {
+template <bool Mask = true>
 __global__ void __launch_bounds__(256) router_group(const float* W, const float* x, float* logits,
         int n_in, int n_out, int n_tok, int ld, int32_t* ids, float* weights,
         const uint8_t* blobs, unsigned long long blob, unsigned long long* grp_ptr,
@@ -43,7 +44,20 @@ __global__ void __launch_bounds__(256) router_group(const float* W, const float*
         if (last) atomicExch(done, 0u);
     }
     __syncthreads();
-    if (last) q36tp_fuse2::route_group_body<false>(logits, ids, weights, n_tok, ld, nullptr,
+    if (last) q36tp_fuse2::route_group_body<false, Mask>(logits, ids, weights, n_tok, ld, nullptr,
                                                    blobs, blob, grp_ptr, grp_start, n_groups, ent_dst, ent_tok);
+}
+inline void launch_router_group(const float* W, const float* x, float* logits,
+        int n_in, int n_out, int n_tok, int ld, int32_t* ids, float* weights,
+        const uint8_t* blobs, unsigned long long blob, unsigned long long* grp_ptr,
+        int32_t* grp_start, int32_t* n_groups, int32_t* ent_dst, int32_t* ent_tok,
+        unsigned* done, cudaStream_t stream, bool fast = true) {
+    auto launch = [&](auto mask) {
+        router_group<decltype(mask)::value><<<((n_out + 7) / 8) * ((n_tok + 1) / 2), 256, 0, stream>>>(
+            W, x, logits, n_in, n_out, n_tok, ld, ids, weights,
+            blobs, blob, grp_ptr, grp_start, n_groups, ent_dst, ent_tok, done);
+    };
+    if (fast) launch(std::true_type{});
+    else launch(std::false_type{});
 }
 } // namespace q36tp_router_pair

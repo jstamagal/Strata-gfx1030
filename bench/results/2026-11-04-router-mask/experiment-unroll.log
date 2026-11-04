@@ -1,0 +1,74 @@
+device 1: AMD Radeon Pro V620 gfx1030; N=3072 experts=256 K=8
+PASS 6656 cases: all output bytes, including sentinels and q8; counters reset
+BENCH T=1 old=21.940 new=21.368 mask_only=21.433 speedup=1.027x group_old=6.302 group_new=5.932 us
+TUNE T=1 variant=0 mode=8 us=11.951
+TUNE T=1 variant=0 mode=9 us=13.796
+TUNE T=1 variant=0 mode=12 us=13.726
+TUNE T=1 variant=0 mode=13 us=14.207
+TUNE T=1 variant=0 mode=14 us=13.739
+TUNE T=1 variant=0 mode=15 us=14.112
+TUNE T=1 variant=0 mode=16 us=17.729
+TUNE T=1 variant=0 mode=17 us=16.462
+TUNE T=1 variant=4 mode=8 us=12.466
+TUNE T=1 variant=4 mode=9 us=14.008
+TUNE T=1 variant=4 mode=12 us=14.242
+TUNE T=1 variant=4 mode=13 us=14.373
+TUNE T=1 variant=4 mode=14 us=14.365
+TUNE T=1 variant=4 mode=15 us=14.382
+TUNE T=1 variant=4 mode=16 us=18.857
+TUNE T=1 variant=4 mode=17 us=16.500
+BENCH T=2 old=21.871 new=26.278 mask_only=21.346 speedup=0.832x group_old=6.808 group_new=5.969 us
+TUNE T=2 variant=0 mode=8 us=14.578
+TUNE T=2 variant=0 mode=9 us=14.673
+TUNE T=2 variant=0 mode=12 us=14.217
+TUNE T=2 variant=0 mode=13 us=14.558
+TUNE T=2 variant=0 mode=14 us=14.703
+TUNE T=2 variant=0 mode=15 us=14.767
+TUNE T=2 variant=0 mode=16 us=20.067
+TUNE T=2 variant=0 mode=17 us=17.343
+TUNE T=2 variant=4 mode=8 us=14.833
+TUNE T=2 variant=4 mode=9 us=15.053
+TUNE T=2 variant=4 mode=12 us=14.745
+TUNE T=2 variant=4 mode=13 us=14.996
+TUNE T=2 variant=4 mode=14 us=15.455
+TUNE T=2 variant=4 mode=15 us=15.170
+TUNE T=2 variant=4 mode=16 us=19.882
+TUNE T=2 variant=4 mode=17 us=18.079
+BENCH T=3 old=25.323 new=30.587 mask_only=21.606 speedup=0.828x group_old=7.233 group_new=5.970 us
+TUNE T=3 variant=0 mode=8 us=16.674
+TUNE T=3 variant=0 mode=9 us=15.414
+TUNE T=3 variant=0 mode=12 us=15.650
+TUNE T=3 variant=0 mode=13 us=15.207
+TUNE T=3 variant=0 mode=14 us=16.788
+TUNE T=3 variant=0 mode=15 us=15.448
+TUNE T=3 variant=0 mode=16 us=20.014
+TUNE T=3 variant=0 mode=17 us=17.983
+TUNE T=3 variant=4 mode=8 us=19.528
+TUNE T=3 variant=4 mode=9 us=16.272
+TUNE T=3 variant=4 mode=12 us=17.701
+TUNE T=3 variant=4 mode=13 us=15.935
+TUNE T=3 variant=4 mode=14 us=20.095
+TUNE T=3 variant=4 mode=15 us=16.297
+TUNE T=3 variant=4 mode=16 us=19.009
+TUNE T=3 variant=4 mode=17 us=20.447
+BENCH T=4 old=27.727 new=36.052 mask_only=23.794 speedup=0.769x group_old=7.621 group_new=5.968 us
+TUNE T=4 variant=0 mode=8 us=19.397
+TUNE T=4 variant=0 mode=9 us=16.085
+TUNE T=4 variant=0 mode=12 us=16.508
+TUNE T=4 variant=0 mode=13 us=15.776
+TUNE T=4 variant=0 mode=14 us=19.834
+TUNE T=4 variant=0 mode=15 us=16.002
+TUNE T=4 variant=0 mode=16 us=19.948
+TUNE T=4 variant=0 mode=17 us=19.047
+TUNE T=4 variant=4 mode=8 us=19.822
+TUNE T=4 variant=4 mode=9 us=18.032
+TUNE T=4 variant=4 mode=12 us=20.763
+TUNE T=4 variant=4 mode=13 us=17.074
+TUNE T=4 variant=4 mode=14 us=20.372
+TUNE T=4 variant=4 mode=15 us=17.808
+TUNE T=4 variant=4 mode=16 us=19.383
+TUNE T=4 variant=4 mode=17 us=23.985
+BENCH T=5 old=30.291 new=32.230 mask_only=24.844 speedup=0.940x group_old=8.137 group_new=6.065 us
+BENCH T=6 old=31.802 new=34.794 mask_only=27.196 speedup=0.914x group_old=8.538 group_new=6.067 us
+BENCH T=7 old=33.457 new=36.397 mask_only=28.188 speedup=0.919x group_old=8.978 group_new=6.075 us
+BENCH T=8 old=33.731 new=36.628 mask_only=28.053 speedup=0.921x group_old=9.361 group_new=6.068 us
