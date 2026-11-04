@@ -836,3 +836,12 @@ guessed window's forced chain), agent x2 + edit x1, pipeline traces + DECODE_TIM
   is GPU-side waiting or poll cadence, not launch cost. Candidate road: start the guessed chain before the verdict
   (from the lookup or the previous chain's tail), or give the drafter its own CU partition so it does not queue
   behind stage 1.
+- **Draft vocabulary below 40K: dead** (mtpq agent offline study, commit 75555417d in its tree; exact Q6_K replay
+  matches the GPU's proxy+rescore top-1 on 99.8% of agent B steps, 100% of edit). Gated E[L] vs 40,525 rows at
+  p >= 0.4/0.5/0.7, held-out agent B: 16K -7.8/-8.0/-7.5%, 24K -6.3/-6.1/-5.9%, 32K -1.8/-1.7/-1.8%; edit: -23%,
+  -16%, -10% at 16/24/32K. Edits copy identifiers from the input (out-of-vocabulary 1.9% at 40K, 7.0% at 24K), so a
+  fixed cut loses there; draft context rows would cover them but switch the 2-bit proxy off. With CHN pricing per-step
+  savings at tenths of a percent, closed.
+- Offline gate curve for window 18 (live drafter, full vocab): gated E[L] agent B 3.570 / 3.421 / 2.956 at
+  p >= 0.4 / 0.5 / 0.7; edit 5.295 / 5.202 / 5.029. Longer accepted runs at a lower gate cost more verified rows
+  (0.9-1.4 ms/row); window 18's engine arms decide.
