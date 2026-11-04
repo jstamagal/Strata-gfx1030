@@ -1,0 +1,66 @@
+w_kvs_120k_0 run1 prompt 118329 2842.4 tok/s 41.63 s; gen 100 88.2 tok/s drafts 42 / 57
+2ae91bef44f0
+w_kvs_120k_0 run2 prompt 118329 2535.0 tok/s 46.68 s; gen 100 87.3 tok/s drafts 44 / 62
+fdeb914dced0
+w_kvs_120k_1 run1 prompt 118329 2718.2 tok/s 43.53 s; gen 100 100.9 tok/s drafts 44 / 55
+fe70364c78c5
+w_kvs_120k_1 run2 prompt 118329 2665.6 tok/s 44.39 s; gen 100 92.4 tok/s drafts 44 / 62
+fdeb914dced0
+w_kvs_120k_1b run1 prompt 118329 2712.1 tok/s 43.63 s; gen 100 101.0 tok/s drafts 44 / 55
+fe70364c78c5
+w_kvs_120k_1b run2 prompt 118329 2634.1 tok/s 44.92 s; gen 100 92.4 tok/s drafts 44 / 62
+fdeb914dced0
+w_kvs_120k_0b run1 prompt 118329 2833.3 tok/s 41.76 s; gen 100 88.1 tok/s drafts 42 / 57
+2ae91bef44f0
+w_kvs_120k_0b run2 prompt 118329 2730.3 tok/s 43.34 s; gen 100 88.0 tok/s drafts 44 / 62
+fdeb914dced0
+w_kvs_agent_0 code_async_batcher              1200 tok  121.6 tok/s drafts 613/792 3504ca64e98e
+w_kvs_agent_0 code_rust_committed_ring        1200 tok  139.5 tok/s drafts 661/791 1bd3abc2fd03
+w_kvs_agent_0 code_typescript_tool_dispatch   1200 tok  151.3 tok/s drafts 693/816 60c3a0e22aca
+w_kvs_agent_0 json_multi_tool_result_merge    1200 tok  140.9 tok/s drafts 655/755 889ee28bebc7
+w_kvs_agent_0 json_parallel_tool_plan         1200 tok  175.0 tok/s drafts 740/799 77727b0b0c45
+w_kvs_agent_0 json_patch_tool_payload         1200 tok  126.4 tok/s drafts 609/747 62b89ab84b34
+w_kvs_agent_0 TOTAL 7200 tok 140.4 tok/s
+w_kvs_agent_1 code_async_batcher              1200 tok  129.9 tok/s drafts 616/796 7647be1f36bf
+w_kvs_agent_1 code_rust_committed_ring        1200 tok  151.8 tok/s drafts 682/797 3677c43d7d27
+w_kvs_agent_1 code_typescript_tool_dispatch   1200 tok  157.9 tok/s drafts 696/831 f51ad60baaa2
+w_kvs_agent_1 json_multi_tool_result_merge    1200 tok  150.4 tok/s drafts 685/780 ac71e4d17450
+w_kvs_agent_1 json_parallel_tool_plan         1200 tok  186.5 tok/s drafts 742/791 a6925d4108b1
+w_kvs_agent_1 json_patch_tool_payload         1200 tok  131.0 tok/s drafts 609/765 62b89ab84b34
+w_kvs_agent_1 TOTAL 7200 tok 149.0 tok/s
+== w_kvs_120k_0 cache/staging lines
+strata: gfx103x (RDNA2): 5 speed switches on by default, proven and experimental (STRATA_GFX103X_DEFAULTS=0 turns all off, STRATA_GFX103X_EXPERIMENTAL=0 the experimental ones: PROMPT_F16 PA_DOT4 EXPERT_DOWN_L KV_PREFETCH SPLIT_MTP_BATCH TOPK_STREAM TOPK_AUTO KV_PF_RESIDENT MMVQ_ROW MMVQ_SET NORM_ROPE; a switch you set is kept): MMQ_KQ QUANT_GATHER MMVQ_ROW MMVQ_SET NORM_ROPE
+strata generate: profile /home/ronald_rump/Strata_donttouch/data/expert-profile.bin: 24576 ranked pairs, built for 24576 slots
+strata generate: --pipeline-windows 2: 278 MiB of CUDA0 kept out of the expert cache (the second verifier, the GDN snapshots)
+strata generate: expert cache auto: 27.49 GiB free, 700 MiB reserved (+0 MiB for the draft head, +256 MiB for what is allocated after the cache) -> 9465 slots
+strata generate: expert cache 12800 slots, 23.08 GiB of VRAM; policy is
+strata generate: pre-filled 12800 of 12800 slots from the profile in 2.5 s (10046 MB/s); slot 0 verified
+strata generate: layer split: CUDA1 runs layers 25-47, expert cache 11741 slots (23.68 GiB), 11741 of its 11776 profiled pairs; slot 0 verified
+strata serve: layer split: 100% of the experts resident, the prompt path's streamed ring 96 slots
+== w_kvs_120k_1 cache/staging lines
+strata: gfx103x (RDNA2): 5 speed switches on by default, proven and experimental (STRATA_GFX103X_DEFAULTS=0 turns all off, STRATA_GFX103X_EXPERIMENTAL=0 the experimental ones: PROMPT_F16 PA_DOT4 EXPERT_DOWN_L KV_PREFETCH SPLIT_MTP_BATCH TOPK_STREAM TOPK_AUTO KV_PF_RESIDENT MMVQ_ROW MMVQ_SET NORM_ROPE; a switch you set is kept): MMQ_KQ QUANT_GATHER MMVQ_ROW MMVQ_SET NORM_ROPE
+strata generate: profile /home/ronald_rump/Strata_donttouch/data/expert-profile.bin: 24576 ranked pairs, built for 24576 slots
+strata generate: --pipeline-windows 2: 278 MiB of CUDA0 kept out of the expert cache (the second verifier, the GDN snapshots)
+strata generate: STRATA_KV_PF_SLOTS: the prompt path's own buffers for a 4096-token chunk: 1992 MiB (the 0.1.39 rule: 2880 MiB)
+strata generate: expert cache auto: 27.49 GiB free, 700 MiB reserved (+0 MiB for the draft head, +256 MiB for what is allocated after the cache) -> 9790 slots
+strata generate: expert cache 12800 slots, 23.08 GiB of VRAM; policy is
+strata generate: pre-filled 12800 of 12800 slots from the profile in 2.5 s (10112 MB/s); slot 0 verified
+strata generate: STRATA_KV_PF_SLOTS: CUDA1 owned prompt reserve 3124 -> 2118 MiB (actual buffers + 62 MiB side stream + 64 MiB margin)
+== w_kvs_agent_0 cache/staging lines
+strata: gfx103x (RDNA2): 5 speed switches on by default, proven and experimental (STRATA_GFX103X_DEFAULTS=0 turns all off, STRATA_GFX103X_EXPERIMENTAL=0 the experimental ones: PROMPT_F16 PA_DOT4 EXPERT_DOWN_L KV_PREFETCH SPLIT_MTP_BATCH TOPK_STREAM TOPK_AUTO KV_PF_RESIDENT MMVQ_ROW MMVQ_SET NORM_ROPE; a switch you set is kept): MMQ_KQ QUANT_GATHER MMVQ_ROW MMVQ_SET NORM_ROPE
+strata generate: profile /home/ronald_rump/Strata_donttouch/data/expert-profile.bin: 24576 ranked pairs, built for 24576 slots
+strata generate: --pipeline-windows 2: 278 MiB of CUDA0 kept out of the expert cache (the second verifier, the GDN snapshots)
+strata generate: expert cache auto: 27.49 GiB free, 700 MiB reserved (+0 MiB for the draft head, +256 MiB for what is allocated after the cache) -> 9465 slots
+strata generate: expert cache 12800 slots, 23.08 GiB of VRAM; policy is
+strata generate: pre-filled 12800 of 12800 slots from the profile in 2.5 s (10054 MB/s); slot 0 verified
+strata generate: layer split: CUDA1 runs layers 25-47, expert cache 11741 slots (23.68 GiB), 11741 of its 11776 profiled pairs; slot 0 verified
+strata serve: layer split: 100% of the experts resident, the prompt path's streamed ring 96 slots
+== w_kvs_agent_1 cache/staging lines
+strata: gfx103x (RDNA2): 5 speed switches on by default, proven and experimental (STRATA_GFX103X_DEFAULTS=0 turns all off, STRATA_GFX103X_EXPERIMENTAL=0 the experimental ones: PROMPT_F16 PA_DOT4 EXPERT_DOWN_L KV_PREFETCH SPLIT_MTP_BATCH TOPK_STREAM TOPK_AUTO KV_PF_RESIDENT MMVQ_ROW MMVQ_SET NORM_ROPE; a switch you set is kept): MMQ_KQ QUANT_GATHER MMVQ_ROW MMVQ_SET NORM_ROPE
+strata generate: profile /home/ronald_rump/Strata_donttouch/data/expert-profile.bin: 24576 ranked pairs, built for 24576 slots
+strata generate: --pipeline-windows 2: 278 MiB of CUDA0 kept out of the expert cache (the second verifier, the GDN snapshots)
+strata generate: STRATA_KV_PF_SLOTS: the prompt path's own buffers for a 4096-token chunk: 1992 MiB (the 0.1.39 rule: 2880 MiB)
+strata generate: expert cache auto: 27.49 GiB free, 700 MiB reserved (+0 MiB for the draft head, +256 MiB for what is allocated after the cache) -> 9790 slots
+strata generate: expert cache 12800 slots, 23.08 GiB of VRAM; policy is
+strata generate: pre-filled 12800 of 12800 slots from the profile in 2.5 s (10096 MB/s); slot 0 verified
+strata generate: STRATA_KV_PF_SLOTS: CUDA1 owned prompt reserve 3124 -> 2118 MiB (actual buffers + 62 MiB side stream + 64 MiB margin)

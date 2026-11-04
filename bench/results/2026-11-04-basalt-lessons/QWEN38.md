@@ -355,3 +355,27 @@ the wrong bonus token at the reject changes the text. The agent arms also change
 but they are not an equal-geometry pair: the long arm carries S16 and the larger verify reserve, which changes cache
 placement, and no agent arm ran with gate off. So that text change may be placement, not a bug. Not adopted; back to
 the building agent for a fix.
+
+## OS window 2 and the KV_PF_SLOTS insert, IQ3_S
+
+Raw: `qwen38-windowOS2/` (batchOS2.out, batch36.out).
+
+| change | agent tok/s | 36K prompt tok/s | verdict |
+|---|---|---|---|
+| baseline | 140.4 | 2709.5 | |
+| ASPM off on card 1's route (root port, switch, GPU) | 140.4 | 2715.2 | kept by ruling (neutral); boot unit gpu-pcie-tune.service |
+| HSA_ENABLE_INTERRUPT=0 (polling completion) | 140.7 | 2708.4 | neutral, not adopted |
+| HSA_ENABLE_MWAITX=0 | 140.5 | 2713.0 | neutral, not adopted |
+
+**STRATA_KV_PF_SLOTS=1** (bounded prompt-KV staging) cuts card 1's owned prompt reserve from 3124 to 2118 MiB. That
+lets card 1 cache all 11776 of its experts (11741 before), so both stages get the zero-doorbell verify graph (4 of 4
+vs 2 of 4):
+
+| | slots 0 | slots 1 |
+|---|---|---|
+| agent tok/s (6 cases, every case faster) | 140.4 | **149.0 (+6.1%)** |
+| gen after a 120K prompt | 87.3-88.2 | 92.4-101.0 |
+| 120K prompt (ABBA, 4 runs each) | 2535-2842, median 2781 | 2634-2718, median 2689 (-3%) |
+
+Agent text changes on 5 of 6 cases (35 experts move from CPU to GPU). A confirmation round (36K prompt, agent in
+reverse order, and --kv-resident 61440 as an alternative route to full residency) is queued before adoption.

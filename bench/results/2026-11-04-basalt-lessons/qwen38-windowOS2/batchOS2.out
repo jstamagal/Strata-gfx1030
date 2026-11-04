@@ -1,0 +1,69 @@
+== state before
+card0 cap=260W mclk=[0: 96Mhz  1: 456Mhz  2: 673Mhz  3: 1000Mhz  ] od_mclk=1:1075MHz sclk_od=1:2650Mhz
+card1 cap=260W mclk=[0: 96Mhz  1: 456Mhz  2: 673Mhz  3: 1000Mhz  ] od_mclk=1:1075MHz sclk_od=1:2650Mhz
+03:00.0 DevCtl=5930
+07:00.0 DevCtl=5930
+00:01.3 ASPM L1 Enabled; 05:00.0 ASPM L1 Enabled; 06:00.0 ASPM L1 Enabled; 07:00.0 ASPM L1 Enabled; 
+irq193->5 irq194->6 preempt=(full) lazy 
+w_os2_0_prompt run1 prompt 36411 2699.4 tok/s 13.49 s; gen 32 77.3 tok/s drafts 7 / 14
+f3cb2784992a
+w_os2_0_prompt run2 prompt 36411 2719.6 tok/s 13.39 s; gen 32 83.4 tok/s drafts 10 / 18
+be358117f543
+w_os2_0_agent code_async_batcher              1200 tok  121.5 tok/s drafts 613/792 3504ca64e98e
+w_os2_0_agent code_rust_committed_ring        1200 tok  139.5 tok/s drafts 661/791 1bd3abc2fd03
+w_os2_0_agent code_typescript_tool_dispatch   1200 tok  151.3 tok/s drafts 693/816 60c3a0e22aca
+w_os2_0_agent json_multi_tool_result_merge    1200 tok  140.9 tok/s drafts 655/755 889ee28bebc7
+w_os2_0_agent json_parallel_tool_plan         1200 tok  174.9 tok/s drafts 740/799 77727b0b0c45
+w_os2_0_agent json_patch_tool_payload         1200 tok  126.3 tok/s drafts 609/747 62b89ab84b34
+w_os2_0_agent TOTAL 7200 tok 140.4 tok/s
+baseline agent 140.4 prompt 2709.5
+== state after aspm apply (permanent)
+card0 cap=260W mclk=[0: 96Mhz  1: 456Mhz  2: 673Mhz  3: 1000Mhz  ] od_mclk=1:1075MHz sclk_od=1:2650Mhz
+card1 cap=260W mclk=[0: 96Mhz  1: 456Mhz  2: 673Mhz  3: 1000Mhz  ] od_mclk=1:1075MHz sclk_od=1:2650Mhz
+03:00.0 DevCtl=5930
+07:00.0 DevCtl=5930
+00:01.3 ASPM Disabled; 05:00.0 ASPM Disabled; 06:00.0 ASPM Disabled; 07:00.0 ASPM Disabled; 
+irq193->5 irq194->6 preempt=(full) lazy 
+w_os2_aspm_prompt run1 prompt 36411 2707.7 tok/s 13.45 s; gen 32 78.8 tok/s drafts 7 / 14
+f3cb2784992a
+w_os2_aspm_prompt run2 prompt 36411 2722.7 tok/s 13.37 s; gen 32 83.3 tok/s drafts 10 / 18
+be358117f543
+w_os2_aspm_agent code_async_batcher              1200 tok  121.6 tok/s drafts 613/792 3504ca64e98e
+w_os2_aspm_agent code_rust_committed_ring        1200 tok  139.4 tok/s drafts 661/791 1bd3abc2fd03
+w_os2_aspm_agent code_typescript_tool_dispatch   1200 tok  151.3 tok/s drafts 693/816 60c3a0e22aca
+w_os2_aspm_agent json_multi_tool_result_merge    1200 tok  140.8 tok/s drafts 655/755 889ee28bebc7
+w_os2_aspm_agent json_parallel_tool_plan         1200 tok  174.9 tok/s drafts 740/799 77727b0b0c45
+w_os2_aspm_agent json_patch_tool_payload         1200 tok  126.4 tok/s drafts 609/747 62b89ab84b34
+w_os2_aspm_agent TOTAL 7200 tok 140.4 tok/s
+ASPM-OFF (kept by ruling): agent 140.4 prompt 2715.2 (baseline 140.4 / 2709.5)
+w_os2_poll_prompt run1 prompt 36411 2699.3 tok/s 13.49 s; gen 32 77.1 tok/s drafts 7 / 14
+f3cb2784992a
+w_os2_poll_prompt run2 prompt 36411 2717.5 tok/s 13.4 s; gen 32 83.2 tok/s drafts 10 / 18
+be358117f543
+w_os2_poll_agent code_async_batcher              1200 tok  121.7 tok/s drafts 613/792 3504ca64e98e
+w_os2_poll_agent code_rust_committed_ring        1200 tok  139.6 tok/s drafts 661/791 1bd3abc2fd03
+w_os2_poll_agent code_typescript_tool_dispatch   1200 tok  151.4 tok/s drafts 693/816 60c3a0e22aca
+w_os2_poll_agent json_multi_tool_result_merge    1200 tok  141.0 tok/s drafts 655/755 889ee28bebc7
+w_os2_poll_agent json_parallel_tool_plan         1200 tok  176.4 tok/s drafts 741/798 a6925d4108b1
+w_os2_poll_agent json_patch_tool_payload         1200 tok  126.4 tok/s drafts 609/747 62b89ab84b34
+w_os2_poll_agent TOTAL 7200 tok 140.7 tok/s
+ENV poll: agent 140.7 prompt 2708.4 (best 140.4 / 2715.2)
+w_os2_nomwaitx_prompt run1 prompt 36411 2707.1 tok/s 13.45 s; gen 32 77.3 tok/s drafts 7 / 14
+f3cb2784992a
+w_os2_nomwaitx_prompt run2 prompt 36411 2718.9 tok/s 13.39 s; gen 32 83.5 tok/s drafts 10 / 18
+be358117f543
+w_os2_nomwaitx_agent code_async_batcher              1200 tok  121.8 tok/s drafts 613/792 3504ca64e98e
+w_os2_nomwaitx_agent code_rust_committed_ring        1200 tok  139.5 tok/s drafts 661/791 1bd3abc2fd03
+w_os2_nomwaitx_agent code_typescript_tool_dispatch   1200 tok  151.3 tok/s drafts 693/816 60c3a0e22aca
+w_os2_nomwaitx_agent json_multi_tool_result_merge    1200 tok  140.9 tok/s drafts 655/755 889ee28bebc7
+w_os2_nomwaitx_agent json_parallel_tool_plan         1200 tok  175.1 tok/s drafts 740/799 77727b0b0c45
+w_os2_nomwaitx_agent json_patch_tool_payload         1200 tok  126.4 tok/s drafts 609/747 62b89ab84b34
+w_os2_nomwaitx_agent TOTAL 7200 tok 140.5 tok/s
+ENV mwaitx-off: agent 140.5 prompt 2713.0 (best 140.4 / 2715.2)
+== final state
+card0 cap=260W mclk=[0: 96Mhz  1: 456Mhz  2: 673Mhz  3: 1000Mhz  ] od_mclk=1:1075MHz sclk_od=1:2650Mhz
+card1 cap=260W mclk=[0: 96Mhz  1: 456Mhz  2: 673Mhz  3: 1000Mhz  ] od_mclk=1:1075MHz sclk_od=1:2650Mhz
+03:00.0 DevCtl=5930
+07:00.0 DevCtl=5930
+00:01.3 ASPM Disabled; 05:00.0 ASPM Disabled; 06:00.0 ASPM Disabled; 07:00.0 ASPM Disabled; 
+irq193->5 irq194->6 preempt=(full) lazy 
