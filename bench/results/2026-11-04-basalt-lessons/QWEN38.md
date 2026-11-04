@@ -812,3 +812,27 @@ full-A rollback GDN skip; HANDOFF_PIPE is the cheapest new prompt probe. Taken a
   arms never set it.
 - Main-model head on card 1, isolated (kahuzi; mtpq bench `basalt-head/q6-final.log`): Q6_K 248320x2560 (521 MB),
   HEAD_WIDE T=1 1.007 ms (518 GB/s), T=8 1.31 ms. Scale only; it cannot be subtracted from overlapped stage intervals.
+
+## Window CHN: shorter forced chains for the guessed window (17:25)
+
+Raw: `strata-ab/windowchn.out`, arms `wch_*`. Main build-hip, live IQ3_S config, `STRATA_PL_GUESS_T` (clamps the
+guessed window's forced chain), agent x2 + edit x1, pipeline traces + DECODE_TIMING. Text matches live in every arm.
+
+| arm | agent p1 / p2 tok/s | stage-0 idle | chain wait | speculative window | edit tok/s |
+|---|---|---|---|---|---|
+| live | 148.8 / 147.2 | 18.4-19.2% | 10.2-10.3% | 11.5-12.5 ms, 2.1-2.75 tok | 368.1 |
+| GUESS_T=2 | 140.9 / 137.6 (-5 to -7%) | 14.3-15.4% | 8.4-9.6% | 10.4-12.8 ms, 1.7-3.1 tok | 357.8 |
+| GUESS_T=1 | 115.2 / 109.6 (-23 to -26%) | 9.3-9.7% | 7.6-7.9% | 8.9 ms, 1.0 tok | 367.2 |
+
+- **Dead as a knob.** Shorter guessed windows cut stage-0 idle but lose far more tokens per ms (a 1-row window still
+  costs ~8.9 ms: the ~8 ms fixed stage cost).
+- **The chain wait is mostly fixed latency, not drafter steps.** With a 1-step forced chain, 99% of speculative
+  windows are still "chain late" and chain wait is still 7.6-7.9% of agent decode (vs 10.3% live). About 3/4 of the
+  wait does not scale with chain length. Per-step drafter savings (draft vocab, Q8_0 mixers, S2Q4D) can reach only
+  the ~1/4 that does: a few tenths of a percent each, not the 10%.
+- Inference, to check in source next: the fixed part is the path from the verdict to the guessed chain's outputs
+  reaching stage 0 (host poll of the verdict, chain launch on card 1 behind stage 1's verify kernels on the same
+  card, host poll of the outputs, stage-0 launch). The pipeline log reports 0.005 ms host time per chain launch, so it
+  is GPU-side waiting or poll cadence, not launch cost. Candidate road: start the guessed chain before the verdict
+  (from the lookup or the previous chain's tail), or give the drafter its own CU partition so it does not queue
+  behind stage 1.
