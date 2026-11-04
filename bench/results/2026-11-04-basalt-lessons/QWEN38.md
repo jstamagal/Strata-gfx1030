@@ -723,3 +723,11 @@ Per-chunk GPU timeline (4096 tokens, steady chunks, ~1250 ms; wall 1266-1297 ms)
 - **Window ZB** tests SWIGLU_QUANT (the gate/up path) and COMBINE_WRITE (combine / hc write).
 - **Candidates by size:** the gate/up GEMM (21%), GDN prompt recurrence + gdn (19%), QSA attention (13%), the HC
   reads (10%).
+
+**Correction (17:00): the GDN rollback-snapshot candidate is DEAD for the live engine.** ziz's snapshot writes
+(`gdn_core.cuh`, "~5-8%" in the swarm intake above) are in `src/split/`, the opt-in strata-split engine
+(`STRATA_BUILD_SPLIT`, OFF, not in build-hip). The coordinator endorsed it without checking which binary the file
+belongs to. The live verify path already replays kept rows from stored per-row inputs (`gdn_commit_layers`).
+
+The live-path remainder is PlSnap: card 0's GDN state is copied D2D once per speculative window on a side stream,
+and restored on doomed windows. Removing it with ping-pong parity is a medium build, low rank (tuck, run 2).

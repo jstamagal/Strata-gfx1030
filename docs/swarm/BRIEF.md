@@ -181,11 +181,12 @@ Other packs, at their best configs:
     memory?).
   - The verify handshake lives in `src/core/verify.cpp`: mapped(), raise_flag, publish_plan, release_gpu_waits, the
     #649 switches, Verifier::diag and its GPU breadcrumbs. Window COH tests the #649 switches.
-- **GDN rollback snapshots** (planned by the coordinator: microbench first).
-  - Every multi-row verify window writes fp32 state [48][128][128] = 3.15 MB per GDN layer (36 of 48 layers) for
-    each row but the last: ~340 MB for a 4-row window, ~790 MB for an 8-row window (`src/split/src/gdn_core.cuh`).
-  - Estimated cost (inference): ~5-8% of decode.
-  - The exact-text fix: store the per-row GDN inputs and recompute on partial accept.
+- **GDN rollback snapshots: DEAD for the live engine (corrected 17:00).** The per-row fp32 snapshot writes are in
+  `src/split/src/gdn_core.cuh`, i.e. the opt-in strata-split engine (`STRATA_BUILD_SPLIT`, OFF by default, not in
+  build-hip). The live verify path already replays the kept rows from stored per-row inputs
+  (`gdn_commit_layers`, verify.cpp). What remains on the live path is PlSnap: card 0's whole GDN state copied
+  device-to-device once per speculative window on a side stream (tuck: replace it with ping-pong parity, a
+  medium build, low rank).
 - **Leaf fork** (candidate, not started): where the min-p gate would stop the chain, verify top-1 and top-2 as two
   candidates for the last row. One-level GDN fork plus a QSA mask change.
 - **Config audit** (`~/inbox/agents/claude/config-audit/AUDIT.md`): windows 16-28 are queued.
