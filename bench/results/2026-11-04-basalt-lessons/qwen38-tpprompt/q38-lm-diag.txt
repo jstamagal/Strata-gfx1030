@@ -1,0 +1,41 @@
+difference GPU0 word 0: host -9.36151981, resident -nan
+difference GPU0 word 1: host -8.97283936, resident -nan
+difference GPU0 word 2: host -8.58415413, resident -nan
+difference GPU0 word 3: host -8.19546223, resident -nan
+GPU0 rows=4096 generation=0 layers=24: host 581.268 ms, resident 28.679 ms, host traffic 8053.1 MB, resident input 167.8 MB, 22464 differing words: FAIL
+difference GPU0 word 0: host -8.83027077, resident -nan
+difference GPU0 word 1: host -8.4415884, resident -nan
+difference GPU0 word 2: host -8.05290508, resident -nan
+difference GPU0 word 3: host -7.66421223, resident -nan
+GPU0 rows=4353 generation=1 layers=24: host 615.860 ms, resident 30.605 ms, host traffic 8558.3 MB, resident input 178.3 MB, 4864 differing words: FAIL
+difference GPU0 word 0: host -8.29902172, resident -nan
+difference GPU0 word 1: host -7.91033792, resident -nan
+difference GPU0 word 2: host -7.52165461, resident -nan
+difference GPU0 word 3: host -7.1329627, resident -nan
+GPU0 rows=2048 generation=2 layers=24: host 288.552 ms, resident 10.351 ms, host traffic 4026.5 MB, resident input 83.9 MB, 21760 differing words: FAIL
+difference GPU0 word 0: host -7.76777267, resident -nan
+difference GPU0 word 1: host -7.37908745, resident -nan
+difference GPU0 word 2: host -6.99040413, resident -nan
+difference GPU0 word 3: host -6.60171366, resident -nan
+GPU0 rows=17 generation=3 layers=24: host 3.484 ms, resident 0.274 ms, host traffic 33.4 MB, resident input 0.7 MB, 19808 differing words: FAIL
+difference GPU1 word 0: host -9.36151981, resident -nan
+difference GPU1 word 1: host -8.97283936, resident -nan
+difference GPU1 word 2: host -8.58415413, resident -nan
+difference GPU1 word 3: host -8.19546223, resident -nan
+GPU1 rows=4096 generation=0 layers=24: host 1151.161 ms, resident 40.940 ms, host traffic 8053.1 MB, resident input 167.8 MB, 16640 differing words: FAIL
+difference GPU1 word 0: host -8.83027077, resident -nan
+difference GPU1 word 1: host -8.4415884, resident -nan
+difference GPU1 word 2: host -8.05290508, resident -nan
+difference GPU1 word 3: host -7.66421223, resident -nan
+GPU1 rows=4353 generation=1 layers=24: host 1222.548 ms, resident 43.504 ms, host traffic 8558.3 MB, resident input 178.3 MB, 16992 differing words: FAIL
+difference GPU1 word 0: host -8.29902172, resident -nan
+difference GPU1 word 1: host -7.91033792, resident -nan
+difference GPU1 word 2: host -7.52165461, resident -nan
+difference GPU1 word 3: host -7.1329627, resident -nan
+GPU1 rows=2048 generation=2 layers=24: host 574.359 ms, resident 16.302 ms, host traffic 4026.5 MB, resident input 83.9 MB, 16320 differing words: FAIL
+difference GPU1 word 0: host -7.76777267, resident -nan
+difference GPU1 word 1: host -7.37908745, resident -nan
+difference GPU1 word 2: host -6.99040413, resident -nan
+difference GPU1 word 3: host -6.60171366, resident -nan
+GPU1 rows=17 generation=3 layers=24: host 6.054 ms, resident 0.313 ms, host traffic 33.4 MB, resident input 0.7 MB, 14976 differing words: FAIL
+FAIL
