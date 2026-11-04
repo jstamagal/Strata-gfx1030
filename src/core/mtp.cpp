@@ -599,6 +599,15 @@ bool MtpDrafter::load(const std::string& rt_dir, const ModelGeometry& g, Session
         }
     }
 #endif
+#if defined(STRATA_USE_HIP)
+    if (const char* e = std::getenv("STRATA_MTP_KV_SIDE"); e && std::atoi(e) != 0) {
+        if ((side_ == nullptr && cudaStreamCreateWithFlags(&side_, cudaStreamNonBlocking) != cudaSuccess) ||
+            cudaEventCreateWithFlags(&sh_fork_, cudaEventDisableTiming) != cudaSuccess ||
+            cudaEventCreateWithFlags(&sh_join_, cudaEventDisableTiming) != cudaSuccess) {
+            err = "mtp: K/V append side stream failed"; return false;
+        }
+    }
+#endif
     const double files_s = std::chrono::duration<double>(std::chrono::steady_clock::now() - t_files).count();
     if (shared != nullptr) {
         std::fprintf(stderr, "strata mtp: shared draft weights, %.0f MiB of private state and buffers\n",
@@ -1274,24 +1283,33 @@ bool MtpDrafter::record_front(int T, int row0, cudaStream_t cs, std::string& err
             fwht256_inplace_cuda(kcur_, (int64_t) T * NKV, cs);
             fwht256_inplace_cuda(vcur_, (int64_t) T * NKV, cs);
         }
-        // stored in the state's own format (#293 appended rotated INT8 K/V as Q4_0, into pools INT8 never has)
+        cudaStream_t append_cs = cs;
+        if (kv_defer_ && side_ && sh_fork_ && sh_join_) {
+            if (cudaEventRecord(sh_fork_, cs) != cudaSuccess || cudaStreamWaitEvent(side_, sh_fork_, 0) != cudaSuccess) {
+                err = "mtp: K/V append fork failed"; return false;
+            }
+            append_cs = side_;
+            kv_open_ = true;
+        }
+        // stored in the state's own format
         if (!no_batch_kv && st_.kv_q4)
-            kv_append_q4_steps(st_.k_q4, st_.v_q4, st_.page_table, step, 4, T, kcur_, vcur_, s, cs, &st_.host);
+            kv_append_q4_steps(st_.k_q4, st_.v_q4, st_.page_table, step, 4, T, kcur_, vcur_, s, append_cs, &st_.host);
         else if (!no_batch_kv && st_.kv_int8)
             kv_append_q8_steps(st_.k_q, st_.v_q, st_.k_scale, st_.v_scale, st_.page_table, step, 4, kcur_, vcur_,
-                               (int) (NKV * HD), T, s, cs, &st_.host);
+                               (int) (NKV * HD), T, s, append_cs, &st_.host);
         else
             for (int t = 0; t < T; ++t) {
                 if (st_.kv_q4)
                     kv_append_q4_step(st_.k_q4, st_.v_q4, st_.page_table, step + t * 4, kcur_ + t * NKV * HD,
-                                      vcur_ + t * NKV * HD, s, cs, &st_.host);
+                                      vcur_ + t * NKV * HD, s, append_cs, &st_.host);
                 else if (st_.kv_int8)
                     kv_append_q8_step(st_.k_q, st_.v_q, st_.k_scale, st_.v_scale, st_.page_table, step + t * 4,
-                                      kcur_ + t * NKV * HD, vcur_ + t * NKV * HD, s, cs, &st_.host);
+                                      kcur_ + t * NKV * HD, vcur_ + t * NKV * HD, s, append_cs, &st_.host);
                 else
                     kv_append_step(st_.k_pool, st_.v_pool, st_.page_table, step + t * 4, kcur_ + t * NKV * HD,
-                                   vcur_ + t * NKV * HD, s, cs, &st_.host);
+                                   vcur_ + t * NKV * HD, s, append_cs, &st_.host);
             }
+        if (kv_open_ && cudaEventRecord(sh_join_, append_cs) != cudaSuccess) { err = "mtp: K/V append event failed"; return false; }
         g_mp.stamp(4, cs);
     } catch (const std::exception& e) {
         err = std::string("mtp: ") + e.what();
@@ -1350,6 +1368,10 @@ bool MtpDrafter::record_rest(int step_row, cudaStream_t cs, std::string& err, bo
         if (floor_on_ && m_floor_ != nullptr)   // KVA: the window (or every cell) from the first real draft cell on
             window_ids_floor(const_cast<int32_t*>(step), T, window_ > 0 ? (int) window_ : 0x7fffffff, ident_, cap_, m_floor_, cs);
         else if (window_ > 0) window_ids(const_cast<int32_t*>(step), T, (int) window_, ident_, cap_, cs);
+        if (kv_open_) {
+            if (cudaStreamWaitEvent(cs, sh_join_, 0) != cudaSuccess) { err = "mtp: K/V append join failed"; return false; }
+            kv_open_ = false;
+        }
         // STRATA_QSA_SPLIT_ATTN=1: the draft layer's attention over its window, split the same way
         static const bool split_attn = [] { const char* v = std::getenv("STRATA_QSA_SPLIT_ATTN"); return v != nullptr && std::atoi(v) != 0; }();
         if (!(split_attn && qsa_decode_attn_split(qcur_, pools, ident_, step, cap_, s, attn_scratch_, (uint64_t) attn_scratch_floats_, attn_, T, cs)))
@@ -1664,7 +1686,10 @@ bool MtpDrafter::capture_round(int T, bool coupled, std::string& err) {
                               {pos_ + ra * NH, m_pos_ + ra * NH, NH}};
     copy_from_mapped_multi(in, 7, cs_);
 #endif
+    static const bool kv_side = [] { const char* e = std::getenv("STRATA_MTP_KV_SIDE"); return e && std::atoi(e) != 0; }();
+    kv_defer_ = kv_side && !g_mp.on;
     ok = record_front(T, 0, cs_, err, fuse_ && T == 1);
+    kv_defer_ = false;
     if (ok) {
         if (T > 1) {
             copy_row_to_first(row_, R_, HCN, inj_, g_->hc, mixed_, N, cs_);

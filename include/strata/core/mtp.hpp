@@ -319,6 +319,7 @@ private:
     int64_t pf_cap_ = 0;          ///< its capacity in ints
     cudaStream_t side_ = nullptr;                    // the shared expert's branch of the draft graphs (CUDA)
     cudaEvent_t sh_fork_ = nullptr, sh_join_ = nullptr;
+    bool kv_defer_ = false, kv_open_ = false;
     cudaGraphExec_t round_exec_[strata::kernels::kVerifyLongT + 1] = {};
 
     struct Tensor { std::string name, kind; int64_t rows = 0, cols = 0; uint64_t off = 0, bytes = 0; };
