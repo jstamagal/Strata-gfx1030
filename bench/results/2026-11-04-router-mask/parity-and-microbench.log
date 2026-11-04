@@ -1,0 +1,13 @@
+device 1: AMD Radeon Pro V620 gfx1030; N=3072 experts=256 K=8 verify_max=16
+PASS 127552 cases: memcmp of logits, ids, weights, q8 and every grouping byte/sentinel; counter=0
+T=1..16; 4/8 waves; both fences and q8 modes; HY holes/empty maps; eager and graph replay.
+Past the original token/wave limit, the frozen reference only extends storage and loops token waves.
+BENCH median of 31 interleaved/reversed graph replays; 48 rotating matrices, 144.6 MiB
+BENCH T=1 old=26.228 new=13.100 mask_only=25.128 unroll_only=14.610 split=14.753 projection=8.658 group_old=6.301 group_new=5.893 us speedup=2.002x
+BENCH T=2 old=25.849 new=15.414 mask_only=25.283 unroll_only=16.550 split=15.880 projection=9.352 group_old=6.809 group_new=5.894 us speedup=1.677x
+BENCH T=3 old=25.872 new=16.248 mask_only=25.038 unroll_only=21.104 split=16.006 projection=10.038 group_old=7.231 group_new=5.921 us speedup=1.592x
+BENCH T=4 old=26.913 new=17.102 mask_only=25.443 unroll_only=22.508 split=17.118 projection=10.518 group_old=7.624 group_new=5.924 us speedup=1.574x
+BENCH T=5 old=29.882 new=21.140 mask_only=25.788 unroll_only=27.705 split=17.774 projection=11.485 group_old=8.143 group_new=6.008 us speedup=1.414x
+BENCH T=6 old=31.850 new=23.019 mask_only=26.227 unroll_only=28.358 split=18.930 projection=12.243 group_old=8.539 group_new=6.013 us speedup=1.384x
+BENCH T=7 old=34.093 new=26.542 mask_only=27.155 unroll_only=29.567 split=19.870 projection=14.169 group_old=8.984 group_new=6.025 us speedup=1.284x
+BENCH T=8 old=34.670 new=26.475 mask_only=27.063 unroll_only=30.771 split=20.816 projection=14.777 group_old=9.369 group_new=6.022 us speedup=1.310x
