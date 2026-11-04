@@ -496,7 +496,7 @@ the likely wait. Window STALL (started 15:39) captures the host side.
 Queue bug, fixed: when a window failed, queue-lib's EXIT trap wrote the FAILED marker into the batch log instead of
 window<N>.out. Window 17 waited on it from 15:31 to 15:39. The trap now tees the marker into the window log.
 
-## Swarm intake, 15:45 (docs/swarm/reports: titus, nyira, ziz)
+## Swarm intake, 15:45 (swarm run 1: titus, nyira, ziz; reports archived out of the swarm's reach)
 
 Taken:
 - **Row economics** (titus): window 18 gains arms for `--spec-min-p 0.40` and `STRATA_SPEC_COST=1`, which has
@@ -574,6 +574,6 @@ Mechanism (inference): a GPU progress write to non-coherent host memory, or a PC
 until something flushes it. This gives random 0.3-4 s delays, and a 20 s deadlock (#267) when nothing else flushes.
 **inserts/50-windowcoh.sh** runs 8 passes per switch with a gap census; text must match window STALL.
 
-cantsbee (in `~/inbox/agents/cantsbee/report.md`) also proposes:
+cantsbee (swarm run 1, archived) also proposes:
 - prompt as a chunk-pipeline problem; window PFT, queued, measures where the time goes;
 - cursor-chase lookup for edits: edits-only, small, kept on the list.

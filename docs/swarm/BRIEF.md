@@ -1,4 +1,7 @@
-# Swarm brief: make Qwen3.8 go zoom on 2x V620 (written 2026-11-04 15:15)
+# Swarm brief: make Qwen3.8 go zoom on 2x V620 (written 2026-11-04 15:15, updated 16:05)
+
+**A previous swarm run's reports are withheld on purpose.** What they proposed, and what the measurements said, is
+folded into section 2 ("Already proposed and judged"). Don't go looking for those reports, including in git history.
 
 You are one of several agents KING has pointed at this. **You are not taking anything over.** A coordinator (a
 Claude Code session) owns the work: the GPU queue, the branches, the configs and every decision. Your job is to read
@@ -8,8 +11,8 @@ try, and why. You only read, except for your report.
 ## 1. The goal
 
 - **End goal:** top spot on the localmaxxxing Discord leaderboard, **dual gfx103x** category (single gfx103x maybe
-  later). What exactly it measures (prompt/gen lengths, whether spec decoding counts) is **not known yet**. Until it
-  is, optimise all three numbers below. Keep every result reproducible: exact config, commit, binary sha.
+  later). What it measures is **withheld on purpose**: don't spend time researching it. Optimise all three numbers
+  below. Keep every result reproducible: exact config, commit, binary sha.
 - **Model:** Qwen3.8-Flash-Next ("QFN"): 512 routed experts, top-10, hidden 2560, expert FF 640, 48 layers, hybrid
   GDN/QSA attention, a 51.2B-value per-layer n-gram embedding table (PLE / "engram"), a native MTP draft layer.
 - **Engine:** KING's fork of Strata, `~/Strata_donttouch` (C++/HIP, branch `main`). His code, his fork. Upstream
@@ -39,6 +42,17 @@ Live config: `~/Strata_donttouch/strata-sc117-IQ3_S-qwen-abliterated.json`. Pack
 | edits: 3 copy-heavy edit prompts | **~371-374 tok/s** |
 | 36K-token prompt | **~2700-2720 tok/s** |
 | 118K-token prompt | ~2690-2780 tok/s, then gen ~92-101 tok/s |
+
+**Units, because the last run got them wrong:**
+- At 149 tok/s agent, a verify window yields ~2.5 tokens and **one window takes ~17 ms**. 6.7 ms is the time per
+  token, not per window.
+- Measured from pipeline traces: the share of time a stage has a window in flight (host-side intervals, an upper
+  bound on GPU busy). Card 1 also runs the MTP chain.
+
+| stage | agent | edits |
+|---|---|---|
+| card 0 | 82% | 97% |
+| card 1 | 65% | 81% |
 
 Other packs, at their best configs:
 - **bartowski Swift Q4_0:** 36K prompt ~2390.
@@ -84,7 +98,22 @@ Other packs, at their best configs:
   - `STRATA_IQ_GATHER` (no gain).
   - `--kv-resident 61440` as a residency route (not enough).
 - **Earlier finding, now in question:** 35-44% faster prompt kernels moved end-to-end prompt time <=0.5%, because
-  the prompt was **expert-streaming-bound**. That held before full residency (see the dream list).
+  the prompt was **expert-streaming-bound**. That held before full residency (see the dream list). The "cards ~45%
+  busy on prompt" figure is from the same pre-residency era; don't cite it.
+
+### Already proposed and judged (previous swarm run + coordinator checks)
+
+| idea | verdict |
+|---|---|
+| Memory reclaim / swap / THP compaction / swappiness 100 causes the decode stalls | **Falsified.** In window STALL, during the decode stalls no strata thread was off-CPU >=200 ms, and compaction, allocstall and direct reclaim were zero; all reclaim happened during model load. Swappiness 100 and failing compaction are real on the box, but not active at stall time. |
+| A host round-trip per MTP draft step (the `--spec-min-p` gate in `draft_first`) | **Not on the live path.** `draft_first` is the serial loop. `--pipeline-windows 2` drafts with `chain_launch`, which launches every step at once; min-p is applied afterwards in `t_rule`. |
+| Pipeline depth 3 (the `--pipeline-windows` clamp at 2) | **Low priority.** Card 0 is already 82-97% in flight. |
+| A full 2-wide verify tree (siblings at every depth) | **About break-even.** Offline: the drafter's top-2 is the verifier's token in 42% of top-1 rejections (0.45 at top-1 p 0.4-0.7; BF16 experts give the same). ~0.18 extra tokens per window for ~3 extra rows, before GDN branch state. Live form: the **leaf fork** below. |
+| `--spec-min-p` below 0.7; the cost-aware rule `STRATA_SPEC_COST=1` | **Queued** (audit window 18: 0.40, 0.50, 0.70 x mtp-max-t 2/3, plus SPEC_COST). |
+| Re-attribute the 36K prompt with `STRATA_PREFILL_TIMING=1` | **Queued** (window PFT). |
+| The #649 handshake switches `STRATA_VERIFY_COHERENT=1` and `STRATA_DOORBELL_STORE=1` against the stalls | **Queued** (window COH, 8 passes each, gap census). |
+| A gap-count column in the harness (stall-aware A/B reading) | **Adopted** for traced windows. |
+| Cursor-following lookup for edits | Open, edits-only, small; nobody owns it yet. |
 
 ### In flight (the coordinator is running these: think about them, don't work on them)
 
@@ -93,19 +122,44 @@ Other packs, at their best configs:
   - An untuned 64-expert Q4_0 mix gave +1.5% agent.
   - GPTQ from the BF16 MTP (`~/models/mtp`) with per-expert Hessians from captured drafter steps cuts held-out
     expert error 0.52->0.43 (Q2_0) and 0.134->0.107 (Q4_0).
-  - Tuned mixed tables go into an A/B around 16:00.
   - Card 1 has ~940 MiB of drafter headroom without losing a single main-model expert.
+  - Offline held-out acceptance length with the p>=0.7 gate:
+
+    | drafter | accepted length |
+    |---|---|
+    | live S2 | 2.959 |
+    | S2-GPTQ (same bytes) | 2.979 |
+    | mix with 15% of routes on Q4_0 | 3.016 |
+    | mix with 40% of routes on Q4_0 | 3.034 |
+    | all Q4_0-GPTQ | 3.078 |
+    | BF16 experts | 3.064 |
+
+  - **Running now** (15:49, ~40 min): six drafters on agent and edits, two passes each. Profile arms include the
+    live bytes in the native layout, and STRATA_HIP_MTP_PRIORITY=0. The suspicion is that the native drafter's
+    top-priority stream crowds card 1's verify kernels.
 - **16-row split lookup** (branch `basalt38/split-lookup16`): correct now.
   - A 16-row window is 4.2% faster than two 8-row windows, but entering 16 from 8 costs a ~15 ms card-1 bubble.
   - The cost-aware admission policy turned -2.5% into +0.4% on edits. Parked opt-in.
-- **#267 verify hang** (branch `basalt38/verify267`): "verify: the window never finished ... (#267)" then engine exit.
-  - It happened twice today, both while a big download filled RAM with dirty pages.
-  - Suspect: the single host service thread starving under memory/IO pressure. Unproven.
-  - The dirty-page/RAM-pressure repro (window 267 in the ledger) did NOT reproduce it in 9 arms.
-  - **New lead:** the "one-case slowdowns" (a single case 30-40% slow, same text) are single 0.3-4.2 s stalls of one
-    pipeline window. The census found 25 of them in 34 traced arms, on both cards, in quiet and dirty runs
-    (`bench/results/2026-11-04-basalt-lessons/qwen38-window267/stall-census.txt`). #267 is probably the >20 s tail.
-    Whether the host thread is blocked or the GPU is late is not known yet; an off-CPU trace window is next.
+- **#267 verify hang and the single-window stalls** ("verify: the window never finished ... (#267)", then engine exit).
+  - The "one-case slowdowns" (a single case 30-40% slow, same text) are single 0.3-4.2 s stalls of one pipeline
+    window: 25 in 34 traced arms, both cards, quiet and dirty runs. #267 is probably the >20 s tail.
+  - The dirty-page/RAM-pressure repro did NOT reproduce #267 (9 arms). The hang-fix branch `basalt38/verify267`
+    is not merged.
+  - **A natural #267 hit at 15:29 on the live config, quiet box** (audit arm `w16_copy1_b`). On release, all four
+    verifiers logged "the GPU finished in 0 ms". So the GPU was idle, spinning on a flag the host had not raised,
+    and the GPU sees host writes at once.
+  - **Window STALL:** the host thread was not blocked (no off-CPU, no reclaim) during decode stalls. Current
+    picture: the host was running but had not seen what it waits for (the GPU's progress words in mapped host
+    memory?).
+  - The verify handshake lives in `src/core/verify.cpp`: mapped(), raise_flag, publish_plan, release_gpu_waits, the
+    #649 switches, Verifier::diag and its GPU breadcrumbs. Window COH tests the #649 switches.
+- **GDN rollback snapshots** (planned by the coordinator: microbench first).
+  - Every multi-row verify window writes fp32 state [48][128][128] = 3.15 MB per GDN layer (36 of 48 layers) for
+    each row but the last: ~340 MB for a 4-row window, ~790 MB for an 8-row window (`src/split/src/gdn_core.cuh`).
+  - Estimated cost (inference): ~5-8% of decode.
+  - The exact-text fix: store the per-row GDN inputs and recompute on partial accept.
+- **Leaf fork** (candidate, not started): where the min-p gate would stop the chain, verify top-1 and top-2 as two
+  candidates for the last row. One-level GDN fork plus a QSA mask change.
 - **Config audit** (`~/inbox/agents/claude/config-audit/AUDIT.md`): windows 16-28 are queued.
   - Topics: prompt cache, KV allocation, MTP cap x confidence, decode split 25-28, SIMT selector, CPU share, I/O
     threads, PCIe miss share, YaRN-vs-native quality, Gumbel sampling.
@@ -153,6 +207,8 @@ Measured caveats on THIS engine:
 | Driver/kernel plan | `~/inbox/agents/claude/amdgpu-tune/PLAN.md` (SDMA engines, hugepage arena, clock gating, ROCr spin window) |
 | BIOS | `~/Projects/yoda-bios/index.html` (checklist), `report.html` and evidence |
 | PR triage | `~/inbox/agents/claude/prscan-1104/GATE.md` (Strata + llama.cpp PRs gated for this box) |
+| Stall evidence | ledger dirs `qwen38-window267/` (stall-census.txt) and `qwen38-windowSTALL/` (off-CPU log, vmstat/PSI sampler at 100 ms, traces); natural #267 engine.log at `~/inbox/agents/claude/config-audit/runs/w16_copy1_b/` |
+| Verify-tree analysis | `~/inbox/agents/claude/strata-q38-mtpq/bench/results/2026-11-04-mtpq/offline/top2-verify-tree.txt` |
 | lookup16 analysis | `~/inbox/agents/claude/strata-q38-splitlookup/bench/results/2026-11-04-splitlookup16.json` |
 | MTP quant results | `~/inbox/agents/claude/strata-q38-mtpq/bench/results/2026-11-04-mtpq/` (microbench, scores); captured drafter steps in `~/inbox/agents/claude/mtpq/cap/{agent,edit}` |
 | Packs | `~/Strata-data/packs/` (sc117-abl-iq3_s, bartowski-swift-q4_0, unsloth-ud-q4_k_xl, and smaller ones: sc117-swift-abl-iq3_xxs, sc117-swift-abl-iq2_xs, swift-iq3_xxs) |
@@ -219,8 +275,11 @@ the trace, here is the change" is.
 
 Write one file, `~/Strata_donttouch/docs/swarm/reports/<you>.md`, for the coordinator (not for KING).
 
-- **Read the ledger first.** Check the dead list, the in-flight list and the ledger before you write. Don't spend
-  the report on things already measured.
+- **Read the ledger first.** The newest windows are at the bottom. Check the dead list, the "already proposed and
+  judged" table and the in-flight list before you write. Don't spend the report on things already measured.
+- **Take your time.** The last run finished in ~15 minutes, and several of its ideas were already falsified by data
+  on disk. Check every number's units and every code path against the live config (pipelined decode, not the
+  serial loop) before you build on it.
 - **Lead with your top 3 ideas,** ranked by expected gain per GPU-minute.
 - **For each idea, give:**
   - the claim;
