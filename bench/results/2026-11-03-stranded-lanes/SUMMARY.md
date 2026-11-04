@@ -90,3 +90,35 @@ conversation words its second sentence differently (same facts, same every round
 
 The Q4_K_XL config moved from build-hip/strata (layer split, draft vocab 65536, f16 KV) to build-hip/strata-q36 with the
 Q3 config's TP env plus STRATA_Q36_TP_HYBRID=1, int8 KV, draft vocab 32768, spec-min-p 0.45, engine_ready_s 1800.
+
+## vis: Ornith vision on TP (branch port/vis, fast-forwarded into ornith-122b)
+
+Parked at first for "no mmproj on disk"; unsloth/Ornith-1.5-122B-GGUF ships mmproj-F16.gguf (909 MB, now in the HF
+cache), and the lane had its own conversion at /home/admin/work/models/mmproj-Ornith-1.5-122B-f16.gguf all along.
+
+- Picture reader parity (tools/vision/check_embeddings.py, CPU, against an independent llama.cpp mtmd): built on the
+  vendored third_party/llama.cpp, square is bit-identical but wide / tall differ (relative L2 0.0015 / 0.0007, the
+  same numbers the lane recorded); built on upstream ggml-org llama.cpp bee23322f (~/Repos/llama.cpp-ggml-org) all
+  three are bit-identical. build-vision/bin/strata-vision is built on that checkout (statically linked); the engine
+  keeps its pinned ggml.
+- TP vision on the GPUs (tools/vision/check_tp.py --run: eager and graph, MTP 0 and 3, growing / equal-size / text
+  between images): PASS, every case token-identical, TP_VISION_GRAPH graphs captured for main and MTP.
+- HTTP (OpenAI and Anthropic endpoints, the red square / blue circle / "ORNITH 4217" fixtures at the server's
+  1024-token minimum): both shapes, colours and positions right, the text read as "ORNITH 4217" on every image.
+- Cost on text, Q3_K_XL TP with --vision and the reader on the CPU (`final-q3-vision`): 107.1 / 665 / 562 / 86.9
+  against 104.5 / 665 / 562 / 84.4 without. strata-ornith-1.5-122b-UD-Q3_K_XL.json now has --vision,
+  STRATA_Q36_TP_VISION_GRAPH=1 and a "vision" block.
+- Q4_K_XL hybrid TP with --vision (`final-q4-vision`): the three pictures read right, 191/256 half-experts per layer
+  as without vision, 63.2 / 422 / 391 / 51.6 against 63.2 / 421 / 391 / 50.0. strata-ornith-1.5-122b-UD-Q4_K_XL.json
+  has vision too (its reader reads that config's own GGUF).
+
+## Not merged
+
+- mega (port/mega): speed-neutral, conflicts with TP_BRANCHES.
+- hyfast (stranded/hyfast): kv8 plus one WIP commit (2810d7a8, a `--main-qwen35-check` preflight toward running
+  qwen35moe on the main strata engine; it includes a header the commit does not add) - groundwork for another project.
+- Host-streamed KV is merged but off: correct at 68K, slow past the VRAM ring.
+- Divergence earlier than the last prompt still re-reads the conversation: one more snapshot is ~149 MiB of recurrent
+  state per session (36 GDN layers x 64 heads x 128x128 fp32 + conv, half on each card; VRAM the Q4_K_XL config
+  spends on experts), and clients that clear old tool results diverge
+  before any recent snapshot anyway.
