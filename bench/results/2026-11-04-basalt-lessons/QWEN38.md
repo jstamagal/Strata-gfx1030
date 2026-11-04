@@ -577,3 +577,21 @@ until something flushes it. This gives random 0.3-4 s delays, and a 20 s deadloc
 cantsbee (swarm run 1, archived) also proposes:
 - prompt as a chunk-pipeline problem; window PFT, queued, measures where the time goes;
 - cursor-chase lookup for edits: edits-only, small, kept on the list.
+
+**Swarm chat intake, 16:15** (troop run 20261104-152916: the bus log and gruff's writeup; the full table is in
+docs/swarm/BRIEF.md under "Already proposed and judged").
+
+Found only in the chat:
+- **The pipelined `pl_launch` lacks the early PLE flag guard.** The serial path has it against a documented HIP lock
+  cycle: the host inside hipGraphLaunch waits on a runtime lock while the GPU spins on the PLE flag. It matches the
+  natural #267 and window STALL. Being implemented on basalt38/pl-early-ple, with a slow-launch logger.
+- **Guess-outcome cycle table** (tuck): right 61% at 12.8 ms; wrong 32% at 22.2 ms; misses take 41% of decode time.
+- **Stage wall time:** ~8 ms fixed plus ~0.9 ms per row.
+- **HC_PERSIST** needs QFUSE/NODE_FUSE off.
+- **The resident-complement mode** frees the 46.84 GiB host expert copy.
+- **SH_STREAM=0** under full residency.
+- **Two prefill fusions:** PREFILL_SWIGLU_QUANT and PREFILL_COMBINE_WRITE.
+- **The IQ kernel's 4 -> 5 row cliff.**
+- **Survival calibration.**
+
+The zero-build items are queued as inserts/51-windowzb.sh (with a per-kernel profile of both cards).

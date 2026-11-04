@@ -1,7 +1,8 @@
 # Swarm brief: make Qwen3.8 go zoom on 2x V620 (written 2026-11-04 15:15, updated 16:05)
 
 **A previous swarm run's reports are withheld on purpose.** What they proposed, and what the measurements said, is
-folded into section 2 ("Already proposed and judged"). Don't go looking for those reports, including in git history.
+folded into section 2 ("Already proposed and judged"). Don't go looking for that run's reports, chat or
+transcripts, including in git history.
 
 You are one of several agents KING has pointed at this. **You are not taking anything over.** A coordinator (a
 Claude Code session) owns the work: the GPU queue, the branches, the configs and every decision. Your job is to read
@@ -53,6 +54,19 @@ Live config: `~/Strata_donttouch/strata-sc117-IQ3_S-qwen-abliterated.json`. Pack
 |---|---|---|
 | card 0 | 82% | 97% |
 | card 1 | 65% | 81% |
+
+- **Cycle by guess outcome** (agent, from pipeline traces):
+
+  | guessed window | share of windows | cycle | tokens per window |
+  |---|---|---|---|
+  | right | 61% | 12.8 ms | 2.63 |
+  | wrong | 32% | 22.2 ms (a full serial redo) | 1.78 |
+  | no guess | 7% | 24.7 ms | — |
+
+  Misses are 41% of decode time. The guess is right almost only when the previous window accepted every draft.
+- **Stage wall time** (host-observed, stage 0, median): T=1 9.07 ms, T=2 9.89, T=3 10.89, T=8 17.97. That is about
+  8 ms fixed (~325 us per layer, ~26 small kernels per layer) plus ~0.9 ms per row. A 1 ms cut on both stages is
+  worth roughly 8%.
 
 Other packs, at their best configs:
 - **bartowski Swift Q4_0:** 36K prompt ~2390.
@@ -114,6 +128,20 @@ Other packs, at their best configs:
 | The #649 handshake switches `STRATA_VERIFY_COHERENT=1` and `STRATA_DOORBELL_STORE=1` against the stalls | **Queued** (window COH, 8 passes each, gap census). |
 | A gap-count column in the harness (stall-aware A/B reading) | **Adopted** for traced windows. |
 | Cursor-following lookup for edits | Open, edits-only, small; nobody owns it yet. |
+| Missing early PLE flag in the pipelined `pl_launch` (the HIP lock cycle between hipGraphLaunch and the flag, documented at `early_ple_flag_mode`) | **Being implemented** by the coordinator: `STRATA_PL_EARLY_PLE_FLAG`, plus a logger for slow `pl_launch` calls. Leading #267/stall candidate. |
+| `STRATA_SH_STREAM=0` under full residency (unprofiled) | **Queued** (window ZB). |
+| `STRATA_HC_PERSIST=1` (its gfx1030 evidence comes from 2x 6900 XT; it is a no-op while `QFUSE`/`NODE_FUSE` are on) | **Queued** as 3 arms: live, fusions off, fusions off + HC_PERSIST (window ZB). |
+| `--resident-experts` complement mode (drops the 46.84 GiB host copy of experts that are all GPU-resident) | **Queued** (window ZB, agent + 36K). |
+| `STRATA_PREFILL_SWIGLU_QUANT=1`, `STRATA_PREFILL_COMBINE_WRITE=1` | **Queued**, each alone on 36K (window ZB). |
+| Per-kernel-class profile of a decode window on both cards (`STRATA_VERIFY_PROFILE=1 STRATA_DECODE_TIMING=1`) | **Queued** (window ZB); never taken on V620 before. |
+| Cut the doomed guessed window's tail on card 0 | **Dead:** ~0.6% after fixing a join bug. |
+| PLE demand/prefetch queue inversion (`ple_reader.cpp`) | **Low.** Live logs show reader wait 0.03-0.27 ms and 0 windows held. |
+| Compact raw PLE transport in direct mode | **Parked:** ~0.3% ceiling. |
+| IQ expert kernel cliff from 4 to 5 rows (`LDS_NT=4`: 85.6 -> 125.3 us at T4 -> T5, 147.6 at T8) | **Candidate** kernel work: an 8-entry specialization for 5-8-row windows. Needs a route-multiplicity check. |
+| Q4_0 missing `kSplit` specializations; excluded from fused gate/up and DOWN_L | Q4_0-pack backlog (not the daily driver). |
+| `STRATA_DRAFT_CONTEXT=1` disables the 2-bit head proxy (`!ctx_base_`) | **Open** code road: proxy base plus dynamic exact rows. |
+| Guessed-window survival is overconfident (predicted 0.45 -> observed ~0.27) | **Open:** a policy calibration, split by fresh/guessed window and drafter. |
+| UD4-era dead-list kills (`STRATA_MTP_STAGE0`, `--mtp-max-t 4`) never re-run on resident IQ3_S | Reopen only with a current-path mechanism. |
 
 ### In flight (the coordinator is running these: think about them, don't work on them)
 
