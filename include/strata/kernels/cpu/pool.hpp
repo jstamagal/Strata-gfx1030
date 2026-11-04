@@ -207,6 +207,9 @@ public:
     ExpertPool& operator=(const ExpertPool&) = delete;
 
     int workers() const { return n_; }
+    using IdleFn = void (*)(void*, int, int, const std::atomic<bool>&);
+    void idle_start(IdleFn fn, void* ctx);
+    void idle_stop();
     /// What bounded the default worker count (pool_plan.hpp; "" when a count was configured), the physical cores
     /// and logical processors counted - for the start-up line.
     const char* plan_limit() const { return plan_limit_; }
@@ -287,6 +290,10 @@ public:
 private:
     int phase_tasks(int64_t rows) const;
     int tasks_ = 0;
+    IdleFn idle_fn_ = nullptr;
+    void* idle_ctx_ = nullptr;
+    bool idle_live_ = false;
+    std::atomic<bool> idle_halt_{false};
     void worker(int id);
     void drain(int id, ExpertScratch& scratch, uint32_t epoch);
     void run_phase(int mode, int n_tasks);
@@ -402,7 +409,7 @@ private:
     std::vector<int> slice_threads_;  // threads draining each slice (the host counted in its own)
     int64_t pub_ns_ = 0;              // the current mode-5/6 phase's publish time (host only)
     double slice_ms_[2] = {0.0, 0.0}; // accumulated per-slice drain time (host only)
-    bool numa_phase() const { return numa_n_ > 0 && mode_ >= 5; }
+    bool numa_phase() const { return numa_n_ > 0 && (mode_ == 5 || mode_ == 6); }
     /// The claim of `claim()` on slice `slice`'s head: `base + i`, or -1.
     int claim_slice(uint32_t epoch, int slice);
     std::atomic<uint32_t>& parked_of(int id) { return numa_n_ > 0 ? nsync_[(size_t) wslice_[(size_t) id]].parked : parked_; }

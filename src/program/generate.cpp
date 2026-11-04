@@ -94,6 +94,7 @@
 #include "strata/program/adapt_decay.hpp"
 #include "strata/program/adapt_rank.hpp"
 #include "strata/program/adapt_gap.hpp"
+#include "strata/core/expert_warm.hpp"
 #include "strata/program/batch_read.hpp"
 #include "strata/program/logits_selection.hpp"
 #include "strata/program/conv_cache.hpp"
@@ -1372,6 +1373,7 @@ struct Drive {
     strata::core::ExpertDispatch d;
     double cpu_ms = 0;
     int64_t calls = 0;
+    std::function<void(int64_t, const float*, const int32_t*, int, int)> warm_next;
     /// THE ROUTING TRACE, which is P0.S8 and a stated prerequisite of Phase 3.  `drive_pool` is called once
     /// per layer from the main loop - the workers live inside `expert_pool_dispatch` - so a single FILE* here
     /// needs no locking.  `d.layers` is the CURRENT layer on entry (the adapter increments it as it walks the
@@ -1412,9 +1414,11 @@ void drive_pool(void* user, const float* x_f, const int32_t* ids, const float* w
 void drive_pool_multi_impl(void* user, const float* x_f, const int32_t* ids, int64_t n_tok, int64_t k, float* out,
                            int64_t layer, strata::kernels::cpu::NativeArithmetic arithmetic) {
     Drive* t = (Drive*) user;
+    if (t->warm_next) t->d.pool->idle_stop();
     t->d.layers = layer;
     const Clock::time_point a = Clock::now();
     strata::core::expert_pool_dispatch_multi(t->d, x_f, ids, n_tok, k, out, arithmetic);
+    if (t->warm_next && !t->d.failed) t->warm_next(layer, x_f, ids, (int) n_tok, (int) k);
     t->cpu_ms += std::chrono::duration<double, std::milli>(Clock::now() - a).count();
     ++t->calls;
     // the routing trace for the serve path: the same record format drive_pool writes (layer, k, ids, weights),
@@ -8502,26 +8506,41 @@ int main(int argc, char** argv) {
     // input predicts its experts and their pages are warmed meanwhile.  It only warms pages; STRATA_LOOKAHEAD=0 is
     // the A/B arm, STRATA_LOOKAHEAD_K the experts per token (default 10).
     strata::core::RouterLookahead lookahead;
+    std::unique_ptr<strata::core::NextExpertWarm> pool_warm;
+    const bool pool_warm_on = o.serve && o.batch == 0 && !o.no_pool &&
+        [] { const char* e = std::getenv("STRATA_CPU_EXPERT_WARM"); return e && std::atoi(e) != 0; }();
     // #1348, one prefetch design: with the Foresight swap space on (STRATA_FS_SLOTS) the look-ahead also runs on the pinned-RAM
     // tiers, where there are no pages to warm, and feeds its predictions to the swap space (STRATA_FS_AHEAD=0: not)
     const bool fs_ahead = srcp != nullptr && [] { const char* v = std::getenv("STRATA_FS_SLOTS"); return v != nullptr && std::atoi(v) > 0; }() &&
                           [] { const char* v = std::getenv("STRATA_FS_AHEAD"); return v == nullptr || std::atoi(v) != 0; }();
     // STRATA_LOOKAHEAD_STATS=1 (measurement only): run the predictor on any tier and score it against the real routing
     const bool la_stats = srcp != nullptr && [] { const char* v = std::getenv("STRATA_LOOKAHEAD_STATS"); return v != nullptr && std::atoi(v) != 0; }();
-    if (srcp != nullptr && ((srcp == &src && src.warms()) || fs_ahead || la_stats) &&
-        [] { const char* v = std::getenv("STRATA_LOOKAHEAD"); return v == nullptr || std::atoi(v) != 0; }()) {
+    const bool file_lookahead_on = srcp != nullptr && ((srcp == &src && src.warms()) || fs_ahead || la_stats) &&
+        [] { const char* v = std::getenv("STRATA_LOOKAHEAD"); return v == nullptr || std::atoi(v) != 0; }();
+    if (srcp != nullptr && (file_lookahead_on || pool_warm_on)) {
         std::vector<std::vector<uint16_t>> routers((size_t) g.n_layers);
         bool ok = true;
         for (int64_t l = 0; l < g.n_layers && ok; ++l) {
-            const strata::core::WeightRef* w = wt.find("blk." + std::to_string(l) + ".ffn_gate_inp.weight");
+            const int stn = multi_gpu ? stage_of(l) : 0;
+            const strata::core::OnDevice on(stn > 0 ? stages[(size_t) stn - 1]->dev : -1);
+            const auto& tables = stn > 0 ? stages[(size_t) stn - 1]->wt : wt;
+            const strata::core::WeightRef* w = tables.find("blk." + std::to_string(l) + ".ffn_gate_inp.weight");
             ok = w != nullptr && w->kind == strata::core::WeightKind::Bf16InF32 &&
                  w->bytes == (uint64_t) (g.n_expert * g.n_embd) * 2;
             if (!ok) break;
             routers[(size_t) l].resize((size_t) (g.n_expert * g.n_embd));
             ok = cudaMemcpy(routers[(size_t) l].data(), w->data, (size_t) w->bytes, cudaMemcpyDeviceToHost) == cudaSuccess;
         }
+        if (pool_warm_on && ok) {
+            pool_warm = std::make_unique<strata::core::NextExpertWarm>((int) g.n_layers, (int) g.n_expert, (int) g.n_embd);
+            const auto& layout = strata::kernels::cpu::expert_layout();
+            for (int l = 0; l < g.n_layers && ok; ++l)
+                ok = pool_warm->set_router(l, routers[(size_t) l].data(), layout.blob_bytes(l),
+                                          layout.native ? layout.fmt[(size_t) l].down_off : 0);
+            if (!ok) pool_warm.reset();
+        }
         const char* kv = std::getenv("STRATA_LOOKAHEAD_K");
-        if (ok && lookahead.start(std::move(routers), g.n_embd, g.n_expert, kv ? std::atoi(kv) : 10, srcp, err, fs_ahead || la_stats)) {
+        if (file_lookahead_on && ok && lookahead.start(std::move(routers), g.n_embd, g.n_expert, kv ? std::atoi(kv) : 10, srcp, err, fs_ahead || la_stats)) {
             drive.d.lookahead = &lookahead;
             if (la_stats) lookahead.enable_stats(g.n_layers);
             if (const char* dv = std::getenv("STRATA_IO_PREFETCH_DEPTH"); dv != nullptr && std::atoi(dv) > 0)
@@ -12576,6 +12595,32 @@ int main(int argc, char** argv) {
         const auto tier_env = [](const char* name) { const char* e = std::getenv(name); return e && std::atoi(e) != 0; };
         const bool tier_simple = !peer.valid() && !remote_opt && o.expert_cache_remote[0] <= 0 &&
                                  o.expert_cache_remote[1] <= 0 && o.expert_cache_remote[2] <= 0;
+        bool warm_decode = false;
+        std::vector<int32_t> warm_res;
+        uint64_t warm_predictions = 0, warm_hits = 0;
+        if (pool_warm && tier_simple) drive.warm_next = [&](int64_t l, const float* x, const int32_t* ids, int nt, int k) {
+            if (!warm_decode) return;
+            if (pool_warm->layer == l && pool_warm->best >= 0) {
+                ++warm_predictions;
+                for (int j = 0; j < nt * k; ++j) if (ids[j] == pool_warm->best) { ++warm_hits; break; }
+            }
+            pool_warm->best = -1;
+            if (l + 1 >= g.n_layers || nt > 16) return;
+            std::vector<const uint8_t*> blobs((size_t) g.n_expert, nullptr);
+            const int32_t* res = warm_res.data() + (size_t) (l + 1) * g.n_expert;
+            bool any = false;
+            for (int e = 0; e < g.n_expert; ++e) if (res[e] < 0) {
+                blobs[(size_t) e] = srcp == &arena_src ? arena_src.blob_at(l + 1, e) : src.resident_blob(l + 1, e);
+                any = any || blobs[(size_t) e] != nullptr;
+            }
+            if (any && pool_warm->prepare((int) l + 1, x, nt, k, res, std::move(blobs)))
+                pool.idle_start(&strata::core::NextExpertWarm::job, pool_warm.get());
+        };
+        struct WarmOff {
+            Drive& drive;
+            ~WarmOff() { if (drive.warm_next) { drive.d.pool->idle_stop(); drive.warm_next = nullptr; } }
+        } warm_off{drive};
+        if (pool_warm_on) std::fprintf(stderr, "strata serve: idle CPU expert warm-up %s\n", drive.warm_next ? "on" : "declined");
         strata::program::TierRankOptions tier_opt;
         tier_opt.across = tier_simple && tier_env("STRATA_ADAPT_ACROSS");
         tier_opt.once = tier_simple && tier_env("STRATA_ADAPT_ONCE");
@@ -17527,6 +17572,11 @@ int main(int argc, char** argv) {
             const size_t WS = (size_t) std::max(S, merge_T);
             std::vector<int32_t> drafts(DS, 0), window(WS), outv(WS);
             std::vector<float> dprob(DS, 0.0f);
+            if (drive.warm_next) {
+                pool.idle_stop(); warm_res = host_res;
+                pool_warm->layer = -1; pool_warm->best = -1;
+                warm_predictions = warm_hits = 0; warm_decode = true;
+            }
             std::array<float, 8> dwin_s{};   // the probabilities the current window was chosen from (STRATA_SPEC_COST)
             // STRATA_SPEC_TRACE=<file> in serve (bench only, off by default): per round "R p T a sfx ms k match | probs | drafts | lookup draft | committed tokens"
             static std::FILE* const df2_trace = [] { const char* tf = std::getenv("STRATA_SPEC_TRACE"); return tf != nullptr && tf[0] != '\0' ? std::fopen(tf, "a") : nullptr; }();
@@ -19180,6 +19230,12 @@ int main(int argc, char** argv) {
                 if (stop_req.load()) { finish = "cancel"; break; }
                 x = outv[(size_t) a];
                 p += a + 1;
+            }
+            if (drive.warm_next) {
+                pool.idle_stop(); warm_decode = false;
+                if (tier_env("STRATA_CPU_EXPERT_WARM_TRACE"))
+                    std::fprintf(stderr, "strata CPU expert warm-up: %llu/%llu predicted experts routed\n",
+                                 (unsigned long long) warm_hits, (unsigned long long) warm_predictions);
             }
             if (tier_rank_live) { tier_rank_job->wait(); tier_rank_live = false; }
             if (!keep_sync()) { std::printf("ERR %s\n", err.c_str()); return 1; }
