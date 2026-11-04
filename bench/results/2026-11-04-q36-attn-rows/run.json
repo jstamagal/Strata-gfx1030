@@ -1,0 +1,109 @@
+{
+  "test": "Ornith TP decode-attention geometry on gfx1030, synthetic inputs; no model loaded",
+  "base_commit": "137b2d4ce",
+  "source_commit": "26d3cfb0457c69f690456808a9e4772c01ee52ce",
+  "branch": "basalt/attn-rows",
+  "concurrency": {
+    "status": "both variants rerun on a quiet device 0 after coordinator clearance",
+    "matched_matrix_start": "2026-11-04T05:47:24-05:00",
+    "matched_matrix_end": "2026-11-04T05:48:23-05:00",
+    "validation_finished": "2026-11-04T05:49:54-05:00",
+    "observation": "The coordinator's model A/B had ended and both GPUs were free before these runs. Earlier post-05:25 sweeps were discarded as potentially contended; none of their timing rows are retained here. The coordinator held all other GPU work until completion.",
+    "cleanup": "device 0 observed at 0% busy and 0% VRAM after the final parity/profile; no test process remained"
+  },
+  "device": {
+    "visible_devices": "0",
+    "name": "AMD Radeon Pro V620",
+    "architecture": "gfx1030",
+    "hip_multiprocessor_count": 36,
+    "wave_size": 32,
+    "clocks": "host defaults; no clock or power settings changed"
+  },
+  "geometry": {
+    "H": 16,
+    "HKV": 1,
+    "HD": 256,
+    "kv_type": "int8",
+    "kv_row_bytes": 260,
+    "chunk_cells": 256,
+    "cache_capacity_cells": 65792,
+    "context_definition": "cells visible to the first query; subsequent queries see one more cell each",
+    "nt": [1, 2, 3, 4, 5, 6, 7, 8],
+    "contexts": [1, 64, 255, 256, 257, 1000, 1024, 1025, 4096, 5000, 16384, 30000, 65536]
+  },
+  "timing": {
+    "file": "device0.csv",
+    "cases": 104,
+    "units": "microseconds per window per attention layer, on one card",
+    "warm": "median of 8 hipEvent samples, each replaying 16 captured calls",
+    "cold": "median of 12 hipEvent samples, one captured call after a 256 MiB read-modify-write eviction kernel; eviction excluded",
+    "old": "original k_attn_part_gqa<16,false>, fixed grid (32,nt)",
+    "new": "k_attn_part_rows, fixed grid (64,nt*H/4), live device position selects groups of 4 or 8 heads",
+    "head_short": "original k_attn_part<false>, fixed grid (4,nt*H), measured only where the short dispatch applies",
+    "block_threads": 256,
+    "total_columns": "partial kernel plus unchanged k_attn_merge; warm measurements are separate samples, not sums of other columns",
+    "cold_total": "not measured",
+    "minimum_warm_speedup_vs_gqa": 4.51614,
+    "minimum_cold_speedup_vs_gqa": 2.28370,
+    "phase_file": "phases.txt",
+    "phase_caveat": "ablation kernels have different register allocation; timings are not additive and separate passes can vary"
+  },
+  "shipped_compiler_resources": {
+    "source": "standalone test device assembly using the shared production header and HIP Release flags",
+    "lds_bytes_per_block": 9216,
+    "vgpr_count": 128,
+    "sgpr_count": 107,
+    "private_bytes_per_thread": 20,
+    "compiler": "AMD clang 24.0.0git, ROCm llvm-project 2792f8ceeb5aa6e188c1ce2b735923b2406a8e59"
+  },
+  "launch_bound_comparison": {
+    "alternative_file": "device0-bounded.csv",
+    "alternative_commit": "835268345",
+    "alternative": "explicit 256-thread launch bound, 131 VGPRs, zero private bytes",
+    "matched_cases": 104,
+    "geometric_mean_speedup_removing_bound": 1.087811,
+    "cases_faster_without_bound": 56,
+    "decision": "retain the small spill and measured faster aggregate throughput"
+  },
+  "parity": {
+    "file": "parity.log",
+    "passed": true,
+    "cases": 594,
+    "comparisons": ["pacc", "pm", "pl", "merged output", "untouched sentinel guards"],
+    "comparison": "memcmp against both original kernels",
+    "types": ["int8", "f16", "f32", "int8g64"],
+    "nt": "1..8 (Engine::kVerify)",
+    "head_geometries": ["H16/HKV1", "H8/HKV1", "H32/HKV2"],
+    "inputs": ["random", "saturated softmax", "signed zero"],
+    "graph": "eight changing-position replays per graph case; crosses 256-cell and 1024-cell group-size boundaries",
+    "chunk_slot_grids": [1, 3, 7, 32, 64, 257],
+    "fallbacks": "STREAM ring wrap, prefetch, rollback guard, RowSel cells/slots/cache tables and per-slot hot tables; STREAM also compared against the non-stream cold-cache reference",
+    "wall_seconds": 44.18,
+    "math_order": [
+      "Each score retains one FP32 accumulation chain over dimensions 0..255, followed by scaling.",
+      "Max and sum retain the original descending-stride 256-leaf tree, folded across registers, LDS and wave shuffles.",
+      "Each output dimension retains one FP32 V accumulation chain over cells 0..n-1."
+    ]
+  },
+  "dispatch": {
+    "default": "gfx1030 wave32, int8, HD256, H=16*HKV, non-stream, non-RowSel; existing GQA disable switch respected",
+    "disable": "STRATA_Q36_ATTN_ROWS=0",
+    "enable": "unset or STRATA_Q36_ATTN_ROWS=1 on the eligible geometry/device",
+    "group_size": "4 heads through 1024 cells, 8 heads beyond; determined from device position on every graph replay",
+    "fallbacks": ["STREAM/--kv-resident", "rows_mode/RowSel", "f16", "f32", "int8g64", "GQA-8 and other geometries", "other architectures"],
+    "short_path": "retained for fallbacks; eligible new dispatch takes precedence",
+    "merge": "unchanged"
+  },
+  "build": {
+    "result": "strata-q36 and q36_attn_rows built successfully",
+    "build_log": "build.log",
+    "configure_log": "configure.log",
+    "configure": "cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DSTRATA_ENABLE_HIP=ON -DSTRATA_ENABLE_CUDA=OFF -DCMAKE_HIP_ARCHITECTURES=gfx1030 -DGPU_TARGETS=gfx1030 -DCMAKE_C_COMPILER=/opt/rocm/bin/amdclang -DCMAKE_CXX_COMPILER=/opt/rocm/bin/amdclang++ -DCMAKE_HIP_COMPILER=/opt/rocm/bin/amdclang++ -DSTRATA_PREFILL_MMQ=ON -DSTRATA_MMQ_KQUANTS=ON -DSTRATA_Q6K_EXPERTS=ON -DSTRATA_MMQ_WIDE_LDS=ON -DSTRATA_ORCA_Q4KS_MMQ=ON -DSTRATA_AMD_COMMUNITY_TUNING=ON -DSTRATA_NATIVE_EXPERTS=ON -DSTRATA_MMQ_TQ_OVERLAY=ON -DSTRATA_BUILD_TESTS=ON",
+    "command": "systemd-run --user --scope -p MemoryMax=20G nice ionice -c3 ninja -C build -j10 strata-q36 q36_attn_rows",
+    "test_command": "HIP_VISIBLE_DEVICES=0 ctest --test-dir build -R '^q36_attn_rows$' -V",
+    "bench_command": "HIP_VISIBLE_DEVICES=0 ./build/q36_attn_rows --bench",
+    "profile_command": "HIP_VISIBLE_DEVICES=0 ./build/q36_attn_rows --profile",
+    "warnings": "existing source warnings remain; CMake reports the fetched ggml dependency lacks the wide-LDS MMQ activation-window path despite STRATA_MMQ_WIDE_LDS=ON"
+  },
+  "not_run": ["Ornith weights/model loading", "strata-q36 --serve", "serve/server.py", "full-model A/B", "device 1 workloads"]
+}

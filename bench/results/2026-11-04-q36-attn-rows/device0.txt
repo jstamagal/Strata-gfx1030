@@ -1,0 +1,1 @@
+device 0: AMD Radeon Pro V620 (gfx1030), 36 HIP multiprocessors, wave32

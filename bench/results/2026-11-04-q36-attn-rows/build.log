@@ -1,0 +1,55 @@
+Running as unit: run-p706647-i650984.scope; invocation ID: 40603f3875bb4383924e1dc4502e5987
+ninja: Entering directory `build'
+[0/2] Re-checking globbed directories...
+[1/4] Building HIP object CMakeFiles/strata_qwen35.dir/src/qwen35/q36_engine.cu.o
+In file included from /home/ronald_rump/inbox/agents/claude/strata-basalt-attn/src/qwen35/q36_engine.cu:30:
+/home/ronald_rump/inbox/agents/claude/strata-basalt-attn/src/qwen35/q36_kernels.cuh:234:21: warning: comparison of integers of different signs: 'unsigned int' and 'int' [-Wsign-compare]
+  234 |     if (threadIdx.x < K_) pk[threadIdx.x] = parts + (size_t) (prow ? prow[t * K_ + threadIdx.x] : t * K_ + threadIdx.x) * n;
+      |         ~~~~~~~~~~~ ^ ~~
+/home/ronald_rump/inbox/agents/claude/strata-basalt-attn/src/qwen35/q36_engine.cu:162:21: warning: comparison of integers of different signs: 'unsigned int' and 'int' [-Wsign-compare]
+  162 |     if (threadIdx.x < K_)   // pick k's row: t * K + k, or its sorted row (`prow`, the prompt's MMQ order)
+      |         ~~~~~~~~~~~ ^ ~~
+/home/ronald_rump/inbox/agents/claude/strata-basalt-attn/src/qwen35/q36_engine.cu:1736:41: warning: unused variable 'N' [-Wunused-variable]
+ 1736 |         const size_t T = (size_t) tmax, N = (size_t) g.n_embd, Kp = (size_t) m->top_k, FF = (size_t) g.n_ff;
+      |                                         ^
+/home/ronald_rump/inbox/agents/claude/strata-basalt-attn/src/qwen35/q36_engine.cu:1736:64: warning: unused variable 'Kp' [-Wunused-variable]
+ 1736 |         const size_t T = (size_t) tmax, N = (size_t) g.n_embd, Kp = (size_t) m->top_k, FF = (size_t) g.n_ff;
+      |                                                                ^~
+/home/ronald_rump/inbox/agents/claude/strata-basalt-attn/src/qwen35/q36_engine.cu:1736:88: warning: unused variable 'FF' [-Wunused-variable]
+ 1736 |         const size_t T = (size_t) tmax, N = (size_t) g.n_embd, Kp = (size_t) m->top_k, FF = (size_t) g.n_ff;
+      |                                                                                        ^~
+/home/ronald_rump/inbox/agents/claude/strata-basalt-attn/src/qwen35/q36_engine.cu:5369:56: warning: missing field 'recent' initializer [-Wmissing-field-initializers]
+ 5369 |         strata::qwen35::mtp::Adaptive adapt{E.mtp_adapt};
+      |                                                        ^
+/home/ronald_rump/inbox/agents/claude/strata-basalt-attn/src/qwen35/q36_engine.cu:6037:56: warning: missing field 'recent' initializer [-Wmissing-field-initializers]
+ 6037 |         strata::qwen35::mtp::Adaptive adapt{E.mtp_adapt};
+      |                                                        ^
+7 warnings generated when compiling for gfx1030.
+In file included from /home/ronald_rump/inbox/agents/claude/strata-basalt-attn/src/qwen35/q36_engine.cu:30:
+/home/ronald_rump/inbox/agents/claude/strata-basalt-attn/src/qwen35/q36_kernels.cuh:234:21: warning: comparison of integers of different signs: 'unsigned int' and 'int' [-Wsign-compare]
+  234 |     if (threadIdx.x < K_) pk[threadIdx.x] = parts + (size_t) (prow ? prow[t * K_ + threadIdx.x] : t * K_ + threadIdx.x) * n;
+      |         ~~~~~~~~~~~ ^ ~~
+/home/ronald_rump/inbox/agents/claude/strata-basalt-attn/src/qwen35/q36_engine.cu:162:21: warning: comparison of integers of different signs: 'unsigned int' and 'int' [-Wsign-compare]
+  162 |     if (threadIdx.x < K_)   // pick k's row: t * K + k, or its sorted row (`prow`, the prompt's MMQ order)
+      |         ~~~~~~~~~~~ ^ ~~
+/home/ronald_rump/inbox/agents/claude/strata-basalt-attn/src/qwen35/q36_engine.cu:1736:41: warning: unused variable 'N' [-Wunused-variable]
+ 1736 |         const size_t T = (size_t) tmax, N = (size_t) g.n_embd, Kp = (size_t) m->top_k, FF = (size_t) g.n_ff;
+      |                                         ^
+/home/ronald_rump/inbox/agents/claude/strata-basalt-attn/src/qwen35/q36_engine.cu:1736:64: warning: unused variable 'Kp' [-Wunused-variable]
+ 1736 |         const size_t T = (size_t) tmax, N = (size_t) g.n_embd, Kp = (size_t) m->top_k, FF = (size_t) g.n_ff;
+      |                                                                ^~
+/home/ronald_rump/inbox/agents/claude/strata-basalt-attn/src/qwen35/q36_engine.cu:1736:88: warning: unused variable 'FF' [-Wunused-variable]
+ 1736 |         const size_t T = (size_t) tmax, N = (size_t) g.n_embd, Kp = (size_t) m->top_k, FF = (size_t) g.n_ff;
+      |                                                                                        ^~
+/home/ronald_rump/inbox/agents/claude/strata-basalt-attn/src/qwen35/q36_engine.cu:5369:56: warning: missing field 'recent' initializer [-Wmissing-field-initializers]
+ 5369 |         strata::qwen35::mtp::Adaptive adapt{E.mtp_adapt};
+      |                                                        ^
+/home/ronald_rump/inbox/agents/claude/strata-basalt-attn/src/qwen35/q36_engine.cu:6037:56: warning: missing field 'recent' initializer [-Wmissing-field-initializers]
+ 6037 |         strata::qwen35::mtp::Adaptive adapt{E.mtp_adapt};
+      |                                                        ^
+/home/ronald_rump/inbox/agents/claude/strata-basalt-attn/src/qwen35/q36_engine.cu:236:17: warning: unused function 'k_gate_rows' [-Wunused-function]
+  236 | __global__ void k_gate_rows(float* sh, const float* gate, int n, int T) {
+      |                 ^~~~~~~~~~~
+8 warnings generated when compiling for host.
+[2/4] Linking HIP static library libstrata_qwen35.a
+[3/4] Linking HIP executable strata-q36

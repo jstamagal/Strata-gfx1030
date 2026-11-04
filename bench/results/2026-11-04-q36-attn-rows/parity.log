@@ -1,0 +1,30 @@
+UpdateCTestConfiguration  from :/home/ronald_rump/inbox/agents/claude/strata-basalt-attn/build/DartConfiguration.tcl
+Test project /home/ronald_rump/inbox/agents/claude/strata-basalt-attn/build
+Constructing a list of tests
+Done constructing a list of tests
+Updating test list for fixtures
+Added 0 tests to meet fixture requirements
+Checking test dependency graph...
+Checking test dependency graph end
+test 33
+    Start 33: q36_attn_rows
+
+33: Test command: /home/ronald_rump/inbox/agents/claude/strata-basalt-attn/build/q36_attn_rows
+33: Working Directory: /home/ronald_rump/inbox/agents/claude/strata-basalt-attn/build
+33: Environment variables: 
+33:  HIP_VISIBLE_DEVICES=0
+33: Test timeout computed to be: 600
+33: device 0: AMD Radeon Pro V620 (gfx1030), 36 HIP multiprocessors, wave32
+33: type=2: random, saturated softmax, signed zero, STREAM, RowSel passed
+33: type=1: random, saturated softmax, signed zero, STREAM, RowSel passed
+33: type=0: random, saturated softmax, signed zero, STREAM, RowSel passed
+33: type=3: random, saturated softmax, signed zero, STREAM, RowSel passed
+33: PASS: 594 cases, pacc/pm/pl/merged and untouched guards bitwise equal to both original kernels
+1/1 Test #33: q36_attn_rows ....................   Passed   44.17 sec
+
+The following tests passed:
+	q36_attn_rows
+
+100% tests passed out of 1
+
+Total Test time (real) =  44.18 sec
