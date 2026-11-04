@@ -124,7 +124,7 @@ Other packs, at their best configs:
 | Pipeline depth 3 (the `--pipeline-windows` clamp at 2) | **Low priority.** Card 0 is already 82-97% in flight. |
 | A full 2-wide verify tree (siblings at every depth) | **About break-even.** Offline: the drafter's top-2 is the verifier's token in 42% of top-1 rejections (0.45 at top-1 p 0.4-0.7; BF16 experts give the same). ~0.18 extra tokens per window for ~3 extra rows, before GDN branch state. Live form: the **leaf fork** below. |
 | `--spec-min-p` below 0.7; the cost-aware rule `STRATA_SPEC_COST=1` | **Queued** (audit window 18: 0.40, 0.50, 0.70 x mtp-max-t 2/3, plus SPEC_COST). |
-| Re-attribute the 36K prompt with `STRATA_PREFILL_TIMING=1` | **Queued** (window PFT). |
+| Re-attribute the 36K prompt with `STRATA_PREFILL_TIMING=1` | **Done** (window PFT). Per 4096-token chunk (~1.25 s GPU): gate/up GEMM 21%, QSA attention 13%, GDN recurrence 10% + gdn 9% + out proj 5%, QSA proj 8.5%, down GEMM 8%, HC reads 10% + write 3%, dequant 3.5%; host waits ~40 ms. The first chunk after start costs 2.2 s (a one-time warm-up). No phase above 21%. |
 | The #649 handshake switches `STRATA_VERIFY_COHERENT=1` and `STRATA_DOORBELL_STORE=1` against the stalls | **Queued** (window COH, 8 passes each, gap census). |
 | A gap-count column in the harness (stall-aware A/B reading) | **Adopted** for traced windows. |
 | Cursor-following lookup for edits | Open, edits-only, small; nobody owns it yet. |
