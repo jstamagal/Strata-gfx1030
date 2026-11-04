@@ -115,7 +115,7 @@ Other packs, at their best configs:
   the prompt was **expert-streaming-bound**. That held before full residency (see the dream list). The "cards ~45%
   busy on prompt" figure is from the same pre-residency era; don't cite it.
 
-### Already proposed and judged (previous swarm run + coordinator checks)
+### Already proposed and judged (swarm runs 1-2 + coordinator checks)
 
 | idea | verdict |
 |---|---|
@@ -125,19 +125,24 @@ Other packs, at their best configs:
 | A full 2-wide verify tree (siblings at every depth) | **About break-even.** Offline: the drafter's top-2 is the verifier's token in 42% of top-1 rejections (0.45 at top-1 p 0.4-0.7; BF16 experts give the same). ~0.18 extra tokens per window for ~3 extra rows, before GDN branch state. Live form: the **leaf fork** below. |
 | `--spec-min-p` below 0.7; the cost-aware rule `STRATA_SPEC_COST=1` | **Queued** (audit window 18: 0.40, 0.50, 0.70 x mtp-max-t 2/3, plus SPEC_COST). |
 | Re-attribute the 36K prompt with `STRATA_PREFILL_TIMING=1` | **Done** (window PFT). Per 4096-token chunk (~1.25 s GPU): gate/up GEMM 21%, QSA attention 13%, GDN recurrence 10% + gdn 9% + out proj 5%, QSA proj 8.5%, down GEMM 8%, HC reads 10% + write 3%, dequant 3.5%; host waits ~40 ms. The first chunk after start costs 2.2 s (a one-time warm-up). No phase above 21%. |
-| The #649 handshake switches `STRATA_VERIFY_COHERENT=1` and `STRATA_DOORBELL_STORE=1` against the stalls | **Queued** (window COH, 8 passes each, gap census). |
+| The #649 handshake switches `STRATA_VERIFY_COHERENT=1` and `STRATA_DOORBELL_STORE=1` against the stalls | COHERENT **cut**: CLR's hipHostMalloc already maps that memory coherent (run 2 nyira). DOORBELL_STORE **queued** (window COH). |
 | A gap-count column in the harness (stall-aware A/B reading) | **Adopted** for traced windows. |
 | Cursor-following lookup for edits | Open, edits-only, small; nobody owns it yet. |
-| Missing early PLE flag in the pipelined `pl_launch` (the HIP lock cycle between hipGraphLaunch and the flag, documented at `early_ple_flag_mode`) | **Being implemented** by the coordinator: `STRATA_PL_EARLY_PLE_FLAG`, plus a logger for slow `pl_launch` calls. Leading #267/stall candidate. |
+| Missing early PLE flag in the pipelined `pl_launch` (the HIP lock cycle between hipGraphLaunch and the flag, documented at `early_ple_flag_mode`) | **Falsified** (window EPF): the stalls stay with the flag raised first, and no launch, event record or commit wait took >50 ms during 16 gaps. The host polls; the GPU is late. |
+| Shared hardware queues: `GPU_MAX_HW_QUEUES=4` (live, never measured) under >4 streams per card plus device spin-waits | **Queued** (window HWQ: 4 vs 16, gap census). Leading stall/#267 candidate. |
+| Full-A rollback GDN skip (no snapshot restore or GDN replay when undo_keep == A.T; ~24% of verdicts) | **Built** as `STRATA_PL_UNDO_KEEP_GDN` (default off); window UKG queued. May hide under the fresh chain. |
+| `STRATA_HANDOFF_PIPE` pieced prompt hand-off | **Queued** (window ZB, 4 and 8 pieces). |
+| Drafter chain paces stage 0 (chain late) | **Measured:** ~11% of agent decode is stage 0 waiting on chain-done (~3.45 ms each). Window CHN (`STRATA_PL_GUESS_T`) running. |
+| GDN rollback snapshot writes in `gdn_core.cuh` | **Dead:** `src/split/`, not the live binary. |
 | `STRATA_SH_STREAM=0` under full residency (unprofiled) | **Queued** (window ZB). |
 | `STRATA_HC_PERSIST=1` (its gfx1030 evidence comes from 2x 6900 XT; it is a no-op while `QFUSE`/`NODE_FUSE` are on) | **Queued** as 3 arms: live, fusions off, fusions off + HC_PERSIST (window ZB). |
 | `--resident-experts` complement mode (drops the 46.84 GiB host copy of experts that are all GPU-resident) | **Queued** (window ZB, agent + 36K). |
 | `STRATA_PREFILL_SWIGLU_QUANT=1`, `STRATA_PREFILL_COMBINE_WRITE=1` | **Queued**, each alone on 36K (window ZB). |
-| Per-kernel-class profile of a decode window on both cards (`STRATA_VERIFY_PROFILE=1 STRATA_DECODE_TIMING=1`) | **Queued** (window ZB); never taken on V620 before. |
+| Per-kernel-class profile of a decode window on both cards (`STRATA_VERIFY_PROFILE=1 STRATA_DECODE_TIMING=1`) | **Queued** (window ZB). The profile turns several fusions and the shared stream off: a class ranking, never live shares. |
 | Cut the doomed guessed window's tail on card 0 | **Dead:** ~0.6% after fixing a join bug. |
 | PLE demand/prefetch queue inversion (`ple_reader.cpp`) | **Low.** Live logs show reader wait 0.03-0.27 ms and 0 windows held. |
 | Compact raw PLE transport in direct mode | **Parked:** ~0.3% ceiling. |
-| IQ expert kernel cliff from 4 to 5 rows (`LDS_NT=4`: 85.6 -> 125.3 us at T4 -> T5, 147.6 at T8) | **Candidate** kernel work: an 8-entry specialization for 5-8-row windows. Needs a route-multiplicity check. |
+| IQ expert kernel cliff from 4 to 5 rows (`LDS_NT=4`: 85.6 -> 125.3 us at T4 -> T5, 147.6 at T8) | **Unpriced:** the cliff is per expert group and the bench shares every route (run 2 kivu/mikeno). Needs a live route-group multiplicity histogram first. |
 | Q4_0 missing `kSplit` specializations; excluded from fused gate/up and DOWN_L | Q4_0-pack backlog (not the daily driver). |
 | `STRATA_DRAFT_CONTEXT=1` disables the 2-bit head proxy (`!ctx_base_`) | **Open** code road: proxy base plus dynamic exact rows. |
 | Guessed-window survival is overconfident (predicted 0.45 -> observed ~0.27) | **Open:** a policy calibration, split by fresh/guessed window and drafter. |
