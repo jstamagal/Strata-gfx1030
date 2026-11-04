@@ -489,7 +489,7 @@ It splits host-blocked (reclaim, compaction, faults) from GPU-late (the service 
 **Natural #267 at 15:29**, audit window 16, arm w16_copy1_b (live config, main build-hip, quiet box). It happened
 on the 2nd agent case. The release log says "the GPU finished in 0 ms" on all four verifiers. The GPU was idle,
 spinning on a flag; it saw the release write at once, so the flag memory is visible to it. That rules out a stale
-GPU cache. **The host never raised the flag**: it was either blocked or waiting on something else. The live config
+GPU cache. (Corrected below: the host never raised SOME window's flag; the reporting verifier's own was up.) The live config
 has no DMA host-function path (--pcie-frac 0, copy-kernel mode), so flag A (the plan the CPU pool publishes) is
 the likely wait. Window STALL (started 15:39) captures the host side.
 
@@ -661,3 +661,24 @@ Not built:
 
 Training data comes from STRATA_MTP_CAPTURE (~360 records per second of generation, 72 KB each). Full-block
 training needs a round-input hook (~1 h); distillation needs a verify top-k dump (~0.5 day).
+
+**Correction to the natural-#267 reading above** (from the early-flag agent's source read, verified in
+verify.cpp):
+- "the window never finished" comes from done(). In zero-doorbell mode that is reached only after service() has
+  raised that verifier's own PLE flag.
+- The four "finished in 0 ms" lines print after done()'s own 5 s release has already drained the GPU.
+- So the reporting verifier's flag WAS up. Its graph was held by something else: most likely an earlier graph on
+  the same stage stream, spinning on its own unraised flag while the host polled the later window. Inference.
+- "The host never raised the flag" is withdrawn for that verifier. "Host waits on GPU, GPU waits on a host flag"
+  still stands as a cross-window ordering cycle.
+- Two older #267 logs (w_kvs2_kv61_agent, mtpq_cap_agent) say the release did NOT free the GPU within 5 s, so not
+  every #267 is a host-flag spin.
+
+**Early-flag build** (basalt38/pl-early-ple, 72ca0237f, binary fae158d9; 21/21 CPU tests, none of which cover the
+pipelined path):
+- `STRATA_PL_EARLY_PLE_FLAG=1` raises every pipelined zero-doorbell window's PLE flag before cudaGraphLaunch. In
+  the live config that removes every host-flag spin from the verify graphs.
+- `STRATA_PL_LAUNCH_SLOW_MS` logs slow pl_launch / commit calls, together with the state of every in-flight
+  window.
+- Window EPF (4+4 agent/edit per mode, traced) runs at 16:4x, ahead of window COH.
+- If e1 still stalls, the host-flag theory is out for verify.
