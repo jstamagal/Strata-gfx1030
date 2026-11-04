@@ -3781,6 +3781,7 @@ bool Verifier::run(int T, const int32_t* tokens, int64_t pos0, PoolMultiFn pool,
         ms_wait += std::chrono::duration<double, std::milli>(b - a).count();
         ms_pool += ms_since(b);
     }
+    if (le_ == g.n_layers && layers_served_) layers_served_();
     // (#646 staged the next stage's inputs here; 0.1.39b keeps the layer split's order: each stage stages its own)
     if (chain) {
         // The overlapped split: no host sync between the stages.  The next stage's GPU starts on this stage's flag;

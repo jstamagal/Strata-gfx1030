@@ -4308,10 +4308,16 @@ uint8_t* FileExpertSource::exchange_buffer(int64_t q, int64_t layer) const {
 }
 
 bool FileExpertSource::stage_exchange(int64_t layer, int64_t in, int64_t out, int64_t q) {
-    if (out < 0 || out >= n_expert_ || !has_resident(layer, in) || has_resident(layer, out) ||
+    return stage_exchange(layer, in, layer, out, q);
+}
+
+bool FileExpertSource::stage_exchange(int64_t layer, int64_t in, int64_t lout, int64_t out, int64_t q) {
+    if (layer < 0 || layer >= n_layers_ || lout < 0 || lout >= n_layers_ ||
+        layer_blob_bytes_[(size_t) layer] != layer_blob_bytes_[(size_t) lout] ||
+        out < 0 || out >= n_expert_ || !has_resident(layer, in) || has_resident(lout, out) ||
         exchange_buffer(q, layer) == nullptr) return false;
     const size_t i_in = (size_t) layer * (size_t) n_expert_ + (size_t) in;
-    const size_t i_out = (size_t) layer * (size_t) n_expert_ + (size_t) out;
+    const size_t i_out = (size_t) lout * (size_t) n_expert_ + (size_t) out;
     if (override_.empty()) override_.assign((size_t) blobs_, nullptr);
     if (override_[i_out] != nullptr) return false;
     for (const Exchange& x : staged_)

@@ -85,6 +85,8 @@ public:
     Verifier(const Verifier&) = delete;
     Verifier& operator=(const Verifier&) = delete;
     void set_remote_expert_opt(RemoteExpertOpt* opt) { remote_opt_ = opt; } // before init/capture
+    void set_layers_served(std::function<void()> fn) { layers_served_ = std::move(fn); }
+    std::function<void()> layers_served_;
 
     /// The watchdog's view of the window in flight (issue #31): the layer, the GPU's sequence, the flags.
     void diag(std::FILE* f) const;
