@@ -85,6 +85,8 @@ public:
     Verifier(const Verifier&) = delete;
     Verifier& operator=(const Verifier&) = delete;
     void set_remote_expert_opt(RemoteExpertOpt* opt) { remote_opt_ = opt; } // before init/capture
+    void set_layers_served(std::function<void()> fn) { layers_served_ = std::move(fn); }
+    std::function<void()> layers_served_;
 
     /// The watchdog's view of the window in flight (issue #31): the layer, the GPU's sequence, the flags.
     void diag(std::FILE* f) const;
@@ -129,11 +131,14 @@ public:
     static bool nan_guard_on();
     /// The most tokens one window holds (`init`'s `max_t`; 0 before it).
     int max_t() const { return max_t_; }
+    const int32_t* top_ids() const { return next_ ? next_->top_ids() : h_top_ids_; }
     /// The sampling the verify window's head applies (temperature / top_p / top_k / seed).  Set per
     /// request; greedy by default.  The sampling itself runs OUTSIDE the captured graph - its
     /// parameters would otherwise be baked forever - so this can change between requests freely.
     void set_sampling(const strata::kernels::SamplerParams& sp) {
         sampling_ = sp;   // row t of a window at pos0 draws Philox(seed, pos0 + t): see run()
+        sampling_.top_ids = m_top_ids_;
+        sampling_.n_top = m_top_ids_ ? 8 : 0;
         sampling_.logit_bias = logit_bias_host_.empty() ? nullptr : logit_bias_device_;
         if (next_) next_->set_sampling(sp);
     }
@@ -651,6 +656,8 @@ private:
     cudaStream_t cs_ = nullptr;
     cudaStream_t sh_cs_ = nullptr;
     cudaEvent_t ev_fork_ = nullptr, ev_join_ = nullptr;
+    cudaStream_t read_ahead_cs_ = nullptr;
+    cudaEvent_t read_ahead_fork_ = nullptr, read_ahead_join_ = nullptr;
     // STRATA_DF_BRANCH: a layer's mixer work that reads only the layer's input, captured as parallel graph branches
     // on these side streams (record_window); the same kernels on the same inputs, only their order is freer
     bool df_branch_ = false;
@@ -681,6 +688,7 @@ private:
     int32_t* h_commit_ = nullptr; int32_t* m_commit_ = nullptr; // [n_keep, n_keep-1, pos_0 .. pos_{T-1}]
     float* h_ple_ = nullptr;     float* m_ple_ = nullptr;       // T * n_embd
     int32_t* h_out_ = nullptr;   int32_t* m_out_ = nullptr;     // T argmax ids
+    int32_t* h_top_ids_ = nullptr; int32_t* m_top_ids_ = nullptr;
     // STRATA_TAP_FILE (off by default; nothing is allocated or captured without it): the DFlash2 experiment's hook.
     // After each layer in STRATA_TAP_LAYERS (default 5,15,25,35,45) the window copies the layer's completed output
     // (the residual with its pending FFN write applied, the mean of the hc streams) per row; run() appends

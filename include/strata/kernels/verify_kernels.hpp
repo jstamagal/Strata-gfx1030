@@ -20,6 +20,18 @@
 
 namespace strata::kernels {
 
+#if defined(STRATA_USE_HIP)
+struct StallReadAhead {
+    const void* p[12] = {};
+    uint64_t bytes[12] = {};
+    int n = 0;
+};
+// One bounded pass; a completed CPU flag or a device-planned group stops the reads.
+void stall_read_ahead(const StallReadAhead& ranges, const uint32_t* flag, uint32_t ring,
+                     const uint32_t* skip, uint64_t budget, int blocks, void* stream,
+                     unsigned long long* lines = nullptr, int chunks = 1);
+#endif
+
 /// The most rows one verify / batch window holds (8; 16 in the CUDA / HIP builds, window_limits.hpp).  A window of up to
 /// kVerifyNarrowT rows runs the kernels it always ran.
 inline constexpr int kVerifyMaxT = kWindowMaxT;

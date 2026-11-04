@@ -946,6 +946,7 @@ std::string ExpertPool::placement_line() const {
 }
 
 ExpertPool::~ExpertPool() {
+    idle_stop();
     const ExpertPool* self = this;
     g_diag_pool.compare_exchange_strong(self, nullptr);
     if (g_numa_owner == this) {
@@ -1185,7 +1186,9 @@ void ExpertPool::drain(int id, ExpertScratch& scratch, uint32_t epoch) {
         const uint32_t i = (uint32_t) ci;
         if (id >= 0) wstate_[(size_t) id].store(ci, std::memory_order_relaxed);
         else { hstate_.store(ci, std::memory_order_relaxed); hstate_ms_.store(now_ms(), std::memory_order_relaxed); }
-        if (mode_ == 0) {
+        if (mode_ == 7) {
+            idle_fn_(idle_ctx_, (int) i, n_, idle_halt_);
+        } else if (mode_ == 0) {
             const ExpertJob& j = jobs_[i];
             s2_expert_vnni_q(j.blob, *j.act, j.out, scratch);
         } else if (mode_ == 1) {
@@ -1283,7 +1286,35 @@ void ExpertPool::drain(int id, ExpertScratch& scratch, uint32_t epoch) {
     }
 }
 
+void ExpertPool::idle_start(IdleFn fn, void* ctx) {
+    idle_stop();
+    if (n_ <= 0 || fn == nullptr) return;
+    wait_parked("before idle work");
+    idle_fn_ = fn; idle_ctx_ = ctx;
+    idle_halt_.store(false, std::memory_order_relaxed);
+    mode_ = 7; njobs_ = n_;
+    begin_batch(n_);
+    idle_live_ = true;
+}
+
+void ExpertPool::idle_stop() {
+    if (!idle_live_) return;
+    idle_halt_.store(true, std::memory_order_release);
+    uint64_t h = head_.load(std::memory_order_acquire);
+    uint32_t claimed = 0;
+    for (;;) {
+        const uint32_t n = (uint32_t) (h >> 16) & 0xffffu, i = (uint32_t) h & 0xffffu;
+        claimed = std::min(i, n);
+        if (i >= n || head_.compare_exchange_weak(h, (h & ~uint64_t(0xffffu)) | n, std::memory_order_acq_rel)) break;
+    }
+    wait_done((int) claimed);
+    wait_parked("after idle work");
+    idle_live_ = false;
+    mode_ = 0;
+}
+
 void ExpertPool::run_phase(int mode, int n_tasks) {
+    idle_stop();
     wait_parked("before a phase");
     mode_ = mode;
     njobs_ = n_tasks;
@@ -1304,6 +1335,7 @@ void ExpertPool::run_phase(int mode, int n_tasks) {
 }
 
 void ExpertPool::run_split(ExpertJob* jobs, int n) {
+    idle_stop();
     if (n <= 0) return;
     if (n > kMaxSplit || n_ == 1 || expert_oracle_q8_0_enabled()) { run(jobs, n); return; }
     const auto t0 = std::chrono::steady_clock::now();
@@ -1324,6 +1356,7 @@ int ExpertPool::phase_tasks(int64_t rows) const {
 }
 
 void ExpertPool::run_split_multi(ExpertJobMulti* jobs, int n) {
+    idle_stop();
     if (n <= 0) return;
     if (n > kMaxSplitMulti || expert_oracle_q8_0_enabled()) {
         // one token at a time through the single-token path (the oracle contract has no multi kernel)
@@ -1363,6 +1396,7 @@ void ExpertPool::run_split_multi(ExpertJobMulti* jobs, int n) {
 }
 
 void ExpertPool::run_split_multi_native(const NativeFmt& f, ExpertJobMulti* jobs, int n, NativeArithmetic arithmetic) {
+    idle_stop();
     if (n <= 0) return;
     const auto t0 = std::chrono::steady_clock::now();
     // more distinct experts than buffers: run them in batches
@@ -1395,6 +1429,7 @@ void ExpertPool::run_split_multi_native(const NativeFmt& f, ExpertJobMulti* jobs
 }
 
 void ExpertPool::run(ExpertJob* jobs, int n) {
+    idle_stop();
     if (n <= 0) return;
     if (n_ == 1) {   // no workers: run inline, so a single-core machine still produces a token
         for (int i = 0; i < n; ++i) s2_expert_vnni_q(jobs[i].blob, *jobs[i].act, jobs[i].out, scratch_[0]);

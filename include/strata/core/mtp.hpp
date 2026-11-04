@@ -21,6 +21,8 @@
 
 #include "strata/core/layer.hpp"
 #include "strata/core/pinned_ring.hpp"
+#include "strata/core/draft_cum.hpp"
+#include "strata/core/draft_context.hpp"
 #include "strata/core/session.hpp"
 #include "strata/kernels/sampler.hpp"
 #include "strata/kernels/verify_kernels.hpp"
@@ -111,6 +113,8 @@ public:
     bool bind(const WeightTable& wt, const NativeHead* head, const float* window_R, std::string& err,
               const MtpDrafter* shared = nullptr);
     void set_window_R(const float* window_R) { window_R_ = window_R; }
+    bool begin_context(const int64_t* prompt, int64_t n, std::string& err);
+    void note_context(const int32_t* ids, int n, bool candidates = false) { if (ctx_base_) ctx_rows_.note(ids, n, candidates); }
 
     /// Prompt cells [cell0, cell0 + n): residual rows `R_rows` (device, hc*n_embd each) and `next_tokens` (host,
     /// the token at position cell+1).  Runs in batches of up to max_t rows.  `sync` false: returns without waiting
@@ -147,6 +151,7 @@ public:
     /// STRATA_SPEC_COST: called after each draft step with (index, probability) instead of the `min_p` test; false ends the chain.
     /// Also called once for the last step of a chain that reached its length (so the rule sees every draft). Empty: min_p decides.
     void set_chain_rule(std::function<bool(int, float)> f) { chain_rule_ = std::move(f); }
+    void set_draft_cum(const DraftCumAdapt* rule) { cum_on_ = rule != nullptr; if (rule) cum_rule_ = *rule; }
 
     bool draft_first(int T, const float* R_row, int32_t token, int64_t cell, int32_t* drafts, std::string& err,
                      float* probs = nullptr, float min_p = 0.0f, int* n_drafts = nullptr, DraftResult* result = nullptr);
@@ -298,6 +303,8 @@ private:
     std::vector<float> lg_host_;
     // --pipeline-windows 2 (chain_launch)
     bool stage_source_R(int T, std::string& err);   ///< set_source_R's rows into the bound buffer
+    DraftCumAdapt cum_rule_;
+    bool cum_on_ = false;
     bool force_on_ = false, chain_live_ = false;
     const float* src_R_ = nullptr;
     int32_t *h_force_ = nullptr, *m_force_ = nullptr;   ///< the forced tokens (mapped), -1 = the step's own pick
@@ -316,6 +323,7 @@ private:
     int64_t pf_cap_ = 0;          ///< its capacity in ints
     cudaStream_t side_ = nullptr;                    // the shared expert's branch of the draft graphs (CUDA)
     cudaEvent_t sh_fork_ = nullptr, sh_join_ = nullptr;
+    bool kv_defer_ = false, kv_open_ = false;
     cudaGraphExec_t round_exec_[strata::kernels::kVerifyLongT + 1] = {};
 
     struct Tensor { std::string name, kind; int64_t rows = 0, cols = 0; uint64_t off = 0, bytes = 0; };
@@ -345,6 +353,10 @@ private:
     uint8_t* dhead_ = nullptr;
     int32_t* dvocab_ = nullptr;
     int64_t n_dvocab_ = 0;
+    int64_t ctx_base_ = 0;
+    DraftContextRows ctx_rows_;
+    void* ctx_bounce_ = nullptr;
+    bool flush_context(std::string& err);
     std::string rt_dir_;
     int64_t window_ = 0;        // attention over the last window_ cells (0 = every cell)
     int64_t cell_floor_ = 0;    // KVA: no draft cell below this one is read or built (set_cell_floor)

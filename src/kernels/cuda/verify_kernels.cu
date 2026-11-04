@@ -27,6 +27,40 @@
 #include <vector>
 
 namespace strata::kernels {
+#if defined(STRATA_USE_HIP)
+__global__ void stall_read_ahead_kernel(StallReadAhead ranges, const volatile uint32_t* flag, uint32_t ring,
+                                       const volatile uint32_t* skip, uint64_t budget, unsigned long long* lines, int chunks) {
+    const uint64_t span = (uint64_t) blockDim.x * 64;
+    const uint64_t stride = (uint64_t) gridDim.x * span * chunks;
+    uint64_t left = budget, count = 0;
+    for (int r = 0; r < ranges.n && r < 12 && left >= 4; ++r) {
+        const uint64_t n = ranges.bytes[r] < left ? ranges.bytes[r] : left;
+        for (uint64_t base = (uint64_t) blockIdx.x * span * chunks; base < n; base += stride) {
+            const bool stop = threadIdx.x == 0 && ((flag && *flag >= ring) || (skip && *skip >= ring));
+            if (__syncthreads_or(stop)) goto done;
+            for (int c = 0; c < chunks; ++c) {
+                const uint64_t off = base + (uint64_t) c * span + (uint64_t) threadIdx.x * 64;
+                if (off + 4 <= n) {
+                    const uint32_t v = *(const volatile uint32_t*) ((const uint8_t*) ranges.p[r] + off);
+                    (void) v;
+                    ++count;
+                }
+            }
+        }
+        left -= n;
+    }
+done:
+    if (lines && count) atomicAdd(lines, (unsigned long long) count);
+}
+
+void stall_read_ahead(const StallReadAhead& ranges, const uint32_t* flag, uint32_t ring,
+                     const uint32_t* skip, uint64_t budget, int blocks, void* stream,
+                     unsigned long long* lines, int chunks) {
+    if (ranges.n <= 0 || budget < 4) return;
+    stall_read_ahead_kernel<<<std::clamp(blocks, 1, 16), 256, 0, (cudaStream_t) stream>>>(ranges, flag, ring, skip, budget, lines,
+                                                                                   std::clamp(chunks, 1, 16));
+}
+#endif
 namespace {
 
 constexpr int S = 128;          // GDN state size

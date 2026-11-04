@@ -27,7 +27,13 @@ struct SamplerParams {
     bool greedy = false;
     const float* logit_bias = nullptr; // optional device array [n_vocab], added BEFORE penalties/filters; -inf bans
     bool gumbel = false;         // STRATA_SPEC_GUMBEL=1: Gumbel-max pick keyed by (seed, counter, token id) - see sampler.cu
+    int* top_ids = nullptr;      // optional kept shortlist, best first, padded with -1
+    int n_top = 0;
 };
+
+#if defined(STRATA_USE_HIP)
+void draft_context_mask(float* logits, int rows, int vocab, const int32_t* ids, int first, void* stream);
+#endif
 
 // logits (n_tokens, n_vocab) -> one sampled token id per row in `out`.
 //

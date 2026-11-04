@@ -70,6 +70,15 @@ namespace {
 
 constexpr float EPS = 1e-6f;
 
+bool draft_context_on() {
+#if defined(STRATA_USE_HIP)
+    const char* e = std::getenv("STRATA_DRAFT_CONTEXT");
+    return e && std::atoi(e) != 0;
+#else
+    return false;
+#endif
+}
+
 // #783 PR-i: STRATA_MTP_CATCHUP_ALL=1 catches the drafter's K/V up for the whole verified window, rejected rows included
 bool mtp_catchup_all() {
     static const bool on = [] {
@@ -183,6 +192,7 @@ MtpDrafter::~MtpDrafter() {
     if (owns_draft_head_ && dvocab_) cudaFree(dvocab_);
     if (owns_draft_head_ && head_proxy_) cudaFree(head_proxy_);
     if (head_proxy_scratch_) cudaFree(head_proxy_scratch_);
+    if (ctx_bounce_) cudaFreeHost(ctx_bounce_);
     if (ev_chain_) cudaEventDestroy(ev_chain_);
     for (cudaEvent_t e : ev_step_) if (e) cudaEventDestroy(e);
     void* hosts[] = {h_tok_, h_step_, h_pos_, h_row_, h_out_, h_prob_, h_force_, h_floor_};
@@ -594,6 +604,15 @@ bool MtpDrafter::load(const std::string& rt_dir, const ModelGeometry& g, Session
         }
     }
 #endif
+#if defined(STRATA_USE_HIP)
+    if (const char* e = std::getenv("STRATA_MTP_KV_SIDE"); e && std::atoi(e) != 0) {
+        if ((side_ == nullptr && cudaStreamCreateWithFlags(&side_, cudaStreamNonBlocking) != cudaSuccess) ||
+            cudaEventCreateWithFlags(&sh_fork_, cudaEventDisableTiming) != cudaSuccess ||
+            cudaEventCreateWithFlags(&sh_join_, cudaEventDisableTiming) != cudaSuccess) {
+            err = "mtp: K/V append side stream failed"; return false;
+        }
+    }
+#endif
     const double files_s = std::chrono::duration<double>(std::chrono::steady_clock::now() - t_files).count();
     if (shared != nullptr) {
         std::fprintf(stderr, "strata mtp: shared draft weights, %.0f MiB of private state and buffers\n",
@@ -709,6 +728,7 @@ uint64_t MtpDrafter::bind_bytes(uint64_t head_row_bytes, int64_t n_vocab) const 
                                  std::getenv("STRATA_MTP_HEAD_PROXY") ? " (forced)" : " (auto gfx1030 Q8_0)", (unsigned long long)proxy);
                     head_proxy_reserve_noted_ = true;
                 }
+                if (draft_context_on()) bytes += DraftContextRows::capacity * (head_row_bytes + 4);
             }
         }
     }
@@ -720,7 +740,7 @@ uint64_t MtpDrafter::bind_bytes(uint64_t head_row_bytes, int64_t n_vocab) const 
 }
 
 bool MtpDrafter::draft_head_view(const NativeHead* head, const std::string& vocab_path, DraftHeadView& out) const {
-    if (head == nullptr || head != head_ || dhead_ == nullptr || dvocab_ == nullptr || !owns_draft_head_ || !dhead_plain_) return false;
+    if (head == nullptr || head != head_ || dhead_ == nullptr || dvocab_ == nullptr || !owns_draft_head_ || !dhead_plain_ || ctx_base_) return false;
     if (dhead_type_ != head->type() || vocab_path != vocab_file()) return false;
     if (head->device() >= 0 && head->device() != device_) return false;
     if (dvocab_host_.size() != (size_t) n_dvocab_) return false;
@@ -858,6 +878,7 @@ bool MtpDrafter::bind(const WeightTable& wt, const NativeHead* head, const float
         return false;
     }
     if (shared != nullptr) {
+        if (shared->ctx_base_ != 0) { err = "mtp: draft context rows require solo serving"; return false; }
         if (shared->head_ != head || shared->device_ != device_ ||
             shared->n_vocab_ != n_vocab_) {
             err = "mtp: incompatible shared draft head";
@@ -877,8 +898,14 @@ bool MtpDrafter::bind(const WeightTable& wt, const NativeHead* head, const float
         if (read_file(vocab_file(), raw) && raw.size() >= 4 && raw.size() % 4 == 0) {
             n_dvocab_ = (int64_t) (raw.size() / 4);
             const int64_t row_bytes = (int64_t) head->row_bytes();   // a vocabulary row of the native head
-            if (cudaMalloc((void**) &dvocab_, raw.size()) != cudaSuccess ||
-                cudaMalloc((void**) &dhead_, (size_t) (n_dvocab_ * row_bytes)) != cudaSuccess) {
+            const bool context = draft_context_on() && !q4_head_ && !coupled_draft_env() &&
+                                 n_dvocab_ + DraftContextRows::capacity <= n_vocab_ &&
+                                 !strata::kernels::native_q6_k_packed_enabled() && !mtp_q8_sm60();
+            const int extra = context ? DraftContextRows::capacity : 0;
+            if (draft_context_on() && !context)
+                std::fputs("strata mtp: draft context rows declined for a converted or coupled draft head\n", stderr);
+            if (cudaMalloc((void**) &dvocab_, raw.size() + (size_t) extra * 4) != cudaSuccess ||
+                cudaMalloc((void**) &dhead_, (size_t) ((n_dvocab_ + extra) * row_bytes)) != cudaSuccess) {
                 err = "mtp: the draft head does not fit";
                 draft_head_hint(n_dvocab_, row_bytes);
                 return false;
@@ -917,7 +944,18 @@ bool MtpDrafter::bind(const WeightTable& wt, const NativeHead* head, const float
                 strata::kernels::gather_rows((const uint8_t*) head->weights(), row_bytes, dvocab_, n_dvocab_, dhead_, nullptr);
             }
             cudaDeviceSynchronize();
-            vram_ += (uint64_t) (n_dvocab_ * row_bytes) + raw.size();
+            if (context) {
+                ctx_base_ = n_dvocab_;
+                ctx_rows_.init((int) n_vocab_, dvocab_host_);
+                if (cudaMemset(dvocab_ + ctx_base_, 0xff, (size_t) extra * 4) != cudaSuccess ||
+                    cudaMemset(dhead_ + ctx_base_ * row_bytes, 0, (size_t) extra * row_bytes) != cudaSuccess ||
+                    cudaHostAlloc(&ctx_bounce_, (size_t) row_bytes, cudaHostAllocPortable) != cudaSuccess) {
+                    err = "mtp: draft context rows allocation failed"; return false;
+                }
+                n_dvocab_ += extra;
+                dvocab_host_.resize((size_t) n_dvocab_, -1);
+            }
+            vram_ += (uint64_t) (n_dvocab_ * row_bytes) + raw.size() + (size_t) extra * 4;
             std::fprintf(stderr, "strata mtp: draft head over %lld tokens (%.1f MiB)\n", (long long) n_dvocab_,
                          (double) (n_dvocab_ * row_bytes) / 1048576.0);
             dhead_type_ = head->type();
@@ -973,6 +1011,50 @@ bool MtpDrafter::bind(const WeightTable& wt, const NativeHead* head, const float
         }
     }
     if (coupled_draft_env() && cparams_ == nullptr && !setup_coupled(err)) return false;
+    return true;
+}
+
+bool MtpDrafter::begin_context(const int64_t* prompt, int64_t n, std::string& err) {
+    if (!ctx_base_) return true;
+    const OnDevice on(device_);
+    if (chain_live_ || cudaStreamSynchronize(cs_) != cudaSuccess) { err = "mtp: context reset while drafting"; return false; }
+    ctx_rows_.begin(prompt, n);
+    std::fill(dvocab_host_.begin() + ctx_base_, dvocab_host_.end(), -1);
+    if (cudaMemsetAsync(dvocab_ + ctx_base_, 0xff, DraftContextRows::capacity * sizeof(int32_t), cs_) != cudaSuccess) {
+        err = "mtp: context reset failed"; return false;
+    }
+    return true;
+}
+
+bool MtpDrafter::flush_context(std::string& err) {
+    if (!ctx_base_ || ctx_rows_.flushed() == ctx_rows_.ids().size()) return true;
+    const OnDevice on(device_);
+    const auto& ids = ctx_rows_.ids();
+    const size_t first = ctx_rows_.flushed(), bytes = head_->row_bytes();
+    const int source_dev = head_->device();
+    for (size_t i = first; i < ids.size(); ++i) {
+        uint8_t* dst = dhead_ + (ctx_base_ + i) * bytes;
+        const uint8_t* src = (const uint8_t*) head_->weights() + (size_t) ids[i] * bytes;
+        cudaError_t e = source_dev >= 0 && source_dev != device_
+            ? cudaMemcpyPeerAsync(dst, device_, src, source_dev, bytes, cs_)
+            : cudaMemcpyAsync(dst, src, bytes, cudaMemcpyDeviceToDevice, cs_);
+        if (e != cudaSuccess && source_dev >= 0 && source_dev != device_) {
+            (void) cudaGetLastError();
+            {
+                const OnDevice head_on(source_dev);
+                e = cudaMemcpy(ctx_bounce_, src, bytes, cudaMemcpyDeviceToHost);
+            }
+            if (e == cudaSuccess) e = cudaMemcpyAsync(dst, ctx_bounce_, bytes, cudaMemcpyHostToDevice, cs_);
+            if (e == cudaSuccess) e = cudaStreamSynchronize(cs_);
+        }
+        if (e != cudaSuccess) { err = "mtp: context head row copy failed"; return false; }
+    }
+    if (cudaMemcpyAsync(dvocab_ + ctx_base_ + first, ids.data() + first, (ids.size() - first) * sizeof(int32_t),
+                        cudaMemcpyHostToDevice, cs_) != cudaSuccess) {
+        err = "mtp: context token map upload failed"; return false;
+    }
+    std::copy(ids.begin() + first, ids.end(), dvocab_host_.begin() + ctx_base_ + first);
+    ctx_rows_.commit();
     return true;
 }
 
@@ -1254,24 +1336,33 @@ bool MtpDrafter::record_front(int T, int row0, cudaStream_t cs, std::string& err
             fwht256_inplace_cuda(kcur_, (int64_t) T * NKV, cs);
             fwht256_inplace_cuda(vcur_, (int64_t) T * NKV, cs);
         }
-        // stored in the state's own format (#293 appended rotated INT8 K/V as Q4_0, into pools INT8 never has)
+        cudaStream_t append_cs = cs;
+        if (kv_defer_ && side_ && sh_fork_ && sh_join_) {
+            if (cudaEventRecord(sh_fork_, cs) != cudaSuccess || cudaStreamWaitEvent(side_, sh_fork_, 0) != cudaSuccess) {
+                err = "mtp: K/V append fork failed"; return false;
+            }
+            append_cs = side_;
+            kv_open_ = true;
+        }
+        // stored in the state's own format
         if (!no_batch_kv && st_.kv_q4)
-            kv_append_q4_steps(st_.k_q4, st_.v_q4, st_.page_table, step, 4, T, kcur_, vcur_, s, cs, &st_.host);
+            kv_append_q4_steps(st_.k_q4, st_.v_q4, st_.page_table, step, 4, T, kcur_, vcur_, s, append_cs, &st_.host);
         else if (!no_batch_kv && st_.kv_int8)
             kv_append_q8_steps(st_.k_q, st_.v_q, st_.k_scale, st_.v_scale, st_.page_table, step, 4, kcur_, vcur_,
-                               (int) (NKV * HD), T, s, cs, &st_.host);
+                               (int) (NKV * HD), T, s, append_cs, &st_.host);
         else
             for (int t = 0; t < T; ++t) {
                 if (st_.kv_q4)
                     kv_append_q4_step(st_.k_q4, st_.v_q4, st_.page_table, step + t * 4, kcur_ + t * NKV * HD,
-                                      vcur_ + t * NKV * HD, s, cs, &st_.host);
+                                      vcur_ + t * NKV * HD, s, append_cs, &st_.host);
                 else if (st_.kv_int8)
                     kv_append_q8_step(st_.k_q, st_.v_q, st_.k_scale, st_.v_scale, st_.page_table, step + t * 4,
-                                      kcur_ + t * NKV * HD, vcur_ + t * NKV * HD, s, cs, &st_.host);
+                                      kcur_ + t * NKV * HD, vcur_ + t * NKV * HD, s, append_cs, &st_.host);
                 else
                     kv_append_step(st_.k_pool, st_.v_pool, st_.page_table, step + t * 4, kcur_ + t * NKV * HD,
-                                   vcur_ + t * NKV * HD, s, cs, &st_.host);
+                                   vcur_ + t * NKV * HD, s, append_cs, &st_.host);
             }
+        if (kv_open_ && cudaEventRecord(sh_join_, append_cs) != cudaSuccess) { err = "mtp: K/V append event failed"; return false; }
         g_mp.stamp(4, cs);
     } catch (const std::exception& e) {
         err = std::string("mtp: ") + e.what();
@@ -1330,6 +1421,10 @@ bool MtpDrafter::record_rest(int step_row, cudaStream_t cs, std::string& err, bo
         if (floor_on_ && m_floor_ != nullptr)   // KVA: the window (or every cell) from the first real draft cell on
             window_ids_floor(const_cast<int32_t*>(step), T, window_ > 0 ? (int) window_ : 0x7fffffff, ident_, cap_, m_floor_, cs);
         else if (window_ > 0) window_ids(const_cast<int32_t*>(step), T, (int) window_, ident_, cap_, cs);
+        if (kv_open_) {
+            if (cudaStreamWaitEvent(cs, sh_join_, 0) != cudaSuccess) { err = "mtp: K/V append join failed"; return false; }
+            kv_open_ = false;
+        }
         // STRATA_QSA_SPLIT_ATTN=1: the draft layer's attention over its window, split the same way
         static const bool split_attn = [] { const char* v = std::getenv("STRATA_QSA_SPLIT_ATTN"); return v != nullptr && std::atoi(v) != 0; }();
         if (!(split_attn && qsa_decode_attn_split(qcur_, pools, ident_, step, cap_, s, attn_scratch_, (uint64_t) attn_scratch_floats_, attn_, T, cs)))
@@ -1515,11 +1610,11 @@ bool MtpDrafter::record_rest(int step_row, cudaStream_t cs, std::string& err, bo
         const int64_t nv = sub ? n_dvocab_ : n_vocab_;
         bool head_pick = false;
 #if defined(STRATA_USE_HIP)
-        if (head_proxy_ && T == 1 && !coupled_rec_ && !head_dump_enabled()) {
+        if (head_proxy_ && T == 1 && !ctx_base_ && !coupled_rec_ && !head_dump_enabled()) {
             head_proxy_pick(dhead_type_, head_proxy_, dhead_, xq_, (int)nv, head_logits_, head_proxy_scratch_,
                             out_ids_, probs_, cs);
             head_pick = true;
-        } else if (fuse_ && !coupled_rec_ && head_wide_supported(sub ? dhead_type_ : head_->type(), (int) N, (int) nv, T)) {
+        } else if (fuse_ && !ctx_base_ && !coupled_rec_ && head_wide_supported(sub ? dhead_type_ : head_->type(), (int) N, (int) nv, T)) {
             head_wide_draft(sub ? dhead_ : head_->weights(), xq_, head_logits_, (int) N, (int) nv,
                             head_wide_scratch_, out_ids_, probs_, cs);
             head_pick = true;
@@ -1528,6 +1623,9 @@ bool MtpDrafter::record_rest(int step_row, cudaStream_t cs, std::string& err, bo
         if (!head_pick)
             native_mmvq(sub ? dhead_type_ : head_->type(), sub ? dhead_ : head_->weights(), xq_, head_logits_, (int) N,
                         (int) nv, T, cs);
+#if defined(STRATA_USE_HIP)
+        if (ctx_base_) draft_context_mask(head_logits_, T, (int) nv, dvocab_, (int) ctx_base_, cs);
+#endif
         g_mp.stamp(14, cs);
         head_dump_record(1, sub ? dhead_type_ : head_->type(), (int)nv, T, T, 0, coupled_j_,
                          sample_, xq_, head_logits_, sub ? dvocab_ : nullptr, step, 4, head_vocab_hash_, cs);
@@ -1647,7 +1745,10 @@ bool MtpDrafter::capture_round(int T, bool coupled, std::string& err) {
                               {pos_ + ra * NH, m_pos_ + ra * NH, NH}};
     copy_from_mapped_multi(in, 7, cs_);
 #endif
+    static const bool kv_side = [] { const char* e = std::getenv("STRATA_MTP_KV_SIDE"); return e && std::atoi(e) != 0; }();
+    kv_defer_ = kv_side && !g_mp.on;
     ok = record_front(T, 0, cs_, err, fuse_ && T == 1);
+    kv_defer_ = false;
     if (ok) {
         if (T > 1) {
             copy_row_to_first(row_, R_, HCN, inj_, g_->hc, mixed_, N, cs_);
@@ -1929,6 +2030,7 @@ bool MtpDrafter::draft(int T, const int32_t* tokens, int64_t p, int a, int32_t* 
     const OnDevice on_device(device_);
     if (T < 1 || T > max_t_ || a < 0 || a >= T) { err = "mtp: draft arguments out of range"; return false; }
     if (chain_live_) { err = "mtp: a pipelined chain is still in flight"; return false; }
+    if (!flush_context(err)) return false;
     // #783 PR-i (stuchapin909): the round runs for the cells up to the accepted row a (T = a + 1): the K/V of the rejected
     // rows is not caught up - no later read reaches a cell past the one being drafted and the next round writes it first
     if (!mtp_catchup_all()) T = a + 1;
@@ -1979,7 +2081,7 @@ bool MtpDrafter::draft(int T, const int32_t* tokens, int64_t p, int a, int32_t* 
     };
 
     int n = 0;
-    if (min_p <= 0.0f && !chain_rule_ && max_steps > 0) {
+    if (min_p <= 0.0f && !chain_rule_ && !cum_on_ && max_steps > 0) {
         if (cudaGraphLaunch(cp ? round_exec_c_[T] : round_exec_[T], cs_) != cudaSuccess) {
             err = std::string("mtp draft: ") + cudaGetErrorString(cudaGetLastError());
             return false;
@@ -2047,7 +2149,9 @@ bool MtpDrafter::draft(int T, const int32_t* tokens, int64_t p, int a, int32_t* 
         float pj = ((volatile float*) h_prob_)[0];
         if (probs) probs[0] = pj;
         n = 1;
-        for (int j = 1; j < max_steps && (chain_rule_ ? chain_rule_(j - 1, pj) : pj >= min_p); ++j) {
+        float joint = cum_on_ ? cum_rule_.rate(pj) : 1.0f;
+        for (int j = 1; j < max_steps && (cum_on_ ? joint >= cum_rule_.threshold()
+                                                     : chain_rule_ ? chain_rule_(j - 1, pj) : pj >= min_p); ++j) {
             if (dt) cudaEventRecord(g_dt.eb[j], cs_);
             tl = Clock::now();
             if (cudaGraphLaunch(cp ? step_exec_c_[j] : step_exec_[j], cs_) != cudaSuccess) {
@@ -2063,6 +2167,7 @@ bool MtpDrafter::draft(int T, const int32_t* tokens, int64_t p, int a, int32_t* 
             if (dt) g_dt.waitj_ms += hms(tl);
             drafts[j] = ((volatile int32_t*) h_out_)[j];
             pj = ((volatile float*) h_prob_)[j];
+            if (cum_on_) joint *= cum_rule_.rate(pj);
             if (probs) probs[j] = pj;
             ++n;
         }
@@ -2158,6 +2263,7 @@ bool MtpDrafter::chain_launch(int T, const int32_t* tokens, int64_t p, int a, co
     const OnDevice on_device(device_);
     if (!decode_ready(err)) return false;   // the chain's step graphs read the 512 experts
     if (chain_live_) { err = "mtp: a chain is already in flight"; return false; }
+    if (!flush_context(err)) return false;
     if (!force_on_ || ev_chain_ == nullptr) { err = "mtp: chains need prepare_chain"; return false; }
     if (T < 1 || T > max_t_ || a < 0 || a >= T || n_out < 1 || n_out > max_t_ - 1 || n_force < 0 || n_force > n_out ||
         n_force > 16) {
