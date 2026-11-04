@@ -16,6 +16,7 @@ public:
         return state_[(size_t) st].compare_exchange_strong(idle, 1, std::memory_order_acq_rel);
     }
     void idle(int st) {
+        if (!enabled) return;
         int running = 1;
         state_[(size_t) st].compare_exchange_strong(running, 0, std::memory_order_acq_rel);
     }

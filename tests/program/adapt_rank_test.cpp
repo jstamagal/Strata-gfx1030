@@ -9,6 +9,30 @@ using namespace strata::program;
 static int failed = 0;
 #define CHECK(x) do { if (!(x)) { std::fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #x); ++failed; } } while (0)
 
+static std::vector<TierSwap> legacy(const std::vector<float>& u, const std::vector<int32_t>& r, int ne,
+                                    const std::vector<uint8_t>& excluded, const TierRankOptions& o) {
+    std::vector<TierSwap> out;
+    for (size_t l = 0; l < u.size() / ne; ++l) {
+        std::vector<std::pair<float,int>> cand, vict;
+        for (int e = 0; e < ne; ++e) {
+            const size_t i = l * ne + e;
+            if (r[i] < 0) { if (u[i] >= 2 && !excluded[i]) cand.emplace_back(u[i], e); }
+            else vict.emplace_back(u[i], e);
+        }
+        if (cand.empty() || vict.empty()) continue;
+        std::sort(cand.begin(), cand.end(), [](auto& a, auto& b) { return a.first > b.first; });
+        const size_t n = std::min(cand.size(), vict.size());
+        std::partial_sort(vict.begin(), vict.begin() + n, vict.end(), [](auto& a, auto& b) { return a.first < b.first; });
+        for (size_t i = 0; i < n; ++i) {
+            if (cand[i].first < vict[i].first + o.min_gain) break;
+            out.push_back({cand[i].first - vict[i].first, (int) l, cand[i].second, vict[i].second, (int) l});
+        }
+    }
+    std::sort(out.begin(), out.end(), [](auto& a, auto& b) { return a.gain > b.gain; });
+    if (out.size() > o.cap) out.resize(o.cap);
+    return out;
+}
+
 int main() {
     TierRankOptions o;
     o.across = true; o.cap = 160;
@@ -26,13 +50,13 @@ int main() {
     s = rank_tier(u, r, 4, {0,0}, p, excluded, o);
     CHECK(s[0].layer == 1);
     o.once = true;
-    u.assign(8, 0); u[0] = 0.95f;
+    u.assign(8, 0); u[0] = 1.0f;
     excluded[0] = 0;
     s = rank_tier(u, r, 4, {0,0}, p, excluded, o);
-    CHECK(s.size() == 1 && s[0].layer == 0 && s[0].gain == 0.95f);
+    CHECK(s.size() == 1 && s[0].layer == 0 && s[0].gain == 1.0f);
     o.once = false;
     CHECK(rank_tier(u, r, 4, {0,0}, p, excluded, o).empty());
-    o.once = true; u[0] = 0.89f;
+    o.once = true; u[0] = 0.99f;
     CHECK(rank_tier(u, r, 4, {0,0}, p, excluded, o).empty());
     u.assign(8, 3); r.assign(8, 0); r[0] = r[1] = -1; u[4] = u[5] = 0;
     s = rank_tier(u, r, 4, {0,0}, p, excluded, o);
@@ -58,7 +82,16 @@ int main() {
             CHECK(x.gain >= o.once_bar);
         }
     }
+    o.across = false; o.once = false;
+    for (int round = 0; round < 200; ++round) {
+        for (int i = 0; i < n; ++i) { u[i] = (gen() % 100) * 0.1f; excluded[i] = gen() % 10 == 0; }
+        const auto a = rank_tier(u, r, ne, groups, p, excluded, o), b = legacy(u, r, ne, excluded, o);
+        CHECK(a.size() == b.size());
+        for (size_t i = 0; i < std::min(a.size(), b.size()); ++i)
+            CHECK(a[i].gain == b[i].gain && a[i].layer == b[i].layer && a[i].in == b[i].in && a[i].out == b[i].out);
+    }
     AdaptGap gap;
+    gap.idle(7); CHECK(gap.launch(7));
     gap.enabled = true;
     CHECK(gap.launch(0));
     CHECK(!gap.launch(0));

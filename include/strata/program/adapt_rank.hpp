@@ -18,7 +18,7 @@ struct TierRankOptions {
     bool across = false;
     bool once = false;
     float min_gain = 1.5f;
-    float once_bar = 0.9f;
+    float once_bar = 1.0f;
     size_t cap = 0;
 };
 
