@@ -184,6 +184,10 @@ bool place_experts_tp(Model& a, Model& b, Engine& E, int threads, double vram_gi
             if (S < ne) {
                 CK(cudaMalloc(&H.slot_of_d, (size_t)ne * 4));
                 CK(cudaMemcpy(H.slot_of_d, H.slot_of.data(), (size_t)ne * 4, cudaMemcpyHostToDevice));
+                // the slot-or-host map rebalance() uploads after every swap (as the layer split's hybrid layers)
+                H.fill_vmap(S);
+                CK(cudaMalloc(&H.vmap_d, (size_t)ne * 4));
+                CK(cudaMemcpy(H.vmap_d, H.vmap.data(), (size_t)ne * 4, cudaMemcpyHostToDevice));
             }
             if (hybrid_on)
                 std::fprintf(stderr, "strata-q36: TP rank %d layer %zu: %d/%d half-experts in VRAM\n", d, li, S, ne);

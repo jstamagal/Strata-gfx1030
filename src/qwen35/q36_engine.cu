@@ -90,7 +90,9 @@ namespace MMQ = strata::prefill::mmq;
         cudaError_t e_ = (x);                                                                                          \
         if (e_ != cudaSuccess) {                                                                                       \
             std::fprintf(stderr, "strata-q36: %s failed: %s (%s:%d)\n", #x, cudaGetErrorString(e_), __FILE__, __LINE__); \
-            std::exit(1);                                                                                              \
+            std::fflush(stdout);                                                                                       \
+            std::fflush(stderr);                                                                                       \
+            std::_Exit(1); /* exit() would wait on stdin's lock: --serve's reader thread holds it in getline */         \
         }                                                                                                              \
     } while (0)
 
