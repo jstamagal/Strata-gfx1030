@@ -3453,8 +3453,15 @@ def apply_ready_timeout(cfg: dict) -> None:
 
 def layer_split_of(cfg: dict) -> bool:
     """Several GPUs in the config are a layer split, unless the args put the later card(s) to another use: with
-    --peer-device the second card is an expert-cache tier, and the engine refuses that beside --layer-split (#665)."""
-    return len(gpu_list(cfg)) > 1 and "--peer-device" not in cfg["args"]
+    --peer-device the second card is an expert-cache tier, and the engine refuses that beside --layer-split (#665).
+    q36 tensor split also uses both cards for every layer, so it must not receive a layer split."""
+    args = cfg.get("args") or []
+    return len(gpu_list(cfg)) > 1 and "--peer-device" not in args and not tensor_split_of(cfg)
+
+
+def tensor_split_of(cfg: dict) -> bool:
+    """A q36 tensor-parallel config (--tensor-split, or STRATA_Q36_TP=1 in its env): every layer on both cards."""
+    return "--tensor-split" in (cfg.get("args") or []) or str((cfg.get("env") or {}).get("STRATA_Q36_TP", "")) == "1"
 
 
 def merge_env_file(cfg, folder):
@@ -9848,6 +9855,8 @@ def main(argv=None, *, lifecycle_event=None, interrupt_exit_code: int = 0) -> in
             except ValueError as e:
                 raise SystemExit(f"[strata] config {e}")
             print(f"[strata] layer split across GPUs {gpu_list(cfg)} ({split})", flush=True)
+        elif len(gpu_list(cfg)) > 1 and tensor_split_of(cfg):
+            print(f"[strata] tensor split across GPUs {gpu_list(cfg)} (every layer on both)", flush=True)
         elif len(gpu_list(cfg)) > 1:
             print(f"[strata] GPUs {gpu_list(cfg)}: the later card(s) serve as the peer expert tier (--peer-device)",
                   flush=True)

@@ -58,15 +58,15 @@ def read_trace(path, n_expert=N_EXPERT):
     return freq
 
 
-def write_profile(path, ranked, n_expert=N_EXPERT):
-    table = [[-1] * n_expert for _ in range(N_LAYER)]
+def write_profile(path, ranked, n_expert=N_EXPERT, n_layer=N_LAYER):
+    table = [[-1] * n_expert for _ in range(n_layer)]
     for slot, (layer, e) in enumerate(ranked):
         table[layer][e] = slot
     with open(path, "wb") as f:
-        f.write(MAGIC + struct.pack("<5I", VERSION, N_LAYER, n_expert, len(ranked), len(ranked)))
+        f.write(MAGIC + struct.pack("<5I", VERSION, n_layer, n_expert, len(ranked), len(ranked)))
         for layer, e in ranked:
             f.write(struct.pack("<HH", layer, e))
-        for layer in range(N_LAYER):
+        for layer in range(n_layer):
             f.write(struct.pack("<%di" % n_expert, *table[layer]))
 
 
