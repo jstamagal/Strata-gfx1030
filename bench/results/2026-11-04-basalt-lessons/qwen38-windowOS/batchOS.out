@@ -1,0 +1,96 @@
+== state before
+card0 cap=260W mclk=[0: 96Mhz  1: 456Mhz * 2: 673Mhz  3: 1000Mhz  ] od_mclk=1:1075MHz sclk_od=1:2650Mhz
+card1 cap=260W mclk=[0: 96Mhz  1: 456Mhz * 2: 673Mhz  3: 1000Mhz  ] od_mclk=1:1075MHz sclk_od=1:2650Mhz
+03:00.0 DevCtl=2930
+07:00.0 DevCtl=2930
+irq193->5 irq194->6 preempt=(full) lazy 
+w_os0_prompt run1 prompt 36411 2694.0 tok/s 13.52 s; gen 32 82.9 tok/s drafts 9 / 15
+1b0318b132bd
+w_os0_prompt run2 prompt 36411 2705.3 tok/s 13.46 s; gen 32 83.4 tok/s drafts 10 / 18
+be358117f543
+w_os0_agent code_async_batcher              1200 tok  127.4 tok/s drafts 616/796 7647be1f36bf
+w_os0_agent code_rust_committed_ring        1200 tok  148.4 tok/s drafts 682/797 3677c43d7d27
+w_os0_agent code_typescript_tool_dispatch   1200 tok  154.2 tok/s drafts 696/831 f51ad60baaa2
+w_os0_agent json_multi_tool_result_merge    1200 tok  147.0 tok/s drafts 685/780 ac71e4d17450
+w_os0_agent json_parallel_tool_plan         1200 tok  179.4 tok/s drafts 741/797 a6925d4108b1
+w_os0_agent json_patch_tool_payload         1200 tok  128.4 tok/s drafts 609/765 62b89ab84b34
+w_os0_agent TOTAL 7200 tok 145.5 tok/s
+baseline agent 145.5 prompt 2699.7
+== state after lact apply
+card0 cap=260W mclk=[0: 96Mhz  1: 456Mhz  2: 673Mhz  3: 1000Mhz  ] od_mclk=1:1075MHz sclk_od=1:2650Mhz
+card1 cap=260W mclk=[0: 96Mhz  1: 456Mhz  2: 673Mhz  3: 1000Mhz  ] od_mclk=1:1075MHz sclk_od=1:2650Mhz
+03:00.0 DevCtl=2930
+07:00.0 DevCtl=2930
+irq193->5 irq194->6 preempt=(full) lazy 
+w_os_lact_prompt run1 prompt 36411 2696.9 tok/s 13.5 s; gen 32 82.8 tok/s drafts 9 / 15
+1b0318b132bd
+w_os_lact_prompt run2 prompt 36411 2704.0 tok/s 13.47 s; gen 32 83.2 tok/s drafts 10 / 18
+be358117f543
+w_os_lact_agent code_async_batcher              1200 tok  127.2 tok/s drafts 616/796 7647be1f36bf
+w_os_lact_agent code_rust_committed_ring        1200 tok  148.3 tok/s drafts 682/797 3677c43d7d27
+w_os_lact_agent code_typescript_tool_dispatch   1200 tok  154.1 tok/s drafts 696/831 f51ad60baaa2
+w_os_lact_agent json_multi_tool_result_merge    1200 tok  146.3 tok/s drafts 694/819 ac71e4d17450
+w_os_lact_agent json_parallel_tool_plan         1200 tok  178.8 tok/s drafts 742/804 a6925d4108b1
+w_os_lact_agent json_patch_tool_payload         1200 tok  128.5 tok/s drafts 609/765 62b89ab84b34
+w_os_lact_agent TOTAL 7200 tok 145.3 tok/s
+KEEP lact: agent 145.3 (best 145.5) prompt 2700.4 (best 2699.7)
+== state after mrrs apply
+card0 cap=260W mclk=[0: 96Mhz  1: 456Mhz  2: 673Mhz  3: 1000Mhz  ] od_mclk=1:1075MHz sclk_od=1:2650Mhz
+card1 cap=260W mclk=[0: 96Mhz  1: 456Mhz  2: 673Mhz  3: 1000Mhz  ] od_mclk=1:1075MHz sclk_od=1:2650Mhz
+03:00.0 DevCtl=5930
+07:00.0 DevCtl=5930
+irq193->5 irq194->6 preempt=(full) lazy 
+w_os_mrrs_prompt run1 prompt 36411 2691.6 tok/s 13.53 s; gen 32 82.9 tok/s drafts 9 / 15
+1b0318b132bd
+w_os_mrrs_prompt run2 prompt 36411 2701.2 tok/s 13.48 s; gen 32 83.3 tok/s drafts 10 / 18
+be358117f543
+w_os_mrrs_agent code_async_batcher              1200 tok  127.1 tok/s drafts 616/796 7647be1f36bf
+w_os_mrrs_agent code_rust_committed_ring        1200 tok  148.3 tok/s drafts 682/797 3677c43d7d27
+w_os_mrrs_agent code_typescript_tool_dispatch   1200 tok  154.1 tok/s drafts 696/831 f51ad60baaa2
+w_os_mrrs_agent json_multi_tool_result_merge    1200 tok  147.0 tok/s drafts 685/780 ac71e4d17450
+w_os_mrrs_agent json_parallel_tool_plan         1200 tok  179.2 tok/s drafts 741/797 a6925d4108b1
+w_os_mrrs_agent json_patch_tool_payload         1200 tok  128.3 tok/s drafts 609/765 62b89ab84b34
+w_os_mrrs_agent TOTAL 7200 tok 145.4 tok/s
+KEEP mrrs: agent 145.4 (best 145.5) prompt 2696.4 (best 2700.4)
+== state after irq apply
+card0 cap=260W mclk=[0: 96Mhz  1: 456Mhz  2: 673Mhz  3: 1000Mhz  ] od_mclk=1:1075MHz sclk_od=1:2650Mhz
+card1 cap=260W mclk=[0: 96Mhz  1: 456Mhz  2: 673Mhz  3: 1000Mhz  ] od_mclk=1:1075MHz sclk_od=1:2650Mhz
+03:00.0 DevCtl=5930
+07:00.0 DevCtl=5930
+irq193->30 irq194->31 preempt=(full) lazy 
+w_os_irq_prompt run1 prompt 36411 2690.4 tok/s 13.53 s; gen 32 82.8 tok/s drafts 9 / 15
+1b0318b132bd
+w_os_irq_prompt run2 prompt 36411 2706.2 tok/s 13.45 s; gen 32 83.4 tok/s drafts 10 / 18
+be358117f543
+w_os_irq_agent code_async_batcher              1200 tok  127.3 tok/s drafts 616/796 7647be1f36bf
+w_os_irq_agent code_rust_committed_ring        1200 tok  148.3 tok/s drafts 682/797 3677c43d7d27
+w_os_irq_agent code_typescript_tool_dispatch   1200 tok  139.6 tok/s drafts 698/833 f51ad60baaa2
+w_os_irq_agent json_multi_tool_result_merge    1200 tok  145.6 tok/s drafts 699/846 ac71e4d17450
+w_os_irq_agent json_parallel_tool_plan         1200 tok  194.5 tok/s drafts 833/991 a6925d4108b1
+w_os_irq_agent json_patch_tool_payload         1200 tok  128.3 tok/s drafts 617/796 62b89ab84b34
+w_os_irq_agent TOTAL 7200 tok 144.4 tok/s
+REVERT irq: agent 144.4 (best 145.5) prompt 2698.3 (best 2700.4)
+== state after lazy apply
+card0 cap=260W mclk=[0: 96Mhz  1: 456Mhz  2: 673Mhz  3: 1000Mhz  ] od_mclk=1:1075MHz sclk_od=1:2650Mhz
+card1 cap=260W mclk=[0: 96Mhz  1: 456Mhz  2: 673Mhz  3: 1000Mhz  ] od_mclk=1:1075MHz sclk_od=1:2650Mhz
+03:00.0 DevCtl=5930
+07:00.0 DevCtl=5930
+irq193->30 irq194->31 preempt=full (lazy) 
+w_os_lazy_prompt run1 prompt 36411 2690.4 tok/s 13.53 s; gen 32 82.8 tok/s drafts 9 / 15
+1b0318b132bd
+w_os_lazy_prompt run2 prompt 36411 2471.2 tok/s 14.73 s; gen 32 83.2 tok/s drafts 10 / 18
+be358117f543
+w_os_lazy_agent code_async_batcher              1200 tok  127.4 tok/s drafts 616/796 7647be1f36bf
+w_os_lazy_agent code_rust_committed_ring        1200 tok  148.4 tok/s drafts 682/797 3677c43d7d27
+w_os_lazy_agent code_typescript_tool_dispatch   1200 tok  154.2 tok/s drafts 696/831 f51ad60baaa2
+w_os_lazy_agent json_multi_tool_result_merge    1200 tok  147.2 tok/s drafts 685/780 ac71e4d17450
+w_os_lazy_agent json_parallel_tool_plan         1200 tok  179.4 tok/s drafts 741/797 a6925d4108b1
+w_os_lazy_agent json_patch_tool_payload         1200 tok  128.5 tok/s drafts 609/765 62b89ab84b34
+w_os_lazy_agent TOTAL 7200 tok 145.6 tok/s
+REVERT lazy: agent 145.6 (best 145.5) prompt 2580.8 (best 2700.4)
+== final state
+card0 cap=260W mclk=[0: 96Mhz  1: 456Mhz  2: 673Mhz  3: 1000Mhz  ] od_mclk=1:1075MHz sclk_od=1:2650Mhz
+card1 cap=260W mclk=[0: 96Mhz  1: 456Mhz  2: 673Mhz  3: 1000Mhz  ] od_mclk=1:1075MHz sclk_od=1:2650Mhz
+03:00.0 DevCtl=5930
+07:00.0 DevCtl=5930
+irq193->30 irq194->31 preempt=(full) lazy 

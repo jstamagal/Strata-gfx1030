@@ -305,3 +305,20 @@ Raw: `qwen38-window12/`. Workers pinned 1-N, host on cpu0 (the engine's default 
 Worker count doesn't matter on this box: decode hits the expert cache ~99% of the time, so the CPU pool has little to do.
 Prompt +0.4% at 8-12 (noise). The 8-worker agent dip is two cases (115 vs 127, 129 vs 148, same text and drafts) while
 Astra runs were compiling on the box; the codex runs are now niced to 19. The configs keep 4.
+
+## OS window 1: live OS and driver fixes, IQ3_S (cumulative ladder, auto-revert)
+
+Raw: `qwen38-windowOS/` (batch log with state dumps, step scripts). Keep rule: agent >= best - 0.3% and prompt >= best - 1.5%.
+
+| step | agent tok/s | 36K prompt tok/s | verdict |
+|---|---|---|---|
+| baseline | 145.5 | 2694.0 / 2705.3 | |
+| LACT PF1 memory power state [3] only (was 1-3: it idled at 456/673 MHz between requests) | 145.3 | 2696.9 / 2704.0 | kept (neutral) |
+| PCIe MaxReadReq 512 -> 4096, both V620s | 145.4 | 2691.6 / 2701.2 | kept (neutral) |
+| GPU interrupts from cpu5/6 to cpu30/31 | 144.4 | 2690.4 / 2706.2 | reverted (-0.7%) |
+| preemption full -> lazy | 145.6 | 2690.4 / 2471.2 | reverted (one prompt outlier) |
+
+None of these moves the bottleneck. The LACT change also copied PF1 into LACT's fallback settings, which had card 0 at
+150 W. MRRS 4096 lasts until reboot. Found afterwards: card 1's whole PCIe route (root port 00:01.3, card switch
+05/06, GPU 07) has ASPM L1 enabled by the BIOS (pcie_aspm=off leaves it alone); card 0's route has it off. OS window 2
+tests turning it off.
