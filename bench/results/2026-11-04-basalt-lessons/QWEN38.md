@@ -731,3 +731,75 @@ belongs to. The live verify path already replays kept rows from stored per-row i
 
 The live-path remainder is PlSnap: card 0's GDN state is copied D2D once per speculative window on a side stream,
 and restored on doomed windows. Removing it with ping-pong parity is a medium build, low rank (tuck, run 2).
+
+## Window EPF: early PLE flag against the stalls (16:52)
+
+Raw: `strata-ab/windowepf.out` (to be copied as `qwen38-windowEPF/`). Earlyple build fae158d9 (main 9d0a5e5b0 +
+`STRATA_PL_EARLY_PLE_FLAG` / `STRATA_PL_LAUNCH_SLOW_MS`), live IQ3_S config, 4 agent + 4 edit passes per mode,
+interleaved, `STRATA_PL_LAUNCH_SLOW_MS=50` on every arm. Text matches window STALL in all 16 arms.
+
+| set | agent tok/s pooled | gaps >300 ms (sum) | edit tok/s pooled | gaps (sum) | #267 | slow lines |
+|---|---|---|---|---|---|---|
+| e0 (flag after launch, today) | 141.7 | 6 (7185 ms) | 334.5 | 4 (3228 ms) | 0 | 0 |
+| e1 (flag before launch) | 143.7 (+1.4%) | 4 (4116 ms) | 303.0 (-9.4%) | 4 (5277 ms) | 0 | 0 |
+
+- **The early flag does not remove the stalls.** e1 has a gap in every agent arm (351-1368 ms) and a 2830 ms edit gap.
+  The tok/s deltas are the gaps moving around (edit -9.4% is one 2.8 s gap in 3600 tokens).
+- **The slow-launch logger saw nothing:** no `cudaGraphLaunch`, event record, early-flag row wait or commit wait+launch
+  took >50 ms in 16 gaps of 0.35-2.8 s. With window STALL (host not blocked off-CPU, no reclaim) the host is
+  **polling a window the GPU has not finished**: the GPU is late. The HIP-lock-cycle reading is dead for these stalls.
+- Next suspect, queued (window HWQ, insert 51 head): **hardware-queue sharing.** The live config pins
+  `GPU_MAX_HW_QUEUES=4`, never measured on this config. A card runs well over 4 streams (two verifiers per stage with
+  `cs_`/`sh_cs_`/`copy_`, `pl_stream`, the PlSnap side stream, the drafter), so HIP multiplexes them onto 4 in-order
+  AQL queues. The zero-doorbell graphs carry device spin-waits (`wait_flag_ge`, `wait_copy_i32`, `doorbell_wait`):
+  one spinning at a queue's head holds every later packet of every stream sharing that queue until the host raises
+  its flag. HWQ: `GPU_MAX_HW_QUEUES` 4 vs 16, 4+4 passes each, gap census, kernel log checked for runlist
+  oversubscription (only 2 lines today, both 09:53, none during the afternoon stall runs). Run 1 nyira's branch
+  ("a clean HSA poll => look at the queue count"), tuck run 2.
+- Not merged: the early flag stays on its branch (basalt38/pl-early-ple) as a logger.
+
+## Swarm intake, run 2 late chat (17:05)
+
+The run's final synthesis lead (gruff, gpt-6-astra): adopt s2gptq after ZB; the top fresh code candidate is the
+full-A rollback GDN skip; HANDOFF_PIPE is the cheapest new prompt probe. Taken and queued:
+
+- **Full-A rollback GDN skip** (bakari; source audit gruff, pablo, poppy): a wrong guess after A was taken whole
+  (undo_keep == A.T) restores stage 0's GDN snapshot and replays the same A.T commit the stage already made before B
+  launched; B's window writes no GDN state or conv history (always published: no self commit; not a batch window).
+  Eligible: 779/3215 verdicts (24.2%) in wl16c, 722/3176 in ws_agent_2 (F1-keyed counts, two parsers agree).
+  Built as `STRATA_PL_UNDO_KEEP_GDN` (branch basalt38/pl-undo-keep-gdn bdb6954d0, default off): skips the restore and
+  runs the commit graph with GDN count 0 (the GDN/conv commit kernels return at once); QSA indexer and PLE history
+  still replay. Window UKG (after HWQ): off/on, agent x3 + edit x2, text must match, trace read of stage-0 L0->F0 of
+  the fresh window after a kept vs partial rollback. Coordinator's caveat (inference): the undo runs on stage 0 while
+  card 1 drafts the fresh window's chain (launched after the verdict), so it may already hide under the chain; the
+  trace read says which.
+- **`STRATA_HANDOFF_PIPE`** (twig): the opt-in pieced stage hand-off + pinned worker for prompts (exact), never run
+  on the ledger. Window ZB prompt arms hp4/hp8 added.
+- **Profiler observer effect** (gruff, bikari, sabyinyo): `STRATA_VERIFY_PROFILE` disables conv/GDN fusion,
+  IDX_PAIR, gateQ8, the shared stream and combine fusion. zb_prof is a per-kernel-class ranking only, never live
+  shares. Low-perturbation alternatives in tree: `STRATA_VERIFY_NODES`, the `trace_m_` breadcrumbs. Installed
+  rocprofv3 has `--hip-graph-trace` and lists gfx1030; graph-node attribution needs segmented scheduling,
+  `AMD_DIRECT_DISPATCH=1`, a sole launcher thread and no GraphExecUpdate.
+- **No-guess windows are slower than wrong guesses** (24.7 vs 22.2 ms; cantsbee): fresh/no-guess windows get
+  `fresh_chain_n`, launched after the verdict, so they pay the chain serially. Same family as chain-late (window CHN).
+- **Drafter per-step bytes** (mtpq agent, from rt/dense.txt and the live log): dense ~111 MiB (bf16 HC mixers 37.5,
+  q_proj Q8_0 31.9, o_proj 15.9, fc 13.3, shared expert 5, k/v/indexer/router ~7), head proxy ~31 MiB (2-bit fitted
+  over 40525 rows), routed experts ~13 MiB. `--mtp-q4 head` would turn the proxy off and read more (dropped from ZB).
+  Levers: a 16-24K draft vocab (proxy scales with rows; offline study approved, no code: `--mtp-draft-vocab`) and Q8_0
+  HC mixers (~-19 MiB/step, kernel change in the fused gr_read path, not started).
+- **Node cost on this card** (tuck): AMD_HIP.md has an on-box V620 captured-graph number: empty kernel 2.6 us, a
+  verify window ~750 nodes/card. Scale reference only. The historical three-switch bundle (HEAD_WIDE, ROUTE_PLAN,
+  HEAD_SAMPLE) is already in the live config; ROUTE_PLAN=2 was ~0.2% there (noise).
+- **IQ 4->5-row cliff is per expert group** (kivu, mikeno): the bench gives every group T entries, so 85.6->125.3 us
+  is a maximal-sharing synthetic. Unpriced until a live route-group multiplicity histogram.
+- **Arithmetic checks** (ndume): stage slope is 0.91 ms/row T1->T3 but 1.42 ms/row T3->T8; the full verify tree
+  loses at either slope; the cycle table lacks tokens per window for the no-B class (it cannot be reconciled to
+  149 tok/s without it).
+- **#267 recovery** (nyira): two older #267 logs show the release did not free the GPU in 5 s, so in-process recovery
+  is impossible there; respawn + replay in serve/server.py is the recovery road (MCP side effects make replay unsafe
+  for tool calls; bikari).
+- **Prompt warm-up** (gruff, sabyinyo): report cold first-chunk and warm steady-state separately; prewarming moves
+  cost before READY, not speed.
+- Longshots, not queued: exact small-alphabet IQ2_S decoder (pip; CPU-exhaustive parity on 32768 cases, no GPU
+  number), progressive 3->4->exact head screens (kaje; 3-bit screens keep 42-113 of ~124 rows on CPU samples, misses
+  the byte break-even), wider GDN final-state banks.
