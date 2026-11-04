@@ -5408,7 +5408,12 @@ struct Serve {
                     if (t >= 0) { next = t; break; }
                     h2.push_back(drafts[(size_t) a]);
                 }
-                if (stop.load()) a = 0;
+                // a stop keeps only x (as spec_step's cancel): the token after x is row 0's, the first draft when it
+                // was kept, not `next` (the token after every kept draft)
+                if (stop.load() && a > 0) {
+                    next = drafts[0];
+                    a = 0;
+                }
                 E.spec_commit(a);
                 E.mtp_stats.record(D, a, E.lookup_steps != before_lookup);
                 adapt.record(D, a);
