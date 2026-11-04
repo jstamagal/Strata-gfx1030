@@ -310,7 +310,7 @@ bool head_proxy_enabled(int type,int n_in,int device) {
     if(!head_proxy_supported(type,n_in))return false;
     if(const char* e=std::getenv("STRATA_MTP_HEAD_PROXY"))return e[0]=='1'&&!e[1];
 #if defined(__HIPCC__)
-    if(type!=8)return false;
+    if(type!=8&&type!=14)return false;
     if(device<0&&cudaGetDevice(&device)!=cudaSuccess){(void)cudaGetLastError();return false;}
     cudaDeviceProp p{};
     if(cudaGetDeviceProperties(&p,device)!=cudaSuccess){(void)cudaGetLastError();return false;}

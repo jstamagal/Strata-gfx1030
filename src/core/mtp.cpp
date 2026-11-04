@@ -720,12 +720,13 @@ uint64_t MtpDrafter::bind_bytes(uint64_t head_row_bytes, int64_t n_vocab, bool p
                 if (owns_draft_head_ && !proxy_only) bytes += (uint64_t)(size / 4) * head_row_bytes + (uint64_t)size;
                 const int n_in = g_ ? (int)g_->n_embd : 0;
                 const int type = head_row_bytes == 2720 ? 8 : head_row_bytes == 2100 ? 14 : head_row_bytes == 1760 ? 13 : -1;
-                const size_t proxy = !q4_head_ && !strata::kernels::head_dump_enabled()
+                const size_t proxy = !q4_head_ && !strata::kernels::head_dump_enabled() &&
+                    !(type == 14 && strata::kernels::native_q6_k_packed_enabled())
                     ? strata::kernels::head_proxy_reserve_bytes(type,n_in,(int)(size/4),device_,owns_draft_head_) : 0;
                 bytes += proxy;
                 if (proxy > 0 && !head_proxy_reserve_noted_) {
                     std::fprintf(stderr,"strata mtp: 2-bit head%s reserves %llu bytes before expert-cache sizing (STRATA_MTP_HEAD_PROXY=0 disables)\n",
-                                 std::getenv("STRATA_MTP_HEAD_PROXY") ? " (forced)" : " (auto gfx1030 Q8_0)", (unsigned long long)proxy);
+                                 std::getenv("STRATA_MTP_HEAD_PROXY") ? " (forced)" : type == 14 ? " (auto gfx1030 Q6_K)" : " (auto gfx1030 Q8_0)", (unsigned long long)proxy);
                     head_proxy_reserve_noted_ = true;
                 }
                 if (draft_context_on()) bytes += DraftContextRows::capacity * (head_row_bytes + 4);
@@ -1006,7 +1007,7 @@ bool MtpDrafter::bind(const WeightTable& wt, const NativeHead* head, const float
         } else {
             vram_ += sb + (shared == nullptr ? pb : 0);
             std::fprintf(stderr, "strata mtp: fitted 2-bit head over %lld rows%s (%llu bytes); draft picks and tail probabilities may change; STRATA_MTP_HEAD_PROXY=0 disables\n",
-                         (long long)n_dvocab_, std::getenv("STRATA_MTP_HEAD_PROXY") ? " (forced)" : " (auto gfx1030 Q8_0)",
+                         (long long)n_dvocab_, std::getenv("STRATA_MTP_HEAD_PROXY") ? " (forced)" : dhead_type_ == 14 ? " (auto gfx1030 Q6_K)" : " (auto gfx1030 Q8_0)",
                          (unsigned long long)(sb + (shared == nullptr ? pb : 0)));
         }
     }
