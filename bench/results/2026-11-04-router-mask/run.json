@@ -1,0 +1,110 @@
+{
+  "test": "Ornith router projection and expert grouping on gfx1030; synthetic inputs, no model loaded",
+  "baseline_commit": "137b2d4ce",
+  "optimized_commit": "e502847ed",
+  "branch": "basalt/router-mask",
+  "host": "yoda",
+  "device": {
+    "physical_device": 1,
+    "HIP_VISIBLE_DEVICES": "1",
+    "logical_device": 0,
+    "name": "AMD Radeon Pro V620",
+    "architecture": "gfx1030",
+    "wave_size": 32
+  },
+  "tools": {
+    "compiler": "AMD clang 24.0.0git, ROCm LLVM 2792f8ceeb5aa6e188c1ce2b735923b2406a8e59",
+    "rocprofv3": "1.4.1, ROCm 10.1.0",
+    "kernel": "Linux 7.3.0-rc6-2-cachyos-rc"
+  },
+  "geometry": { "n_in": 3072, "experts": 256, "top_k": 8, "projection_rows": [256, 257], "tokens": [1, 16] },
+  "build": {
+    "directory": "build",
+    "generator": "Ninja",
+    "type": "Release",
+    "options": {
+      "STRATA_ENABLE_HIP": "ON",
+      "STRATA_ENABLE_CUDA": "OFF",
+      "CMAKE_HIP_ARCHITECTURES": "gfx1030",
+      "GPU_TARGETS": "gfx1030",
+      "CMAKE_C_COMPILER": "/opt/rocm/bin/amdclang",
+      "CMAKE_CXX_COMPILER": "/opt/rocm/bin/amdclang++",
+      "CMAKE_HIP_COMPILER": "/opt/rocm/bin/amdclang++",
+      "STRATA_PREFILL_MMQ": "ON",
+      "STRATA_MMQ_KQUANTS": "ON",
+      "STRATA_Q6K_EXPERTS": "ON",
+      "STRATA_MMQ_WIDE_LDS": "ON",
+      "STRATA_ORCA_Q4KS_MMQ": "ON",
+      "STRATA_AMD_COMMUNITY_TUNING": "ON",
+      "STRATA_NATIVE_EXPERTS": "ON",
+      "STRATA_MMQ_TQ_OVERLAY": "ON",
+      "STRATA_BUILD_TESTS": "ON"
+    },
+    "build_local_dependency_patch": "third_party/llama.cpp-patches/0002-kquant-mmq-rdna-wide-lds.patch applied to build/_deps/strata_llamacpp-src",
+    "wide_lds_confirmed_enabled": true,
+    "memory_cap": "20G",
+    "parallel_jobs": 10,
+    "targets_verified": ["strata-q36", "hip_q36_router_mask"],
+    "floating_point_flags": "Both engine and test: -O3 -std=c++20; no fast-math or reassociation flags"
+  },
+  "commands": {
+    "parity_and_bench": "HIP_VISIBLE_DEVICES=1 build/hip_q36_router_mask --bench 128",
+    "variants": "HIP_VISIBLE_DEVICES=1 build/hip_q36_router_mask --variants",
+    "ctest": "HIP_VISIBLE_DEVICES=1 ctest --test-dir build -R '^hip_q36_router_mask$' --output-on-failure",
+    "profile": "HIP_VISIBLE_DEVICES=1 rocprofv3 --kernel-trace --output-format csv --output-directory /tmp/strata-router-ab-prof --output-file router -- build/hip_q36_router_mask --profile",
+    "disable_new_paths": "STRATA_Q36_ROUTER_FAST=0"
+  },
+  "parity": {
+    "seed": 271828,
+    "random_trials": 128,
+    "comparisons_passed": 127552,
+    "mismatches": 0,
+    "comparison": "memcmp over full output allocation, including unwritten sentinels; done counter checked as zero",
+    "outputs": ["logits", "ids", "weights", "q8 input blocks", "grp_ptr", "grp_start", "n_groups", "ent_dst", "ent_tok"],
+    "cases": ["T=1..16", "4 and 8 warps", "LightFence=false and true", "q8 disabled and enabled", "256 and 257 output rows", "random and duplicate weight rows", "zero, repeated, small and large activations", "ties, NaN and infinite logits", "HY slot permutations, partial holes and empty maps", "standalone and paired entry points", "legacy fallback", "eager and graph replay"],
+    "reference_limit": "For T beyond the original per-block token limit, the frozen reference only extends shared storage and loops the same warp body over tokens. The engine's existing T<=4 fused and T<=8 standalone dispatch limits are unchanged.",
+    "registered_ctest": "passed, 3.08 seconds"
+  },
+  "microbench": {
+    "file": "parity-and-microbench.log",
+    "method": "HIP events; median of 31 interleaved graph replays with alternating mode order",
+    "calls_per_graph": 48,
+    "distinct_weight_matrices": 48,
+    "weight_working_set_MiB": 144.5625,
+    "primary_variant": "LightFence=false, Warps=8, QuantizeInput=true, projection rows=257",
+    "timed_baseline": "The engine off-switch path: Mask=false, Unroll=1, original shared storage and token dispatch. The widened frozen reference is used for parity only.",
+    "clocks_locked": false,
+    "default": "One fused launch, same grid and fence/counter pattern; unroll 4 at T=1, unroll 8 otherwise; mask grouping on gfx1030",
+    "split_note": "Split is a diagnostic two-launch comparison, not the engine default. It is slower at T=1 and only slightly faster at T=3..4 in the final run.",
+    "hy_empty_T1": "5.648 us old versus 5.656 us new: effectively neutral; no claim of a HY-empty T=1 speedup"
+  },
+  "experiments": {
+    "note": "In these historical experiment logs, the main BENCH new column is the all-T shared-weight prototype, not the shipped path. The TUNE rows use the mode maps below. Use parity-and-microbench.log for shipped-path results.",
+    "experiment-token-reuse.log": {
+      "variant_mapping": { "0": "LF=false, Warps=8, q8=true", "1": "LF=true, Warps=8, q8=true", "4": "LF=false, Warps=4, q8=true", "5": "LF=true, Warps=4, q8=true" },
+      "mode_mapping": { "0": "all T tokens share each weight load (groups of 4 past T=4)", "2": "original projection plus mask grouping", "3": "two tokens share each weight load" },
+      "result": "Weight sharing was slower on this GPU and was removed from production code."
+    },
+    "experiment-counter.log": {
+      "mode_mapping": { "2": "mask grouping, original fence", "4": "agent acq_rel counter after a CTA barrier, without explicit threadfence", "5": "projection plus separate grouping launch" },
+      "result": "Changing just the counter/fence did not provide a repeatable win. Original fence/counter semantics retained."
+    },
+    "experiment-unroll.log": {
+      "mode_mapping": { "8": "unroll 4 fused", "9": "unroll 4 split", "12": "unroll 8 fused", "13": "unroll 8 split", "14": "unroll 12 fused", "15": "unroll 12 split", "16": "unroll 24 fused", "17": "unroll 24 split" },
+      "result": "Ordered unroll 4 at T=1 and 8 at larger T selected; wider unrolling rejected."
+    }
+  },
+  "profile_T4": {
+    "file": "rocprof-kernel-trace.csv",
+    "method": "Direct launches; 8 passes over 48 rotating matrices, old/new/projection/split; timings are not additive",
+    "old_fused_median_us": 21.64,
+    "new_fused_median_us": 13.64,
+    "projection_only_median_us": 8.92,
+    "route_and_group_only_median_us": 4.60,
+    "new_allocated_vgprs": 64,
+    "new_allocated_lds_bytes": 3072,
+    "scratch_bytes": 0
+  },
+  "not_run": ["full Ornith model A/B", "model server", "device 0 execution", "CUDA execution"],
+  "unchanged": ["route_plan.cu (first-occurrence group ordering, not Ornith's expert-id ordering)"]
+}

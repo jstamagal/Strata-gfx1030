@@ -246,7 +246,7 @@ int main(int argc, char** argv) {
         for (float& v : hx) v = nd(rng);
         CK(hipMemcpy(x, hx.data(), hx.size() * 4, hipMemcpyHostToDevice));
         for (int r = 0; r < 8; ++r) for (Mode mode : {Old, Default, Projection, Split})
-            for (int l = 0; l < layers; ++l) project(0, mode, matrices[l], x, b, 257, 4, done);
+            for (int l = 0; l < layers; ++l) project(0, mode == Old ? Fallback : mode, matrices[l], x, b, 257, 4, done);
         CK(hipStreamSynchronize(stream)); counter_zero(done);
         std::puts("PROFILE T=4 old, new, projection-only, split; 8 x 48 calls each");
     } else if (variants) {
@@ -254,7 +254,7 @@ int main(int argc, char** argv) {
         CK(hipMemcpy(x, hx.data(), hx.size() * 4, hipMemcpyHostToDevice));
         for (int T = 1; T <= 4; ++T) for (int v = 0; v < 8; ++v) {
             const auto us = time_graphs({
-                [&](int l) { project(v, Old, matrices[l], x, b, 257, T, done); },
+                [&](int l) { project(v, Fallback, matrices[l], x, b, 257, T, done); },
                 [&](int l) { project(v, Default, matrices[l], x, b, 257, T, done); }});
             std::printf("VARIANT T=%d LF=%d waves=%d q8=%d old=%.3f new=%.3f us speedup=%.3fx\n",
                 T, v & 1, v >= 4 ? 4 : 8, (v / 2) % 2 == 0, us[0], us[1], us[0] / us[1]);
@@ -275,8 +275,11 @@ int main(int argc, char** argv) {
         std::printf("BENCH median of 31 interleaved/reversed graph replays; %d rotating matrices, %.1f MiB\n", layers, layers * hw.size() * 4.0 / (1 << 20));
         for (int T = 1; T <= 8; ++T) {
             std::vector<std::function<void(int)>> calls;
-            for (Mode mode : {Old, Default, MaskOnly, UnrollOnly, Split, Projection})
-                calls.push_back([&, mode](int l) { project(0, mode, matrices[l], x, b, 257, T, done); });
+            for (Mode mode : {Old, Default, MaskOnly, UnrollOnly, Split, Projection}) {
+                // Time the engine's exact off-switch path, not the widened parity reference.
+                const Mode timed = mode == Old ? Fallback : mode;
+                calls.push_back([&, timed](int l) { project(0, timed, matrices[l], x, b, 257, T, done); });
+            }
             const auto us = time_graphs(calls);
             const auto group = time_graphs({
                 [&](int) { grouping<false, true><<<1, 256, 0, stream>>>(b, T, 257, nullptr); },
