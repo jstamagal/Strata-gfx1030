@@ -322,3 +322,19 @@ None of these moves the bottleneck. The LACT change also copied PF1 into LACT's 
 150 W. MRRS 4096 lasts until reboot. Found afterwards: card 1's whole PCIe route (root port 00:01.3, card switch
 05/06, GPU 07) has ASPM L1 enabled by the BIOS (pcie_aspm=off leaves it alone); card 0's route has it off. OS window 2
 tests turning it off.
+
+## Window 13: CPU placement across the 9950X's two CCDs, IQ3_S
+
+Raw: `qwen38-window13/`. --pool-workers 4 takes the first 4 entries of --pool-cores, so every arm ran 4 workers.
+
+| layout | 36K prompt tok/s | agent tok/s | per-case (same text in every arm) |
+|---|---|---|---|
+| host cpu0, workers 1-4 (CCD0) | 2696.8 / 2709.9 | 142.4 | 127 148 154 **129** 180 128 |
+| host cpu0, workers 8-11 (CCD1) | 2688.2 / 2704.7 | 145.5 | 128 148 154 147 180 128 |
+| host cpu15 + workers 8-11 (all CCD1) | 2687.6 / 2700.0 | 145.4 | 127 148 154 147 179 128 |
+| whole process taskset to CCD0, workers 1-4 | 2686.8 / 2701.4 | 141.5 | 127 148 154 **125** 180 128 |
+
+CCD placement makes no difference. Each slower arm is a single case (json_multi_tool_result_merge, 125-129 vs 147,
+same text) while Astra codex runs were active; every other case matches to within 1 tok/s. As with --pool-workers in
+window 12, the CPU barely matters for decode at ~99% cache hits. Harness note: a one-case transient of 12-15% shows
+up now and then; compare per case before believing an arm-level difference of about 2%.

@@ -1,0 +1,44 @@
+w13_c0pool7_prompt run1 prompt 36411 2696.8 tok/s 13.5 s; gen 32 81.2 tok/s drafts 9 / 15
+1b0318b132bd
+w13_c0pool7_prompt run2 prompt 36411 2709.9 tok/s 13.44 s; gen 32 83.4 tok/s drafts 10 / 18
+be358117f543
+w13_c0pool7_agent code_async_batcher              1200 tok  127.3 tok/s drafts 616/796 7647be1f36bf
+w13_c0pool7_agent code_rust_committed_ring        1200 tok  148.5 tok/s drafts 682/797 3677c43d7d27
+w13_c0pool7_agent code_typescript_tool_dispatch   1200 tok  154.3 tok/s drafts 696/831 f51ad60baaa2
+w13_c0pool7_agent json_multi_tool_result_merge    1200 tok  129.2 tok/s drafts 687/774 ac71e4d17450
+w13_c0pool7_agent json_parallel_tool_plan         1200 tok  180.5 tok/s drafts 742/792 a6925d4108b1
+w13_c0pool7_agent json_patch_tool_payload         1200 tok  128.5 tok/s drafts 609/765 62b89ab84b34
+w13_c0pool7_agent TOTAL 7200 tok 142.4 tok/s
+w13_c1pool8_prompt run1 prompt 36411 2688.2 tok/s 13.54 s; gen 32 82.8 tok/s drafts 9 / 15
+1b0318b132bd
+w13_c1pool8_prompt run2 prompt 36411 2704.7 tok/s 13.46 s; gen 32 83.3 tok/s drafts 10 / 18
+be358117f543
+w13_c1pool8_agent code_async_batcher              1200 tok  127.5 tok/s drafts 616/796 7647be1f36bf
+w13_c1pool8_agent code_rust_committed_ring        1200 tok  148.5 tok/s drafts 682/797 3677c43d7d27
+w13_c1pool8_agent code_typescript_tool_dispatch   1200 tok  154.2 tok/s drafts 696/831 f51ad60baaa2
+w13_c1pool8_agent json_multi_tool_result_merge    1200 tok  146.8 tok/s drafts 684/780 ac71e4d17450
+w13_c1pool8_agent json_parallel_tool_plan         1200 tok  179.5 tok/s drafts 741/797 a6925d4108b1
+w13_c1pool8_agent json_patch_tool_payload         1200 tok  128.5 tok/s drafts 609/765 62b89ab84b34
+w13_c1pool8_agent TOTAL 7200 tok 145.5 tok/s
+w13_c1all7_prompt run1 prompt 36411 2687.6 tok/s 13.55 s; gen 32 82.7 tok/s drafts 9 / 15
+1b0318b132bd
+w13_c1all7_prompt run2 prompt 36411 2700.0 tok/s 13.49 s; gen 32 83.3 tok/s drafts 10 / 18
+be358117f543
+w13_c1all7_agent code_async_batcher              1200 tok  127.2 tok/s drafts 616/796 7647be1f36bf
+w13_c1all7_agent code_rust_committed_ring        1200 tok  148.3 tok/s drafts 682/797 3677c43d7d27
+w13_c1all7_agent code_typescript_tool_dispatch   1200 tok  154.2 tok/s drafts 696/831 f51ad60baaa2
+w13_c1all7_agent json_multi_tool_result_merge    1200 tok  147.0 tok/s drafts 685/780 ac71e4d17450
+w13_c1all7_agent json_parallel_tool_plan         1200 tok  179.4 tok/s drafts 741/797 a6925d4108b1
+w13_c1all7_agent json_patch_tool_payload         1200 tok  128.4 tok/s drafts 609/765 62b89ab84b34
+w13_c1all7_agent TOTAL 7200 tok 145.4 tok/s
+w13_c0whole_prompt run1 prompt 36411 2686.8 tok/s 13.55 s; gen 32 82.7 tok/s drafts 9 / 15
+1b0318b132bd
+w13_c0whole_prompt run2 prompt 36411 2701.4 tok/s 13.48 s; gen 32 83.4 tok/s drafts 10 / 18
+be358117f543
+w13_c0whole_agent code_async_batcher              1200 tok  127.2 tok/s drafts 616/796 7647be1f36bf
+w13_c0whole_agent code_rust_committed_ring        1200 tok  148.4 tok/s drafts 682/797 3677c43d7d27
+w13_c0whole_agent code_typescript_tool_dispatch   1200 tok  154.2 tok/s drafts 696/831 f51ad60baaa2
+w13_c0whole_agent json_multi_tool_result_merge    1200 tok  125.3 tok/s drafts 687/774 ac71e4d17450
+w13_c0whole_agent json_parallel_tool_plan         1200 tok  180.5 tok/s drafts 742/792 a6925d4108b1
+w13_c0whole_agent json_patch_tool_payload         1200 tok  128.3 tok/s drafts 609/765 62b89ab84b34
+w13_c0whole_agent TOTAL 7200 tok 141.5 tok/s
