@@ -485,3 +485,38 @@ enabled=always, defrag=defer+madvise; since boot, compact_stall = 171754 and all
 
 Next: an instrumented window that captures strata's off-CPU stacks (>100 ms) and samples vmstat during the stalls.
 It splits host-blocked (reclaim, compaction, faults) from GPU-late (the service thread on CPU, polling).
+
+**Natural #267 at 15:29**, audit window 16, arm w16_copy1_b (live config, main build-hip, quiet box). It happened
+on the 2nd agent case. The release log says "the GPU finished in 0 ms" on all four verifiers. The GPU was idle,
+spinning on a flag; it saw the release write at once, so the flag memory is visible to it. That rules out a stale
+GPU cache. **The host never raised the flag**: it was either blocked or waiting on something else. The live config
+has no DMA host-function path (--pcie-frac 0, copy-kernel mode), so flag A (the plan the CPU pool publishes) is
+the likely wait. Window STALL (started 15:39) captures the host side.
+
+Queue bug, fixed: when a window failed, queue-lib's EXIT trap wrote the FAILED marker into the batch log instead of
+window<N>.out. Window 17 waited on it from 15:31 to 15:39. The trap now tees the marker into the window log.
+
+## Swarm intake, 15:50 (docs/swarm/reports: titus, nyira, ziz)
+
+Taken:
+- **Row economics** (titus): window 18 gains arms for `--spec-min-p 0.40` and `STRATA_SPEC_COST=1`, which has
+  never run on this box.
+- **Prompt re-attribution** (ziz road 3): inserts/49-windowpft.sh runs the 36K prompt with `STRATA_PREFILL_TIMING=1`,
+  plus a control, at the next boundary.
+- **Verify-tree decider** (titus): asked the mtpq agent for the offline drafter top-2 hit rate on rejected steps.
+- **Stall attribution** (nyira, titus): window STALL is running. Seen on the box: swappiness 100, 2 GiB swap in use,
+  min_free_kbytes 512 MiB. A 10 s page-allocation stall in strata itself on 11-02.
+
+Checked and corrected:
+- **ziz road 2 (host-gated MTP chain) does not apply to the live config.** `draft_first`'s per-step host gate is the
+  serial loop's. With `--pipeline-windows 2` the chain goes through `chain_launch`, which launches every step at
+  once; the min-p gate applies afterwards in `t_rule`.
+- **ziz road 1 (GDN rollback snapshots) is real in source, but sized wrong.** There are 36 GDN layers, and each
+  window writes fp32 [nv 48][128][128] = 3.15 MB per layer for every row but the last: ~340 MB for a 4-row window,
+  ~790 MB for 8 rows, split across the cards. ziz used 6.7 ms per cycle; that is per token, and a window is ~17 ms.
+  Re-estimated cost: ~5-8% of decode (inference). The fix that keeps text exact is to store the per-row GDN inputs
+  instead of states and recompute on partial accept. A candidate; it needs a kernel microbench first.
+- **titus idea 3 (pipeline depth 3)**: the clamp at 2 is real. From the pipeline traces, card 0 has a window in
+  flight 82% of the time on agent and 97% on edits; card 1 65% / 81%, plus the MTP chain on card 1. These are upper
+  bounds from host-side intervals. The cards are not "half idle"; depth 3 is low priority.
+- **titus**: the stalls are ~2-4% of mean time, a tail problem, not the throughput lever. Agreed.
