@@ -17577,6 +17577,19 @@ int main(int argc, char** argv) {
                 pool_warm->layer = -1; pool_warm->best = -1;
                 warm_predictions = warm_hits = 0; warm_decode = true;
             }
+            const bool cum_on = tier_env("STRATA_DRAFT_CUM") && use_mtp && !req_df2 && !spec_cost &&
+                                !gated_proposal && !mtp.prob();
+            const char* cum_th_env = std::getenv("STRATA_DRAFT_CUM_THRESHOLD");
+            strata::core::DraftCumAdapt req_cum((float) req_spec_min_p, cum_th_env ? std::strtof(cum_th_env, nullptr) : -1.0f);
+            drive.d.draft_cost_bytes = cum_on;
+            uint64_t cum_cpu = drive.d.draft_cpu_bytes, cum_routed = drive.d.draft_routed_bytes;
+            auto cum_cost = [&] {
+                req_cum.observe_cpu(drive.d.draft_cpu_bytes - cum_cpu, drive.d.draft_routed_bytes - cum_routed);
+                cum_cpu = drive.d.draft_cpu_bytes; cum_routed = drive.d.draft_routed_bytes;
+            };
+            if (use_mtp) {
+                mtp.set_draft_cum(cum_on ? &req_cum : nullptr);
+            }
             std::array<float, 8> dwin_s{};   // the probabilities the current window was chosen from (STRATA_SPEC_COST)
             // STRATA_SPEC_TRACE=<file> in serve (bench only, off by default): per round "R p T a sfx ms k match | probs | drafts | lookup draft | committed tokens"
             static std::FILE* const df2_trace = [] { const char* tf = std::getenv("STRATA_SPEC_TRACE"); return tf != nullptr && tf[0] != '\0' ? std::fopen(tf, "a") : nullptr; }();
@@ -17883,7 +17896,13 @@ int main(int argc, char** argv) {
                 const int capB = pl_guess_t > 0 ? std::min(pl_guess_t, S_mtp) : S_mtp;
                 const double minpA = pl_fresh_min_p >= 0.0 ? pl_fresh_min_p : req_spec_min_p;
                 const double minpB = pl_guess_min_p >= 0.0 ? pl_guess_min_p : req_spec_min_p;
+                strata::core::DraftCumAdapt pl_cum = req_cum;
+                auto pl_chain_launch = [&](auto&&... args) {
+                    pl_cum = req_cum;
+                    return mtp.chain_launch(std::forward<decltype(args)>(args)...);
+                };
                 auto t_rule = [&](const float* pr, int from, int avail, int cap, double minp) {
+                    if (cum_on) return pl_cum.rows(pr + from, std::max(0, avail - from), cap);
                     int T = cap;
                     if (minp > 0.0) {
                         T = 1;
@@ -18183,9 +18202,11 @@ int main(int argc, char** argv) {
                             // loop's rule), so A goes to stage 0 as soon as that is known, not after all S_mtp - 1
                             const int k = k_ready;
                             bool decided = k >= capA - 1;
-                            if (!decided && minpA > 0.0)
+                            if (!decided && (cum_on || minpA > 0.0))
                                 for (int j = 0; j < k; ++j)
-                                    if (mtp.chain_prob()[j] < (float) minpA) { decided = true; break; }
+                                    if (cum_on ? !pl_cum.keep(mtp.chain_prob(), j) : mtp.chain_prob()[j] < (float) minpA) {
+                                        decided = true; break;
+                                    }
                             if (decided) {
                                 A.T = t_rule(mtp.chain_prob(), 0, std::min(k, capA - 1), capA, minpA);
                                 for (int i = 1; i < A.T; ++i) {
@@ -18217,9 +18238,11 @@ int main(int argc, char** argv) {
                         if (!b_done && (chain_kind == 1 || early_used)) {
                             const int base = A.T - 1;                    // B's row 0: the guess of A's bonus
                             bool decided = r == 1 || k >= base + capB;
-                            if (!decided && k > base + 1 && minpB > 0.0)
+                            if (!decided && k > base + 1 && (cum_on || minpB > 0.0))
                                 for (int j = base + 1; j < k; ++j)
-                                    if (op[j] < (float) minpB) { decided = true; break; }
+                                    if (cum_on ? !pl_cum.keep(op + base + 1, j - base - 1) : op[j] < (float) minpB) {
+                                        decided = true; break;
+                                    }
                             if (decided) {
                                 float pa = 1.0f;
                                 if (chain_kind == 1) {
@@ -18417,6 +18440,10 @@ int main(int argc, char** argv) {
                     }
                     static const bool pl_streak_full_chain = pipe_dbg_env("STRATA_PIPELINE_STREAK_FULL_CHAIN") != nullptr;
                     const bool sk_short = (sk_n > 0 && !pl_streak_full_chain) || B.T > strata::kernels::kVerifyNarrowT;
+                    if (cum_on && !nf) {
+                        cum_cost();
+                        if (!A.sfx && !A.lk) req_cum.observe(A.prob, A.T - 1, a);
+                    }
                     if (pl_early_chain) {
                         bool e_eos = false;
                         int n_emit = 0;
@@ -18432,13 +18459,13 @@ int main(int argc, char** argv) {
                             mtp.set_source_R(V1(A).final_R(0));
                             if (on_v) {   // the chain over A, forced through B's drafts (as below)
                                 chain_n = sk_short ? 1 : std::min(strata::kernels::kVerifyNarrowT - 1, B.T + capB - 1);
-                                if (!mtp.chain_launch(A.T, outp.data(), A.p, a, B.tok + 1, sk_short ? 0 : B.T - 1, chain_n,
+                                if (!pl_chain_launch(A.T, outp.data(), A.p, a, B.tok + 1, sk_short ? 0 : B.T - 1, chain_n,
                                                       chain_n, err))
                                     return die(err);
                                 tre("CL", A.seq, 1);
                             } else {      // fresh (as below)
                                 chain_n = strata::kernels::kVerifyNarrowT - 1;
-                                if (!mtp.chain_launch(A.T, outp.data(), A.p, a, nullptr, 0, chain_n, chain_n, err))
+                                if (!pl_chain_launch(A.T, outp.data(), A.p, a, nullptr, 0, chain_n, chain_n, err))
                                     return die(err);
                                 tre("CL", A.seq, 2);
                             }
@@ -18514,7 +18541,7 @@ int main(int argc, char** argv) {
                             // the chain over A, forced through B's drafts: B's bonus guess and the next window's drafts
                             mtp.set_source_R(V1(A).final_R(0));
                             chain_n = sk_short ? 1 : std::min(strata::kernels::kVerifyNarrowT - 1, B.T + capB - 1);
-                            if (!mtp.chain_launch(A.T, outp.data(), A.p, a, B.tok + 1, sk_short ? 0 : B.T - 1, chain_n,
+                            if (!pl_chain_launch(A.T, outp.data(), A.p, a, B.tok + 1, sk_short ? 0 : B.T - 1, chain_n,
                                                   chain_n, err))
                                 return die(err);
                             tre("CL", A.seq, 1);
@@ -18570,7 +18597,7 @@ int main(int argc, char** argv) {
                             if (!e_launched) {
                                 mtp.set_source_R(V1(A).final_R(0));
                                 chain_n = strata::kernels::kVerifyNarrowT - 1;
-                                if (!mtp.chain_launch(A.T, outp.data(), A.p, a, nullptr, 0, chain_n, chain_n, err))
+                                if (!pl_chain_launch(A.T, outp.data(), A.p, a, nullptr, 0, chain_n, chain_n, err))
                                     return die(err);
                                 tre("CL", A.seq, 2);
                             }
@@ -18782,7 +18809,8 @@ int main(int argc, char** argv) {
                         wr.use_mtp = use_mtp; wr.draft_on = draft_on; wr.df2_active = req_df2; wr.spec_cost = spec_cost; wr.first_window = first_window;
                         wr.chain_rows = chain_rows; wr.cap = S_mtp; wr.start = T; wr.spec_min_p = req_spec_min_p;
                         wr.draft_conf = o.draft_conf; wr.dprob = dprob.data();
-                        T = strata::spec::choose_window(wr);
+                        T = cum_on && !first_window ? req_cum.rows(dprob.data(), S_mtp - 1, S_mtp)
+                                                     : strata::spec::choose_window(wr);
                     }
                     if (first_window) T = merge_T > 0 ? merge_T : 1;
                     // a repeat of earlier context (prompt lookup) where the MTP's own first guess agrees: the policy takes it
@@ -19065,6 +19093,12 @@ int main(int argc, char** argv) {
                         return std::find(o.eos_ids.begin(), o.eos_ids.end(), (int64_t) y) != o.eos_ids.end();
                     }) - 1;
 #endif
+                if (cum_on) {
+                    cum_cost();
+                    if (!from_sfx && !first_window && !merged)
+                        req_cum.observe(dprob.data(), T_mtp - 1, std::min(a, T_mtp - 1));
+                    mtp.set_draft_cum(&req_cum);
+                }
                 if (from_sfx) { ++sfx_windows; sfx_drafts += T - 1; sfx_ok += a; }
                 if (chain_n > 0) { ++chain_windows; chain_drafts += chain_n; chain_ok += std::max(0, a - (T_mtp - 1)); }
                 if (!from_sfx && !first_window)
@@ -19238,6 +19272,13 @@ int main(int argc, char** argv) {
                                  (unsigned long long) warm_hits, (unsigned long long) warm_predictions);
             }
             if (tier_rank_live) { tier_rank_job->wait(); tier_rank_live = false; }
+            drive.d.draft_cost_bytes = false;
+            if (cum_on && tier_env("STRATA_DRAFT_CUM_TRACE")) {
+                std::fprintf(stderr, "strata draft cumulative: threshold %.4f CPU byte share %.4f bins decayed accepted/tested",
+                             req_cum.threshold(), req_cum.cpu_pressure());
+                for (int b = 0; b < 10; ++b) std::fprintf(stderr, " %.2f/%.2f", req_cum.accepted(b), req_cum.seen(b));
+                std::fputc('\n', stderr);
+            }
             if (!keep_sync()) { std::printf("ERR %s\n", err.c_str()); return 1; }
             const double decode_ms = std::chrono::duration<double, std::milli>(Clock::now() - d0).count();
             if (use_df2 && o.draft_auto && bandit_key != 0 && produced_n >= 48 && decode_ms > 0.0) {

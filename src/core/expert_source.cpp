@@ -5310,6 +5310,11 @@ void expert_pool_dispatch_multi(ExpertDispatch& d, const float* x_f, const int32
         const int64_t e = ids[i];
         if (e >= 0 && e < d.n_expert) d.job_of[(size_t) e] = -1;
     }
+    if (d.draft_cost_bytes) {
+        const uint64_t bytes = lay.blob_bytes(d.layers);
+        d.draft_cpu_bytes += (uint64_t) njobs * bytes;
+        d.draft_routed_bytes += (uint64_t) (n_tok * k) * bytes;
+    }
     d.multi_misses += njobs;
     ++d.layers;
     d.experts += n_tok * k;

@@ -21,6 +21,7 @@
 
 #include "strata/core/layer.hpp"
 #include "strata/core/pinned_ring.hpp"
+#include "strata/core/draft_cum.hpp"
 #include "strata/core/session.hpp"
 #include "strata/kernels/sampler.hpp"
 #include "strata/kernels/verify_kernels.hpp"
@@ -147,6 +148,7 @@ public:
     /// STRATA_SPEC_COST: called after each draft step with (index, probability) instead of the `min_p` test; false ends the chain.
     /// Also called once for the last step of a chain that reached its length (so the rule sees every draft). Empty: min_p decides.
     void set_chain_rule(std::function<bool(int, float)> f) { chain_rule_ = std::move(f); }
+    void set_draft_cum(const DraftCumAdapt* rule) { cum_on_ = rule != nullptr; if (rule) cum_rule_ = *rule; }
 
     bool draft_first(int T, const float* R_row, int32_t token, int64_t cell, int32_t* drafts, std::string& err,
                      float* probs = nullptr, float min_p = 0.0f, int* n_drafts = nullptr, DraftResult* result = nullptr);
@@ -294,6 +296,8 @@ private:
     std::vector<float> lg_host_;
     // --pipeline-windows 2 (chain_launch)
     bool stage_source_R(int T, std::string& err);   ///< set_source_R's rows into the bound buffer
+    DraftCumAdapt cum_rule_;
+    bool cum_on_ = false;
     bool force_on_ = false, chain_live_ = false;
     const float* src_R_ = nullptr;
     int32_t *h_force_ = nullptr, *m_force_ = nullptr;   ///< the forced tokens (mapped), -1 = the step's own pick

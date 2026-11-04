@@ -1918,7 +1918,7 @@ bool MtpDrafter::draft(int T, const int32_t* tokens, int64_t p, int a, int32_t* 
     };
 
     int n = 0;
-    if (min_p <= 0.0f && !chain_rule_ && max_steps > 0) {
+    if (min_p <= 0.0f && !chain_rule_ && !cum_on_ && max_steps > 0) {
         if (cudaGraphLaunch(cp ? round_exec_c_[T] : round_exec_[T], cs_) != cudaSuccess) {
             err = std::string("mtp draft: ") + cudaGetErrorString(cudaGetLastError());
             return false;
@@ -1986,7 +1986,9 @@ bool MtpDrafter::draft(int T, const int32_t* tokens, int64_t p, int a, int32_t* 
         float pj = ((volatile float*) h_prob_)[0];
         if (probs) probs[0] = pj;
         n = 1;
-        for (int j = 1; j < max_steps && (chain_rule_ ? chain_rule_(j - 1, pj) : pj >= min_p); ++j) {
+        float joint = cum_on_ ? cum_rule_.rate(pj) : 1.0f;
+        for (int j = 1; j < max_steps && (cum_on_ ? joint >= cum_rule_.threshold()
+                                                     : chain_rule_ ? chain_rule_(j - 1, pj) : pj >= min_p); ++j) {
             if (dt) cudaEventRecord(g_dt.eb[j], cs_);
             tl = Clock::now();
             if (cudaGraphLaunch(cp ? step_exec_c_[j] : step_exec_[j], cs_) != cudaSuccess) {
@@ -2002,6 +2004,7 @@ bool MtpDrafter::draft(int T, const int32_t* tokens, int64_t p, int a, int32_t* 
             if (dt) g_dt.waitj_ms += hms(tl);
             drafts[j] = ((volatile int32_t*) h_out_)[j];
             pj = ((volatile float*) h_prob_)[j];
+            if (cum_on_) joint *= cum_rule_.rate(pj);
             if (probs) probs[j] = pj;
             ++n;
         }
