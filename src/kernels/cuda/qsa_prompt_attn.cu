@@ -14,6 +14,7 @@
 
 #include <cuda_fp16.h>
 #include <cuda_runtime.h>
+#include "strata/kernels/dp4a.hpp"
 #include <algorithm>
 #include <cmath>
 
