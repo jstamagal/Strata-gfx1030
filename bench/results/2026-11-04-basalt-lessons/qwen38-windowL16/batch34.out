@@ -1,0 +1,63 @@
+3e22af24c39d1242d6facb050cdf3d44bddb2a85dc6adc0eae0012b4340d1043  /home/ronald_rump/inbox/agents/claude/strata-q38-splitlookup/build/strata
+wl16_edit_base edit_json_config                1200 tok  323.3 tok/s drafts 1025/1145 4e5d39445d4b
+wl16_edit_base edit_py_docstrings              1200 tok  391.6 tok/s drafts 1041/1058 c8a4b4501c9e
+wl16_edit_base edit_py_rename                  1200 tok  392.4 tok/s drafts 1041/1071 ae962017b205
+wl16_edit_base TOTAL 3600 tok 366.1 tok/s
+wl16_edit_long edit_json_config                1200 tok  219.7 tok/s drafts 963/1278 6957c2123a9b
+wl16_edit_long edit_py_docstrings              1200 tok  268.3 tok/s drafts 1013/1205 aabef765b8b0
+wl16_edit_long edit_py_rename                  1200 tok  255.1 tok/s drafts 995/1184 330c15068d1d
+wl16_edit_long TOTAL 3600 tok 245.9 tok/s
+wl16_edit_wide_off edit_json_config                1200 tok  321.3 tok/s drafts 1025/1145 4e5d39445d4b
+wl16_edit_wide_off edit_py_docstrings              1200 tok  382.3 tok/s drafts 1039/1060 c8a4b4501c9e
+wl16_edit_wide_off edit_py_rename                  1200 tok  391.2 tok/s drafts 1041/1071 ae962017b205
+wl16_edit_wide_off TOTAL 3600 tok 362.1 tok/s
+wl16_agent_base code_async_batcher              1200 tok  136.6 tok/s drafts 665/802 0cf2a6b87982
+wl16_agent_base code_rust_committed_ring        1200 tok  141.8 tok/s drafts 678/830 bd4c7b4458a5
+wl16_agent_base code_typescript_tool_dispatch   1200 tok  166.9 tok/s drafts 729/828 2c9a49e98f07
+wl16_agent_base json_multi_tool_result_merge    1200 tok  142.7 tok/s drafts 671/795 4351dac5d90f
+wl16_agent_base json_parallel_tool_plan         1200 tok  175.9 tok/s drafts 763/875 06acc530e2f8
+wl16_agent_base json_patch_tool_payload         1200 tok  123.0 tok/s drafts 603/754 6eb9ece924d6
+wl16_agent_base TOTAL 7200 tok 145.7 tok/s
+wl16_agent_long code_async_batcher              1200 tok  133.7 tok/s drafts 654/832 c9b1cda4d8ae
+wl16_agent_long code_rust_committed_ring        1200 tok  149.6 tok/s drafts 687/797 f057b9e85e39
+wl16_agent_long code_typescript_tool_dispatch   1200 tok  146.6 tok/s drafts 688/813 7dea0020f6a0
+wl16_agent_long json_multi_tool_result_merge    1200 tok  140.9 tok/s drafts 668/807 cd235b2ddf58
+wl16_agent_long json_parallel_tool_plan         1200 tok  177.6 tok/s drafts 738/776 ee8dcfc3b86a
+wl16_agent_long json_patch_tool_payload         1200 tok  124.2 tok/s drafts 606/764 11df05491ebf
+wl16_agent_long TOTAL 7200 tok 143.7 tok/s
+MD5 wl16_edit_base edit_py_rename ae962017b20503df20a5a58d98239097
+MD5 wl16_edit_long edit_py_rename 330c15068d1d3c11c2dce7b520ad1e72
+MD5 wl16_edit_wide_off edit_py_rename ae962017b20503df20a5a58d98239097
+MD5 wl16_edit_base edit_json_config 4e5d39445d4bb7a26ae854bd16feb62e
+MD5 wl16_edit_long edit_json_config 6957c2123a9b30413a6f55e04798047c
+MD5 wl16_edit_wide_off edit_json_config 4e5d39445d4bb7a26ae854bd16feb62e
+MD5 wl16_edit_base edit_py_docstrings c8a4b4501c9ef71584cfa88a3bdcd22e
+MD5 wl16_edit_long edit_py_docstrings aabef765b8b06da896c4b700cf9521eb
+MD5 wl16_edit_wide_off edit_py_docstrings c8a4b4501c9ef71584cfa88a3bdcd22e
+LONG_LOOKUP wl16_edit_base 0 windows
+LONG_LOOKUP wl16_edit_long 62 windows
+LONG_LOOKUP wl16_edit_wide_off 0 windows
+MD5 wl16_agent_base code_async_batcher 0cf2a6b87982ad72e7a750776628b9d9
+MD5 wl16_agent_long code_async_batcher c9b1cda4d8aeb1aae1509a7dd237d752
+MD5 wl16_agent_base code_rust_committed_ring bd4c7b4458a5432509f8873670349d31
+MD5 wl16_agent_long code_rust_committed_ring f057b9e85e39989968330d6eeff75be4
+MD5 wl16_agent_base code_typescript_tool_dispatch 2c9a49e98f07e5d1db06b473261194c0
+MD5 wl16_agent_long code_typescript_tool_dispatch 7dea0020f6a04ce093009cd16210570e
+MD5 wl16_agent_base json_parallel_tool_plan 06acc530e2f88d68a3add9785941f954
+MD5 wl16_agent_long json_parallel_tool_plan ee8dcfc3b86a4d53441d4edfd25ee385
+MD5 wl16_agent_base json_patch_tool_payload 6eb9ece924d613002def8c59f3e4ca60
+MD5 wl16_agent_long json_patch_tool_payload 11df05491ebf0c7b7fa47b312a43f266
+MD5 wl16_agent_base json_multi_tool_result_merge 4351dac5d90fec4dfde614793499dc4d
+MD5 wl16_agent_long json_multi_tool_result_merge cd235b2ddf5887337b033bf350a4c272
+LONG_LOOKUP wl16_agent_base 0 windows
+LONG_LOOKUP wl16_agent_long 0 windows
+GATE FAIL: wl16_edit_long edit_py_rename: output differs from base
+GATE FAIL: wl16_edit_long edit_json_config: output differs from base
+GATE FAIL: wl16_edit_long edit_py_docstrings: output differs from base
+GATE FAIL: wl16_agent_long code_async_batcher: output differs from base
+GATE FAIL: wl16_agent_long code_rust_committed_ring: output differs from base
+GATE FAIL: wl16_agent_long code_typescript_tool_dispatch: output differs from base
+GATE FAIL: wl16_agent_long json_parallel_tool_plan: output differs from base
+GATE FAIL: wl16_agent_long json_patch_tool_payload: output differs from base
+GATE FAIL: wl16_agent_long json_multi_tool_result_merge: output differs from base
+WINDOWL16 VALIDATION FAILED: do not adopt

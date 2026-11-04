@@ -338,3 +338,18 @@ CCD placement makes no difference. Each slower arm is a single case (json_multi_
 same text) while Astra codex runs were active; every other case matches to within 1 tok/s. As with --pool-workers in
 window 12, the CPU barely matters for decode at ~99% cache hits. Harness note: a one-case transient of 12-15% shows
 up now and then; compare per case before believing an arm-level difference of about 2%.
+
+## Window L16: 16-row lookup windows on the layer split, IQ3_S — FAILED (bug)
+
+Raw: `qwen38-windowL16/`. Binary from basalt38/split-lookup16 at 1eb7ca8d7 (sha256 3e22af24…), all arms the same binary.
+
+| arm | edits tok/s | agent tok/s | text vs base | long windows |
+|---|---|---|---|---|
+| base (8-row cap) | 366.1 | 145.7 | — | 0 |
+| --lookup-max-t 16, long gate on | **245.9** | 143.7 | **differs, all 9 cases** | 62 on edits, 0 on agent |
+| --lookup-max-t 16, long gate off | 362.1 | — | same | 0 |
+
+Long windows accepted about 7.5 of 15 drafts (105/210, 196/375, 184/345); the trace puts almost every reject at the
+first row of the second half (a=8). Rows 9-16 are not computed correctly somewhere on the stage-0 -> stage-1 path, and
+the wrong bonus token at the reject changes the text. The agent arms also change text with zero long windows admitted,
+so gate on alters ordinary windows too. Not adopted; back to the building agent for a fix.
