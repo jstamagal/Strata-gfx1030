@@ -888,3 +888,21 @@ the engine ran at 1.8 tok/s** (warm-up 55-token prompt 9.6 tok/s, 16 tokens in 1
   be the in-order sharing form, not time-slicing.
 - Window HWQ2 (head of insert 53): probes 8, 6, 5 with a watchdog that kills a probe on the first oversubscription
   line, then a 4+4-pass A/B of 4 against the largest count that fits.
+
+## Window UKG: full-A rollback GDN skip (17:36-17:48)
+
+Raw: `strata-ab/windowukg.out`, arms `ukg_*`. Branch basalt38/pl-undo-keep-gdn bdb6954d0 (binary 575a3a51), live
+IQ3_S config, off/on via `STRATA_PL_UNDO_KEEP_GDN`, agent x3 + edit x2, traces + DECODE_TIMING.
+
+| set | agent p1/p2/p3 tok/s | kept / rollbacks per agent pass | edit p1/p2 tok/s |
+|---|---|---|---|
+| off | 149.0 / 149.0 / 148.9 | 0 / 1007 | 368.6 / 369.3 |
+| on | 149.1 / 149.2 / 149.0 | 719 / 1007 | 368.8 / 306.6 (one 2041 ms gap) |
+
+- **Exact:** text matches off in all 10 arms, through 2157 kept rollbacks on agent and 62 on edit.
+- **Worth ~nothing:** stage-0 L0->F0 of the fresh window after a kept rollback drops 7.91->7.88 ms (T1), 8.75->8.73
+  (T2), 9.71->9.67 (T3); means 0.02-0.08 ms. After a partial rollback (control): unchanged. The restore and replay
+  were already hidden: they run on card 0 while card 1 drafts the fresh window's chain (coordinator's caveat). Agent
+  +0.1%, inside noise. Not merged; the branch stays as a record.
+- **Side finding, the big one:** 1 stall gap in these 10 arms (the census is ~0.74 per arm). See the stall-rate
+  section below.
