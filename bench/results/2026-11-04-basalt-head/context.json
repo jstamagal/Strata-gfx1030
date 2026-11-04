@@ -1,0 +1,75 @@
+{
+  "model": "Qwen3.8-Flash-Next",
+  "engine": "strata main engine HIP",
+  "device": "Radeon Pro V620 gfx1030",
+  "reported_full_model_baseline": {
+    "source": "coordinator message; not measured by the head-port worker",
+    "config": "/home/ronald_rump/Strata_donttouch/strata-unsloth-qwen-UD4_K_XL.json",
+    "override": "--adapt-swaps 0",
+    "fixture": "1200-token greedy essay",
+    "md5_prefix": "d5dcd30186c2",
+    "tokens_per_second": [67.0, 67.2],
+    "noise_percent": 0.2,
+    "acceptance": "Exact paths retain the hash on every run/load; speed differences must exceed 0.2 percent. Full-model A/Bs are run by the coordinator."
+  },
+  "reported_capture": {
+    "source": "coordinator full-model run, not run by the head-port worker",
+    "file": "/home/ronald_rump/inbox/agents/claude/head-capture/qwen38-ud4-essay-code-36k.shd",
+    "bytes": 129928352,
+    "max_rows": 40000,
+    "conditions": "one server load; all screens/proxy explicitly 0; --adapt-swaps 0; live config otherwise",
+    "requests": [
+      {"fixture": "essay", "prompt_tokens": 38, "generated_tokens": 996, "tokens_per_second": 66.0, "drafts": [426,596], "text_md5_prefix": "d5dcd30186c2", "matches_frozen_baseline": true},
+      {"fixture": "ISO-8601 parser and pytest", "prompt_tokens": 49, "generated_tokens": 800, "tokens_per_second": 101.6, "drafts": [477,552]},
+      {"fixture": "long context", "prompt_tokens": 36407, "generated_tokens": 600, "prompt_tokens_per_second": 1324, "tokens_per_second": 83.5, "drafts": [296,365]}
+    ],
+    "logs": "/tmp/basalt-prof/ab/cap/"
+  },
+  "head_types_read_from_live_gguf_headers": {
+    "unsloth-UD-Q4_K_XL": "Q8_0",
+    "swift-IQ3_S": "Q6_K",
+    "swift-IQ3_XXS": "Q5_K"
+  },
+  "geometry": {"vocab": 248320, "hidden": 2560, "default_mtp_subset": 106299},
+  "reported_deterministic_proxy_ab": {
+    "source": "coordinator; same branch executable for both arms; --adapt-swaps 0; screens 0; no dump",
+    "control_tokens_per_second": [67.0, 67.1, 67.1],
+    "proxy_tokens_per_second": [68.9, 69.0, 69.0],
+    "reported_gain_percent": 2.8,
+    "all_six_text_md5_prefix": "d5dcd30186c2",
+    "control_drafts": [426, 596],
+    "proxy_drafts": [426, 600],
+    "adaptive_confirmation": {
+      "source": "coordinator; same branch executable; two loads per side, four essays each",
+      "control_mean_tokens_per_second": 76.11,
+      "proxy_mean_tokens_per_second": 77.94,
+      "control_essays_2_through_4": 76.83,
+      "proxy_essays_2_through_4": 78.57,
+      "reported_gain_percent": 2.4,
+      "next": "owner requested gfx1030/Q8_0/2560 auto-on, followed by an env-unset frozen-bench check"
+    }
+  },
+  "captured_replay": {
+    "observed_rows": {"verify": 2801, "draft": 7054},
+    "verify_rows_by_window_width": {"1": 321, "2": 510, "3": 1857, "6": 18, "7": 7, "8": 88},
+    "verify_windows": 1210,
+    "narrow_verify_windows": 1195,
+    "input_selection": "all 2801 verify and 7054 draft rows retained; full sweeps plus an eight-input microbench",
+    "topk_parity": "8403 exact top-K checks across all 2801 verify inputs at varying T1..8 and K1/20/64, plus 180 K0/1/20/64 checks; zero mismatches, saved exact picks and vocabulary hash match",
+    "draft_microseconds": {"old_warm": 577.6, "proxy_warm": 110.7, "old_cold": 577.5, "proxy_cold": 229.8},
+    "draft_picks_changed": 11,
+    "draft_inputs_checked": 7054,
+    "chosen_draft_logit_bits": "exact in every checked case",
+    "timing_log": "q8-captured-final.log"
+  },
+  "automatic_proxy_policy": {
+    "unset": "on only for gfx1030 Q8_0 width 2560, a plain draft subset, and non-coupled proposal recording",
+    "0": "off; original exact draft head",
+    "1": "explicit opt-in for Q8_0, Q6_K and Q5_K width 2560",
+    "default_subset_reserved_bytes": 85176080,
+    "shared_drafter_private_scratch_bytes": 132880,
+    "policy_test": "PASS on device0: auto Q8 on, Q6/Q5 off; explicit0/1 and unsupported geometry checked",
+    "engine_startup_log": "new source logs pre-cache reserve and successful auto activation; coordinator env-unset full-model run pending"
+  },
+  "current_validation": "Final strata build succeeded. Four registered parity/capture tests passed. Entire real Q8 capture passed. Final Q6 real-weight/Gaussian-input parity passed (180 column checks, zero mismatches); Q6 screening remained slower there and stays opt-in. Coordinator will check the env-unset automatic Q8 proxy on the frozen full-model bench. Verify screens and dump remain opt-in. No model or server was started by the worker."
+}
