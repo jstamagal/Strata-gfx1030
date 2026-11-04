@@ -379,3 +379,11 @@ vs 2 of 4):
 
 Agent text changes on 5 of 6 cases (35 experts move from CPU to GPU). A confirmation round (36K prompt, agent in
 reverse order, and --kv-resident 61440 as an alternative route to full residency) is queued before adoption.
+
+**KV_PF_SLOTS confirmation** (batch38, reverse order): agent 142.5 (slots 1) vs 138.4 (slots 0), +3.0%. Across both
+passes 145.8 vs 139.4, **+4.6%**, with 5 of 6 cases faster in each pass (one-case swings of about 10% both ways).
+Gen after a 36K prompt 99.8-103.7 vs 95.8-97.5. 36K prompt 2711/2537 vs 2697/2716 (the 2537 dip also shows up
+in other arms). The alternative, --kv-resident 61440 with slots 0, only gets card 1 to 11753 of 11776 experts: no
+zero-doorbell graph, no gain. **ADOPTED** in the IQ3_S config (`STRATA_KV_PF_SLOTS=1`); harness copies synced. The
+cost is about 3% on a 120K cold prompt. Not applied to Q4_0/UD4: they can't reach full residency, which is where the
+gain comes from.

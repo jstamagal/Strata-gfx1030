@@ -1,0 +1,39 @@
+w_kvs2_36k_1 run1 prompt 36411 2711.2 tok/s 13.43 s; gen 100 103.7 tok/s drafts 39 / 55
+5f02ffdf2971
+w_kvs2_36k_1 run2 prompt 36411 2536.7 tok/s 14.35 s; gen 100 99.8 tok/s drafts 41 / 64
+eb71b547b43d
+w_kvs2_36k_0 run1 prompt 36411 2697.4 tok/s 13.5 s; gen 100 97.5 tok/s drafts 38 / 54
+5f02ffdf2971
+w_kvs2_36k_0 run2 prompt 36411 2716.0 tok/s 13.41 s; gen 100 95.8 tok/s drafts 40 / 62
+eb71b547b43d
+w_kvs2_agent_1b code_async_batcher              1200 tok  129.7 tok/s drafts 616/796 7647be1f36bf
+w_kvs2_agent_1b code_rust_committed_ring        1200 tok  151.9 tok/s drafts 682/797 3677c43d7d27
+w_kvs2_agent_1b code_typescript_tool_dispatch   1200 tok  137.0 tok/s drafts 696/831 f51ad60baaa2
+w_kvs2_agent_1b json_multi_tool_result_merge    1200 tok  131.1 tok/s drafts 675/751 ac71e4d17450
+w_kvs2_agent_1b json_parallel_tool_plan         1200 tok  187.1 tok/s drafts 750/815 a6925d4108b1
+w_kvs2_agent_1b json_patch_tool_payload         1200 tok  132.5 tok/s drafts 609/739 62b89ab84b34
+w_kvs2_agent_1b TOTAL 7200 tok 142.5 tok/s
+w_kvs2_agent_0b code_async_batcher              1200 tok  121.7 tok/s drafts 613/792 3504ca64e98e
+w_kvs2_agent_0b code_rust_committed_ring        1200 tok  139.6 tok/s drafts 661/791 1bd3abc2fd03
+w_kvs2_agent_0b code_typescript_tool_dispatch   1200 tok  151.4 tok/s drafts 693/816 60c3a0e22aca
+w_kvs2_agent_0b json_multi_tool_result_merge    1200 tok  130.2 tok/s drafts 677/755 f0163e3c865b
+w_kvs2_agent_0b json_parallel_tool_plan         1200 tok  175.1 tok/s drafts 738/795 b5e6fd2c5ac2
+w_kvs2_agent_0b json_patch_tool_payload         1200 tok  125.4 tok/s drafts 608/759 62b89ab84b34
+w_kvs2_agent_0b TOTAL 7200 tok 138.4 tok/s
+w_kvs2_kv61_agent code_async_batcher              1200 tok  122.1 tok/s drafts 620/812 a62b55b194ff
+w_kvs2_kv61_agent code_rust_committed_ring        1200 tok  141.7 tok/s drafts 667/790 0833fc602656
+w_kvs2_kv61_agent code_typescript_tool_dispatch   1200 tok  151.4 tok/s drafts 696/814 2e4368bad6d8
+w_kvs2_kv61_agent json_multi_tool_result_merge    1200 tok   93.1 tok/s drafts 682/811 48727bc09d20
+Traceback (most recent call last):
+  File "<stdin>", line 4, in <module>
+KeyError: 'timings'
+w_kvs2_kv61_36k run1 prompt 36411 2495.5 tok/s 14.59 s; gen 100 96.5 tok/s drafts 40 / 56
+5f02ffdf2971
+w_kvs2_kv61_36k run2 prompt 36411 2728.0 tok/s 13.35 s; gen 100 95.1 tok/s drafts 41 / 62
+eb71b547b43d
+== w_kvs2_36k_1 CUDA1 runs layers 25-47, expert cache 11776 slots (23.75 GiB), 11776 of its 11776 profiled pairs zero-doorbell=4
+== w_kvs2_36k_0 CUDA1 runs layers 25-47, expert cache 11741 slots (23.68 GiB), 11741 of its 11776 profiled pairs zero-doorbell=2
+== w_kvs2_agent_1b CUDA1 runs layers 25-47, expert cache 11776 slots (23.75 GiB), 11776 of its 11776 profiled pairs zero-doorbell=4
+== w_kvs2_agent_0b CUDA1 runs layers 25-47, expert cache 11741 slots (23.68 GiB), 11741 of its 11776 profiled pairs zero-doorbell=2
+== w_kvs2_kv61_agent CUDA1 runs layers 25-47, expert cache 11753 slots (23.71 GiB), 11753 of its 11776 profiled pairs zero-doorbell=2
+== w_kvs2_kv61_36k CUDA1 runs layers 25-47, expert cache 11753 slots (23.71 GiB), 11753 of its 11776 profiled pairs zero-doorbell=2
