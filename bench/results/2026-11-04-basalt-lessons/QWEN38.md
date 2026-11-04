@@ -541,3 +541,39 @@ at every depth adds ~0.18 tokens per window for ~3 extra rows. At this box's row
 **leaf fork**: where the min-p gate would stop the chain (top-1 p 0.4-0.7), verify top-1 and top-2 as two candidates
 for the last row. That costs +1 row, raises the chance the last row is accepted from ~0.55 to ~0.75, and needs only a
 one-level GDN fork plus a QSA mask change. Ranked below GDN snapshot removal and the stall fix.
+
+## Window STALL: host-side attribution of the single-window stalls (15:39-15:49)
+
+Raw: `qwen38-windowSTALL/`. The run is the live config on main build-hip, 4 agent + 4 edit passes, with pipeline
+traces. Alongside it:
+- `stall.bt` logged every off-CPU interval >=100 ms of every strata thread, with kernel stacks, and block I/O >50 ms;
+- a 100 ms sampler logged compact_stall, allocstall, pgscan_direct, pgmajfault and PSI.
+
+The text is identical across all passes.
+
+- **5 gaps >300 ms** (433, 762, 1125, 300, 617 ms); 3 of them are decode-time gaps in agent requests 4-5 and edit
+  request 3. **0 slow block I/O.**
+- **The host was not blocked.** In the run with the two biggest gaps (ws_agent_2, request 4), no strata thread except
+  idle ones (pool workers, which sleep through resident decode) was off-CPU >=200 ms during decode. In that run,
+  compaction, allocstall and direct reclaim are nonzero only at t=11 s (model load). All reclaim activity across
+  the 8 runs clusters at load time, t=6-26 s after each start.
+- **The memory-reclaim hypothesis is falsified for these stalls** (nyira and cantsbee proposed it; swappiness 100 and
+  failing compaction are real on the box, but absent at the moments of the stalls). With the natural #267
+  ("GPU finished in 0 ms" on release), the picture is: the host thread was running and did not see what it waits
+  for, and the GPU was spinning on a flag the host had not raised.
+- Kernel stacks are unsymbolized: kptr_restrict=2 hides kallsyms even from root. The next trace must set it to 1
+  for the run and restore it afterwards.
+
+**Lead: the #649 handshake switches**, opt-in since upstream 0.1.38 for "gfx1030 verify timeouts" and never run
+here:
+- `STRATA_VERIFY_COHERENT=1`: the handshake words and rows go in hipHostMallocCoherent (fine-grained) memory. Today
+  they are default mapped host memory.
+- `STRATA_DOORBELL_STORE=1`: the GPU stores each step's ring instead of a read-modify-write over PCIe.
+
+Mechanism (inference): a GPU progress write to non-coherent host memory, or a PCIe RMW, that the host doesn't see
+until something flushes it. This gives random 0.3-4 s delays, and a 20 s deadlock (#267) when nothing else flushes.
+**inserts/50-windowcoh.sh** runs 8 passes per switch with a gap census; text must match window STALL.
+
+cantsbee (in `~/inbox/agents/cantsbee/report.md`) also proposes:
+- prompt as a chunk-pipeline problem; window PFT, queued, measures where the time goes;
+- cursor-chase lookup for edits: edits-only, small, kept on the list.

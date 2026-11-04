@@ -1,0 +1,69 @@
+d4d10152bd1ba2d2b2142a0f64077cee9b7102d0e74ae4d0b5b4be704614d5de  /home/ronald_rump/Strata_donttouch/build-hip/strata
+236ed0ce0cea69ed82b3e2bb3ce94181e05d6038
+ARM ws_agent_1 start mono_ms=426535523
+ws_agent_1 code_async_batcher              1200 tok  129.5 tok/s drafts 616/796 7647be1f36bf
+ws_agent_1 code_rust_committed_ring        1200 tok  151.6 tok/s drafts 682/797 3677c43d7d27
+ws_agent_1 code_typescript_tool_dispatch   1200 tok  157.8 tok/s drafts 696/831 f51ad60baaa2
+ws_agent_1 json_multi_tool_result_merge    1200 tok  150.3 tok/s drafts 685/780 ac71e4d17450
+ws_agent_1 json_parallel_tool_plan         1200 tok  174.2 tok/s drafts 744/797 a6925d4108b1
+ws_agent_1 json_patch_tool_payload         1200 tok  130.9 tok/s drafts 609/765 62b89ab84b34
+ws_agent_1 TOTAL 7200 tok 147.5 tok/s
+ARM ws_agent_1 end mono_ms=426628074 rc=0
+ARM ws_edit_1 start mono_ms=426628080
+ws_edit_1 edit_json_config                1200 tok  329.6 tok/s drafts 1024/1135 4e5d39445d4b
+ws_edit_1 edit_py_docstrings              1200 tok  359.6 tok/s drafts 1039/1059 c8a4b4501c9e
+ws_edit_1 edit_py_rename                  1200 tok  394.8 tok/s drafts 1041/1071 ae962017b205
+ws_edit_1 TOTAL 3600 tok 359.4 tok/s
+ARM ws_edit_1 end mono_ms=426676605 rc=0
+ARM ws_agent_2 start mono_ms=426676611
+ws_agent_2 code_async_batcher              1200 tok  129.5 tok/s drafts 616/796 7647be1f36bf
+ws_agent_2 code_rust_committed_ring        1200 tok  151.7 tok/s drafts 682/797 3677c43d7d27
+ws_agent_2 code_typescript_tool_dispatch   1200 tok  156.8 tok/s drafts 696/831 f51ad60baaa2
+ws_agent_2 json_multi_tool_result_merge    1200 tok  120.1 tok/s drafts 687/774 ac71e4d17450
+ws_agent_2 json_parallel_tool_plan         1200 tok  183.3 tok/s drafts 742/791 a6925d4108b1
+ws_agent_2 json_patch_tool_payload         1200 tok  129.0 tok/s drafts 609/765 62b89ab84b34
+ws_agent_2 TOTAL 7200 tok 142.1 tok/s
+ARM ws_agent_2 end mono_ms=426770048 rc=0
+ARM ws_edit_2 start mono_ms=426770055
+ws_edit_2 edit_json_config                1200 tok  329.1 tok/s drafts 1024/1135 4e5d39445d4b
+ws_edit_2 edit_py_docstrings              1200 tok  391.5 tok/s drafts 1039/1059 c8a4b4501c9e
+ws_edit_2 edit_py_rename                  1200 tok  394.2 tok/s drafts 1041/1071 ae962017b205
+ws_edit_2 TOTAL 3600 tok 369.0 tok/s
+ARM ws_edit_2 end mono_ms=426817340 rc=0
+ARM ws_agent_3 start mono_ms=426817346
+ws_agent_3 code_async_batcher              1200 tok  129.6 tok/s drafts 616/796 7647be1f36bf
+ws_agent_3 code_rust_committed_ring        1200 tok  151.7 tok/s drafts 682/797 3677c43d7d27
+ws_agent_3 code_typescript_tool_dispatch   1200 tok  157.8 tok/s drafts 696/831 f51ad60baaa2
+ws_agent_3 json_multi_tool_result_merge    1200 tok  148.5 tok/s drafts 685/780 ac71e4d17450
+ws_agent_3 json_parallel_tool_plan         1200 tok  184.2 tok/s drafts 742/791 a6925d4108b1
+ws_agent_3 json_patch_tool_payload         1200 tok  130.1 tok/s drafts 609/765 62b89ab84b34
+ws_agent_3 TOTAL 7200 tok 148.2 tok/s
+ARM ws_agent_3 end mono_ms=426906011 rc=0
+ARM ws_edit_3 start mono_ms=426906017
+ws_edit_3 edit_json_config                1200 tok  329.1 tok/s drafts 1024/1135 4e5d39445d4b
+ws_edit_3 edit_py_docstrings              1200 tok  391.4 tok/s drafts 1039/1059 c8a4b4501c9e
+ws_edit_3 edit_py_rename                  1200 tok  330.1 tok/s drafts 1041/1071 ae962017b205
+ws_edit_3 TOTAL 3600 tok 347.9 tok/s
+ARM ws_edit_3 end mono_ms=426956175 rc=0
+ARM ws_agent_4 start mono_ms=426956181
+ws_agent_4 code_async_batcher              1200 tok  129.6 tok/s drafts 616/796 7647be1f36bf
+ws_agent_4 code_rust_committed_ring        1200 tok  151.8 tok/s drafts 682/797 3677c43d7d27
+ws_agent_4 code_typescript_tool_dispatch   1200 tok  157.9 tok/s drafts 696/831 f51ad60baaa2
+ws_agent_4 json_multi_tool_result_merge    1200 tok  150.4 tok/s drafts 685/780 ac71e4d17450
+ws_agent_4 json_parallel_tool_plan         1200 tok  186.5 tok/s drafts 742/791 a6925d4108b1
+ws_agent_4 json_patch_tool_payload         1200 tok  130.9 tok/s drafts 609/765 62b89ab84b34
+ws_agent_4 TOTAL 7200 tok 148.9 tok/s
+ARM ws_agent_4 end mono_ms=427043758 rc=0
+ARM ws_edit_4 start mono_ms=427043764
+ws_edit_4 edit_json_config                1200 tok  328.3 tok/s drafts 1024/1135 4e5d39445d4b
+ws_edit_4 edit_py_docstrings              1200 tok  391.4 tok/s drafts 1039/1059 c8a4b4501c9e
+ws_edit_4 edit_py_rename                  1200 tok  394.1 tok/s drafts 1041/1071 ae962017b205
+ws_edit_4 TOTAL 3600 tok 368.6 tok/s
+ARM ws_edit_4 end mono_ms=427095480 rc=0
+GAP ws_agent_1 req 5 433 ms | 5364.441 L1 388 3 0 -> 5797.061 CD 388 1 999
+GAP ws_agent_2 req 4 762 ms | 169.733 L0 12 2 10 -> 931.454 F1 11 3 0
+GAP ws_agent_2 req 4 1125 ms | 1828.101 L0 70 1 10 -> 2952.823 F0 70 1 1
+GAP ws_edit_1 req 2 300 ms | 1248.705 L1 66 8 0 -> 1548.726 F1 66 8 0
+GAP ws_edit_3 req 3 617 ms | 1729.521 L0 90 8 0 -> 2346.284 F0 90 1 0
+SUMMARY gaps>300ms=5 off_cpu>=100ms=1027 slow_bio=0
+WINDOWSTALL COLLECTED: texts deterministic across passes

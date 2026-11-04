@@ -1,0 +1,42 @@
+// Off-CPU intervals >= 100 ms of any strata thread, with the kernel stack it left the CPU in,
+// and block I/O requests slower than 50 ms. Times are CLOCK_MONOTONIC ms (same clock as
+// python time.monotonic_ns).
+BEGIN { printf("STALLBT start %llu\n", nsecs / 1000000); }
+
+tracepoint:sched:sched_switch
+{
+  if (curtask->group_leader->comm == "strata") {
+    @off[tid] = nsecs;
+    @ks[tid] = kstack(14);
+    @st[tid] = args.prev_state;
+  }
+  $t = @off[args.next_pid];
+  if ($t != 0) {
+    $d = (nsecs - $t) / 1000000;
+    if ($d >= 100) {
+      printf("OFF end=%llu ms=%llu tid=%d comm=%s state=%d%s\n", nsecs / 1000000, $d,
+             args.next_pid, args.next_comm, @st[args.next_pid], @ks[args.next_pid]);
+    }
+    delete(@off[args.next_pid]);
+  }
+}
+
+tracepoint:block:block_rq_issue
+{
+  @bi[args.dev, args.sector] = nsecs;
+}
+
+tracepoint:block:block_rq_complete
+{
+  $t = @bi[args.dev, args.sector];
+  if ($t != 0) {
+    $d = (nsecs - $t) / 1000000;
+    if ($d >= 50) {
+      printf("BIO end=%llu ms=%llu dev=%d:%d rwbs=%s sectors=%d\n", nsecs / 1000000, $d,
+             args.dev >> 20, args.dev & 0xfffff, args.rwbs, args.nr_sector);
+    }
+    delete(@bi[args.dev, args.sector]);
+  }
+}
+
+END { clear(@off); clear(@ks); clear(@st); clear(@bi); }
