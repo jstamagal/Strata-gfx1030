@@ -8549,7 +8549,7 @@ int main(int argc, char** argv) {
                 lookahead.set_depth(2);
             std::fprintf(stderr, "strata generate: routing-aware prefetch on (the next layer's router%s)\n",
                          fs_ahead ? ", feeding the Foresight swap space" : ", file tier");
-        } else {
+        } else if (file_lookahead_on || !ok) {
             (void) cudaGetLastError();
             std::fprintf(stderr, "strata generate: routing-aware prefetch off (%s)\n",
                          ok ? err.c_str() : "the routers are not BF16 in the arena");
@@ -12649,11 +12649,12 @@ int main(int argc, char** argv) {
             return strata::program::rank_tier(usage, res, (int) g.n_expert, tier_group, tier_prior, excluded, tier_opt);
         };
         if (tier_opt.across || tier_opt.once)
-            std::fprintf(stderr, "strata serve: adaptive ranking: cross-layer=%d once-routed=%d; placement-dependent numerics\n",
-                         tier_opt.across, tier_opt.once);
+            std::fprintf(stderr, "strata serve: adaptive ranking: cross-layer=%d once-routed=%d, %zu device/size classes; placement-dependent numerics\n",
+                         tier_opt.across, tier_opt.once, tier_classes.size());
         // The ranking reads snapshots; copies and residency changes still wait for the normal scheduling point.
         std::unique_ptr<JobThread> tier_rank_job;
         if (tier_simple && tier_env("STRATA_ADAPT_EARLY_RANK")) tier_rank_job = std::make_unique<JobThread>();
+        if (tier_rank_job) std::fputs("strata serve: adaptive ranking starts after the window's last CPU layer\n", stderr);
         std::vector<float> tier_rank_usage;
         std::vector<int32_t> tier_rank_res;
         std::vector<Swap> tier_ranked;
@@ -17840,7 +17841,10 @@ int main(int argc, char** argv) {
                 // asynchronous tier's steps instead, its copies queued here at each card's gaps (a_pl_idle, a_gap)
                 strata::program::AdaptGap pl_copy_gap;
                 pl_copy_gap.enabled = !ajob && n_stages <= 4 && tier_env("STRATA_ADAPT_IDLE_GAPS");
-                if (pl_copy_gap.enabled) adapt_gap = &pl_copy_gap;
+                if (pl_copy_gap.enabled) {
+                    adapt_gap = &pl_copy_gap;
+                    std::fputs("strata serve: adaptive refills lease verify-stage idle gaps\n", stderr);
+                }
                 std::thread pl_adapt_thr;
                 std::atomic<bool> pl_adapt_done{true};
                 bool pl_adapt_ok = true;
