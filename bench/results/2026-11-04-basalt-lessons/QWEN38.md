@@ -1006,3 +1006,24 @@ is appended after RXP. Inference to check: the vision process (strata-vision on 
   oversubscribes. HWQ3 part B runs without the reader (config copy minus the "vision" section; the engine keeps
   --vision, so the engine run is identical): 4 as control, then probes 6 and 5. If more queues help, the trade is the
   reader on CPU / on demand / on a spare card (`"vision": {"cuda_device": N}` moves it).
+
+## Window AB2 (mtpq drafters, 18:37-18:58)
+
+mtpq branch binary 563dbb2f, harness IQ3_S config, only `--mtp` differs; agent x2 + edit x2 per drafter, interleaved.
+
+| drafter | MiB | agent tok/s (pooled, vs live) | held-out agent | edit tok/s (vs live) | text | gates |
+|---|---|---|---|---|---|---|
+| live rt | 839 | 148.94 | 147.94 | 368.40 | - | OK |
+| s2gptq-a (adopted) | 839 | 151.89 (+2.0%) | 150.00 (+1.4%) | 366.15 (-0.6%) | 6/6, 3/3 | OK |
+| q4n | 1514 | 152.68 (+2.5%) | 151.82 (+2.6%) | 367.19 (-0.3%) | 6/6, 3/3 | OK |
+| q4g | 1514 | 150.35 (+0.9%; p2 148.4) | 150.75 (+1.9%) | 356.04 (-3.4%; p2 345.2) | 6/6, 3/3 | OK |
+| king (KING's quant) | - | 143.48 (-3.7%) | 142.79 | 361.21 (-2.0%) | 1/6, 3/3 | FAIL: CUDA1 11705 slots, 2 zero-doorbell graphs |
+
+- **s2gptq-a costs 0.6% on edits** (366.2 / 366.1 vs 368.6 / 368.2, both passes; accepted -0.2%, tokens/round -1.4%).
+  ZB measured agent only. The adoption stays (+2.0% agent) but it is a trade, not a free win: if the leaderboard
+  weights edits, the revert is one line in the live config.
+- q4n is the best drafter here (+2.5% agent, -0.3% edit) but takes +675 MiB on card 1: blocked by the no-VRAM-growth
+  rule. q4g's pass-2 dips look like stalls (single-pass drops of 2.6% and 6.1%).
+- KING's quant pushes the expert cache below full residency (11705 of 11776 slots on CUDA1, so only 2 zero-doorbell
+  graphs) and changes the text: every mtpq drafter beats it.
+- The IQ2_XXS drafter A/B (mtpqi_*) started 18:58.
