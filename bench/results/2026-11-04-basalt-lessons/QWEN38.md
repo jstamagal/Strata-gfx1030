@@ -907,7 +907,7 @@ IQ3_S config, off/on via `STRATA_PL_UNDO_KEEP_GDN`, agent x3 + edit x2, traces +
 - **Side finding, the big one:** 1 stall gap in these 10 arms (the census is ~0.74 per arm). See the stall-rate
   section below.
 
-## Stall rate tracks host load and request starts (17:50-18:05, from existing traces + a live kernel trace)
+## Stall rate tracks host load and request starts (17:50-17:58, from existing traces + a live kernel trace)
 
 - **By time of day** (all of today's traced arms, the 16-queue arm excluded): 0.24 gaps per arm 11:30-14:30 (quiet),
   ~1.0 in 15:00-15:30 (swarm run 1 + the #267 pressure tests) and 16:30-17:13 (swarm run 2), 0.07 after the swarm
@@ -927,4 +927,4 @@ IQ3_S config, off/on via `STRATA_PL_UNDO_KEEP_GDN`, agent x3 + edit x2, traces +
   VRAM stage that can be freed and re-allocated: cudaFree syncs the device) under RAM/VRAM pressure push TTM or the
   MMU notifier into evicting the process; a full KFD restore re-validates every BO including the 46.84 GiB userptr
   arena. Second probe `evict2.bt` (eviction fence + `amdgpu_amdkfd_gpuvm_restore_process_bos` duration) running from
-  18:04. Window EVP (forced compaction during decode) is first in insert 53.
+  17:56. Window EVP (forced compaction during decode) is first in insert 53.
