@@ -1,0 +1,44 @@
+w10_agent_base code_async_batcher              1200 tok  127.2 tok/s drafts 616/796 7647be1f36bf
+w10_agent_base code_rust_committed_ring        1200 tok  148.4 tok/s drafts 682/797 3677c43d7d27
+w10_agent_base code_typescript_tool_dispatch   1200 tok  154.2 tok/s drafts 696/831 f51ad60baaa2
+w10_agent_base json_multi_tool_result_merge    1200 tok  147.1 tok/s drafts 685/780 ac71e4d17450
+w10_agent_base json_parallel_tool_plan         1200 tok  179.4 tok/s drafts 741/797 a6925d4108b1
+w10_agent_base json_patch_tool_payload         1200 tok  128.4 tok/s drafts 609/765 62b89ab84b34
+w10_agent_base TOTAL 7200 tok 145.5 tok/s
+w10_agent_en code_async_batcher              1200 tok  129.6 tok/s drafts 616/796 7647be1f36bf
+w10_agent_en code_rust_committed_ring        1200 tok  151.7 tok/s drafts 682/797 3677c43d7d27
+w10_agent_en code_typescript_tool_dispatch   1200 tok  157.8 tok/s drafts 696/831 f51ad60baaa2
+w10_agent_en json_multi_tool_result_merge    1200 tok  150.3 tok/s drafts 685/780 ac71e4d17450
+w10_agent_en json_parallel_tool_plan         1200 tok  186.4 tok/s drafts 742/791 a6925d4108b1
+w10_agent_en json_patch_tool_payload         1200 tok  131.0 tok/s drafts 609/765 62b89ab84b34
+w10_agent_en TOTAL 7200 tok 148.9 tok/s
+w10_agent_lk12 code_async_batcher              1200 tok  127.4 tok/s drafts 616/796 7647be1f36bf
+w10_agent_lk12 code_rust_committed_ring        1200 tok  148.3 tok/s drafts 682/797 3677c43d7d27
+w10_agent_lk12 code_typescript_tool_dispatch   1200 tok  154.1 tok/s drafts 696/831 f51ad60baaa2
+w10_agent_lk12 json_multi_tool_result_merge    1200 tok  147.1 tok/s drafts 685/780 ac71e4d17450
+w10_agent_lk12 json_parallel_tool_plan         1200 tok  179.4 tok/s drafts 741/797 a6925d4108b1
+w10_agent_lk12 json_patch_tool_payload         1200 tok  128.4 tok/s drafts 609/766 62b89ab84b34
+w10_agent_lk12 TOTAL 7200 tok 145.5 tok/s
+w10_agent_en_lk12 code_async_batcher              1200 tok  129.7 tok/s drafts 616/796 7647be1f36bf
+w10_agent_en_lk12 code_rust_committed_ring        1200 tok  151.7 tok/s drafts 682/797 3677c43d7d27
+w10_agent_en_lk12 code_typescript_tool_dispatch   1200 tok  157.9 tok/s drafts 696/831 f51ad60baaa2
+w10_agent_en_lk12 json_multi_tool_result_merge    1200 tok  150.4 tok/s drafts 685/780 ac71e4d17450
+w10_agent_en_lk12 json_parallel_tool_plan         1200 tok  186.4 tok/s drafts 742/791 a6925d4108b1
+w10_agent_en_lk12 json_patch_tool_payload         1200 tok  131.0 tok/s drafts 609/765 62b89ab84b34
+w10_agent_en_lk12 TOTAL 7200 tok 148.9 tok/s
+w10_edit_base edit_json_config                1200 tok  328.2 tok/s drafts 1024/1135 4e5d39445d4b
+w10_edit_base edit_py_docstrings              1200 tok  390.4 tok/s drafts 1039/1059 c8a4b4501c9e
+w10_edit_base edit_py_rename                  1200 tok  393.6 tok/s drafts 1041/1071 ae962017b205
+w10_edit_base TOTAL 3600 tok 368.1 tok/s
+w10_edit_en edit_json_config                1200 tok  329.5 tok/s drafts 1024/1135 4e5d39445d4b
+w10_edit_en edit_py_docstrings              1200 tok  392.0 tok/s drafts 1039/1059 c8a4b4501c9e
+w10_edit_en edit_py_rename                  1200 tok  394.6 tok/s drafts 1041/1071 ae962017b205
+w10_edit_en TOTAL 3600 tok 369.5 tok/s
+w10_edit_lk12 edit_json_config                1200 tok  328.9 tok/s drafts 1024/1135 4e5d39445d4b
+w10_edit_lk12 edit_py_docstrings              1200 tok  391.6 tok/s drafts 1039/1059 c8a4b4501c9e
+w10_edit_lk12 edit_py_rename                  1200 tok  394.3 tok/s drafts 1041/1071 ae962017b205
+w10_edit_lk12 TOTAL 3600 tok 369.0 tok/s
+w10_edit_en_lk12 edit_json_config                1200 tok  329.7 tok/s drafts 1024/1135 4e5d39445d4b
+w10_edit_en_lk12 edit_py_docstrings              1200 tok  392.5 tok/s drafts 1039/1059 c8a4b4501c9e
+w10_edit_en_lk12 edit_py_rename                  1200 tok  394.9 tok/s drafts 1041/1071 ae962017b205
+w10_edit_en_lk12 TOTAL 3600 tok 369.8 tok/s

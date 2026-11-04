@@ -254,3 +254,24 @@ Full accept = a window whose T-1 drafts were all accepted.
 Full-width DFlash2 doesn't open up here: best 96.0 vs MTP 113.8 (-16%). DFlash2 + MTP chain: at 3.00 tokens per 29.46 ms
 cycle, beating MTP needs whole-block acceptance >= 61-64% with one MTP step, or >= 36-40% with two, even with free
 verification. Measured 29-35% overall. Not built.
+
+## Window 10: English draft vocabulary and long lookup windows, IQ3_S
+
+Raw: `qwen38-window10/`. Live IQ3_S config (split 25), build-hip 11db64ca4. Agent = the 6 code / tool-JSON prompts
+(7,200 tokens); edit = 3 copy-heavy prompts (rename functions in a file, three changes to a JSON config, add docstrings;
+`edit-prompts.json`), greedy.
+
+| arm | agent tok/s | edit tok/s |
+|---|---|---|
+| base (shared mtp/rt draft vocab: 106,299 ids) | 145.5 | 368.1 |
+| --mtp-draft-vocab draft_vocab_en.bin (40,525 ids) | 148.9 | 369.5 |
+| STRATA_PL_LOOKUP_MAX_T=12 | 145.5 | 369.0 |
+| both | 148.9 | 369.8 |
+
+- **English draft vocabulary: +2.3% on agent work.** The text is identical (same md5 in every case) and so are the
+  drafts; all six cases got faster. On the model's own code/JSON output, both subsets miss the same 2.10% of tokens
+  (6,965-token corpus), so for English work the 66K CJK rows only made the draft head bigger. Now in all three configs
+  as `--mtp-draft-vocab`.
+- **Long lookup windows: no effect, because they never switched on.** The engine logs "--lookup-max-t 0: a layer split's
+  windows stop at 8 tokens". Copy-heavy edits already accept 97% of drafts at 8 rows (~370 tok/s), so the 8-row cap is
+  the ceiling. Lifting it on the split is code work (branch basalt38/split-lookup16).
