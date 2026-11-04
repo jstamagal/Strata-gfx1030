@@ -682,3 +682,44 @@ pipelined path):
   window.
 - Window EPF (4+4 agent/edit per mode, traced) runs at 16:4x, ahead of window COH.
 - If e1 still stalls, the host-flag theory is out for verify.
+
+## Window PFT: where a fully resident 36K IQ3_S prompt spends its time (16:35)
+
+Raw: `qwen38-windowPFT/`. Main build-hip d4d10152, live config.
+
+| arm | run 1 | run 2 |
+|---|---|---|
+| control | 2546 tok/s | 1985 (the recurring second-run outlier) |
+| STRATA_PREFILL_TIMING=1 | 2463 | 2580 (small perturbation) |
+
+Per-chunk GPU timeline (4096 tokens, steady chunks, ~1250 ms; wall 1266-1297 ms):
+
+| phase | ms | share |
+|---|---|---|
+| gemm gate/up | 260 | 21% |
+| qsa attn | 159 | 13% |
+| gdn recurrence | 125 | 10% |
+| gdn (rest) | 110 | 9% |
+| qsa proj | ~105 | 8.5% |
+| gemm down | 104 | 8% |
+| gdn out proj | 67 | 5% |
+| hc read down+silu | 66 | 5% |
+| hc read up | 57 | 4.5% |
+| dequant | 45 | 3.5% |
+| hc write | 35 | 3% |
+| router+shared | 24 | 2% |
+| embed | 24 | 2% |
+| combine | 23 | 2% |
+| host grouping | 21 | 2% |
+| gather | 13 | 1% |
+| host waits per chunk | ~20 + 20-40 | |
+
+- **Experts in total** (gate/up + down + dequant + gather + combine) are ~36%. **GDN** ~25%, **QSA** ~21%, **HC** ~13%.
+  "Expert-streaming-bound" is dead post-residency; the prompt is spread across phases.
+- **The first chunk after server start costs 2208 ms** (gate/up 1216 ms against ~260 steady), a one-time warm-up of
+  ~1 s. It is in every harness run 1.
+- **Arithmetic** (inference): 9 chunks at ~1.27 s plus fill/drain is close to the observed 14.3 s. A 4000 tok/s 36K
+  prompt needs the slower stage's chunk near 0.85 s, i.e. ~-33% on a spread profile. No single fusion gets there.
+- **Window ZB** tests SWIGLU_QUANT (the gate/up path) and COMBINE_WRITE (combine / hc write).
+- **Candidates by size:** the gate/up GEMM (21%), GDN prompt recurrence + gdn (19%), QSA attention (13%), the HC
+  reads (10%).
