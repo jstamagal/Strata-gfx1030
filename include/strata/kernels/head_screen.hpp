@@ -7,7 +7,7 @@ namespace strata::kernels {
 inline constexpr int kHeadScreenGrid = 1024;
 
 // HIP wave32, GGUF Q8_0/Q6_K rows, 2560 weights, 1..8 columns.
-// The copy holds Q8_0's upper six code bits or Q6_K's upper five, plus unchanged scales.
+// The copy holds Q8_0's upper six bits, Q6_K's upper five, or a certified fitted Q6_K proxy.
 // Original weights remain untouched for every exact consumer.
 bool head_screen_supported(int type, int n_in, int n_out, int ncols);
 bool head_screen_enabled(int type);
@@ -26,7 +26,8 @@ void head_screen_pack(int type, const void* weights, int n_out, void* copy, void
 // Scratch is private to this stream/window; no initialization is needed. Capturable.
 // Every row whose upper bound reaches its column's threshold is rescored, including ties.
 // The remaining logits are upper bounds STRICTLY below the exact K-th value, not probabilities.
-// Rounding is covered by 1/16 of the residual L1 bound plus 1e-6. Nonfinite bounds rescore.
+// Bit planes use an inflated residual L1 bound; the fitted proxy uses residual/magnitude L2 norms.
+// Nonfinite bounds rescore.
 void head_screen(int type, const void* copy, const void* weights, const void* x_q8_1,
                  float* logits, int n_out, int ncols, const int32_t* keep, void* scratch, void* stream);
 

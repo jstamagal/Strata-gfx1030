@@ -134,7 +134,8 @@ __global__ void screen_kernel(const uint8_t* copy, const X81* x, float* y, int r
             width += __shfl_xor_sync(0xffffffffu,width,o);
             bad |= __shfl_xor_sync(0xffffffffu,bad,o);
         }
-        // Magnitude sums <= 86*w; 4096 roundings at u=2^-24 consume < 1/32*w.
+        // The half-integer midpoints are exact in FP32 before scaling. Magnitude sums then stay
+        // below 86*w; even 4096 combined roundings at u=2^-24 consume < 1/32*w.
         const float margin = fmaf(width,1.0625f,1e-6f);
         float lo = center-margin, hi = center+margin;
         if (bad || !finite(lo) || !finite(hi)) { lo=ninf(); hi=pinf(); }
