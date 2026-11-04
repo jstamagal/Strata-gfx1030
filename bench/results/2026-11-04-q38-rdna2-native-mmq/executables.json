@@ -1,0 +1,236 @@
+{
+  "compiler": "AMD clang version 24.0.0git (https://github.com/ROCm/llvm-project.git 2792f8ceeb5aa6e188c1ce2b735923b2406a8e59)\nTarget: x86_64-unknown-linux-gnu\nThread model: posix\nInstalledDir: /opt/rocm-10.3.0/lib/llvm/bin\nConfiguration file: /opt/rocm-10.3.0/lib/llvm/bin/clang++.cfg\n",
+  "pinning": "Each executable is a separate copy. None of these paths is overwritten by normal ninja rebuilds; runtime ROCm/ggml libraries are unchanged across the variants.",
+  "variants": [
+    {
+      "variant": "control",
+      "exe": "/home/ronald_rump/inbox/agents/claude/strata-q38-rdna2mmq/build/control/strata",
+      "sha256": "29f9153e3074c3837b4daf046aa59b5ed8d454a42dc088a75733a9b2d90fe44b",
+      "bytes": 65517440,
+      "build_switches": {
+        "STRATA_RDNA2_DOT_Z_PROMPT": false,
+        "STRATA_RDNA2_DOT_Z_EXPERTS": false,
+        "STRATA_RDNA2_DOT_Z_DENSE": false,
+        "STRATA_RDNA2_DOT_Z_HEAD": false,
+        "STRATA_RDNA2_DOT_Z_ATTN": false,
+        "STRATA_RDNA2_DOT_Z_MODE": 0,
+        "STRATA_MMQ_VEC_COPY": false,
+        "STRATA_MMQ_RDNA2_DOT_Z": false
+      },
+      "NL_perm_all_TJ_dispatch": false,
+      "runtime_control": {
+        "STRATA_MMQ_Q8K": "0",
+        "STRATA_PF_IQ_Q8K": "0",
+        "STRATA_NATIVE_Q8K": "0",
+        "STRATA_MMQ_RDNA2_TILES": "0"
+      }
+    },
+    {
+      "variant": "prompt-dotz",
+      "exe": "/home/ronald_rump/inbox/agents/claude/strata-q38-rdna2mmq/build/prompt-dotz/strata",
+      "sha256": "0041028a72d6ef6d1fee32c3368029de6fc24360b566416584ab8ecc710ae5b1",
+      "bytes": 65410944,
+      "build_switches": {
+        "STRATA_RDNA2_DOT_Z_PROMPT": true,
+        "STRATA_RDNA2_DOT_Z_EXPERTS": false,
+        "STRATA_RDNA2_DOT_Z_DENSE": false,
+        "STRATA_RDNA2_DOT_Z_HEAD": false,
+        "STRATA_RDNA2_DOT_Z_ATTN": false,
+        "STRATA_RDNA2_DOT_Z_MODE": 1,
+        "STRATA_MMQ_VEC_COPY": false,
+        "STRATA_MMQ_RDNA2_DOT_Z": false
+      },
+      "NL_perm_all_TJ_dispatch": false,
+      "runtime_control": {
+        "STRATA_MMQ_Q8K": "0",
+        "STRATA_PF_IQ_Q8K": "0",
+        "STRATA_NATIVE_Q8K": "0",
+        "STRATA_MMQ_RDNA2_TILES": "0"
+      }
+    },
+    {
+      "variant": "experts-dotz",
+      "exe": "/home/ronald_rump/inbox/agents/claude/strata-q38-rdna2mmq/build/experts-dotz/strata",
+      "sha256": "9e382ce7d62f6f1fc3fc044a1ae37b154deeeacfb8b11bbd130b7228b63638b2",
+      "bytes": 65521536,
+      "build_switches": {
+        "STRATA_RDNA2_DOT_Z_PROMPT": false,
+        "STRATA_RDNA2_DOT_Z_EXPERTS": true,
+        "STRATA_RDNA2_DOT_Z_DENSE": false,
+        "STRATA_RDNA2_DOT_Z_HEAD": false,
+        "STRATA_RDNA2_DOT_Z_ATTN": false,
+        "STRATA_RDNA2_DOT_Z_MODE": 1,
+        "STRATA_MMQ_VEC_COPY": false,
+        "STRATA_MMQ_RDNA2_DOT_Z": false
+      },
+      "NL_perm_all_TJ_dispatch": false,
+      "runtime_control": {
+        "STRATA_MMQ_Q8K": "0",
+        "STRATA_PF_IQ_Q8K": "0",
+        "STRATA_NATIVE_Q8K": "0",
+        "STRATA_MMQ_RDNA2_TILES": "0"
+      }
+    },
+    {
+      "variant": "prompt-clamp",
+      "exe": "/home/ronald_rump/inbox/agents/claude/strata-q38-rdna2mmq/build/prompt-clamp/strata",
+      "sha256": "f181a248284439ae01adcde96959b04550b24b81e27aae35569e246562064f14",
+      "bytes": 65476480,
+      "build_switches": {
+        "STRATA_RDNA2_DOT_Z_PROMPT": true,
+        "STRATA_RDNA2_DOT_Z_EXPERTS": false,
+        "STRATA_RDNA2_DOT_Z_DENSE": false,
+        "STRATA_RDNA2_DOT_Z_HEAD": false,
+        "STRATA_RDNA2_DOT_Z_ATTN": false,
+        "STRATA_RDNA2_DOT_Z_MODE": 2,
+        "STRATA_MMQ_VEC_COPY": false,
+        "STRATA_MMQ_RDNA2_DOT_Z": false
+      },
+      "NL_perm_all_TJ_dispatch": false,
+      "runtime_control": {
+        "STRATA_MMQ_Q8K": "0",
+        "STRATA_PF_IQ_Q8K": "0",
+        "STRATA_NATIVE_Q8K": "0",
+        "STRATA_MMQ_RDNA2_TILES": "0"
+      }
+    },
+    {
+      "variant": "dense-clamp",
+      "exe": "/home/ronald_rump/inbox/agents/claude/strata-q38-rdna2mmq/build/dense-clamp/strata",
+      "sha256": "0c6fc423fd7cda3dccac6e0203ec21c1eaef6d3269ec36e92844b2ff434ebfda",
+      "bytes": 65521536,
+      "build_switches": {
+        "STRATA_RDNA2_DOT_Z_PROMPT": false,
+        "STRATA_RDNA2_DOT_Z_EXPERTS": false,
+        "STRATA_RDNA2_DOT_Z_DENSE": true,
+        "STRATA_RDNA2_DOT_Z_HEAD": false,
+        "STRATA_RDNA2_DOT_Z_ATTN": false,
+        "STRATA_RDNA2_DOT_Z_MODE": 2,
+        "STRATA_MMQ_VEC_COPY": false,
+        "STRATA_MMQ_RDNA2_DOT_Z": false
+      },
+      "NL_perm_all_TJ_dispatch": false,
+      "runtime_control": {
+        "STRATA_MMQ_Q8K": "0",
+        "STRATA_PF_IQ_Q8K": "0",
+        "STRATA_NATIVE_Q8K": "0",
+        "STRATA_MMQ_RDNA2_TILES": "0"
+      }
+    },
+    {
+      "variant": "head-clamp",
+      "exe": "/home/ronald_rump/inbox/agents/claude/strata-q38-rdna2mmq/build/head-clamp/strata",
+      "sha256": "53f74d3139476b352958ef99dbd9c1ac21e152fe14fd1b5209ce4a289d8e9309",
+      "bytes": 65517440,
+      "build_switches": {
+        "STRATA_RDNA2_DOT_Z_PROMPT": false,
+        "STRATA_RDNA2_DOT_Z_EXPERTS": false,
+        "STRATA_RDNA2_DOT_Z_DENSE": false,
+        "STRATA_RDNA2_DOT_Z_HEAD": true,
+        "STRATA_RDNA2_DOT_Z_ATTN": false,
+        "STRATA_RDNA2_DOT_Z_MODE": 2,
+        "STRATA_MMQ_VEC_COPY": false,
+        "STRATA_MMQ_RDNA2_DOT_Z": false
+      },
+      "NL_perm_all_TJ_dispatch": false,
+      "runtime_control": {
+        "STRATA_MMQ_Q8K": "0",
+        "STRATA_PF_IQ_Q8K": "0",
+        "STRATA_NATIVE_Q8K": "0",
+        "STRATA_MMQ_RDNA2_TILES": "0"
+      }
+    },
+    {
+      "variant": "attn-clamp",
+      "exe": "/home/ronald_rump/inbox/agents/claude/strata-q38-rdna2mmq/build/attn-clamp/strata",
+      "sha256": "b07d4a5d2b1a6369584fc837ea3ce81bcc2c62d973708d7763623db0332ab5bd",
+      "bytes": 65517440,
+      "build_switches": {
+        "STRATA_RDNA2_DOT_Z_PROMPT": false,
+        "STRATA_RDNA2_DOT_Z_EXPERTS": false,
+        "STRATA_RDNA2_DOT_Z_DENSE": false,
+        "STRATA_RDNA2_DOT_Z_HEAD": false,
+        "STRATA_RDNA2_DOT_Z_ATTN": true,
+        "STRATA_RDNA2_DOT_Z_MODE": 2,
+        "STRATA_MMQ_VEC_COPY": false,
+        "STRATA_MMQ_RDNA2_DOT_Z": false
+      },
+      "NL_perm_all_TJ_dispatch": false,
+      "runtime_control": {
+        "STRATA_MMQ_Q8K": "0",
+        "STRATA_PF_IQ_Q8K": "0",
+        "STRATA_NATIVE_Q8K": "0",
+        "STRATA_MMQ_RDNA2_TILES": "0"
+      }
+    },
+    {
+      "variant": "experts-clamp",
+      "exe": "/home/ronald_rump/inbox/agents/claude/strata-q38-rdna2mmq/build/experts-clamp/strata",
+      "sha256": "e3bc7f7c7b6b70e8cf9c90c17c5140379fe5b930cd39b822a456f5a9fb6f0a73",
+      "bytes": 65517440,
+      "build_switches": {
+        "STRATA_RDNA2_DOT_Z_PROMPT": false,
+        "STRATA_RDNA2_DOT_Z_EXPERTS": true,
+        "STRATA_RDNA2_DOT_Z_DENSE": false,
+        "STRATA_RDNA2_DOT_Z_HEAD": false,
+        "STRATA_RDNA2_DOT_Z_ATTN": false,
+        "STRATA_RDNA2_DOT_Z_MODE": 2,
+        "STRATA_MMQ_VEC_COPY": false,
+        "STRATA_MMQ_RDNA2_DOT_Z": false
+      },
+      "NL_perm_all_TJ_dispatch": false,
+      "runtime_control": {
+        "STRATA_MMQ_Q8K": "0",
+        "STRATA_PF_IQ_Q8K": "0",
+        "STRATA_NATIVE_Q8K": "0",
+        "STRATA_MMQ_RDNA2_TILES": "0"
+      }
+    },
+    {
+      "variant": "vector-copy",
+      "exe": "/home/ronald_rump/inbox/agents/claude/strata-q38-rdna2mmq/build/vector-copy/strata",
+      "sha256": "896d64b2233395fcc6c0bdba35661d0e3e9c6abbcbed2155da54003b369af0a5",
+      "bytes": 65434304,
+      "build_switches": {
+        "STRATA_RDNA2_DOT_Z_PROMPT": false,
+        "STRATA_RDNA2_DOT_Z_EXPERTS": false,
+        "STRATA_RDNA2_DOT_Z_DENSE": false,
+        "STRATA_RDNA2_DOT_Z_HEAD": false,
+        "STRATA_RDNA2_DOT_Z_ATTN": false,
+        "STRATA_RDNA2_DOT_Z_MODE": 0,
+        "STRATA_MMQ_VEC_COPY": true,
+        "STRATA_MMQ_RDNA2_DOT_Z": false
+      },
+      "NL_perm_all_TJ_dispatch": false,
+      "runtime_control": {
+        "STRATA_MMQ_Q8K": "0",
+        "STRATA_PF_IQ_Q8K": "0",
+        "STRATA_NATIVE_Q8K": "0",
+        "STRATA_MMQ_RDNA2_TILES": "0"
+      }
+    },
+    {
+      "variant": "nl-perm",
+      "exe": "/home/ronald_rump/inbox/agents/claude/strata-q38-rdna2mmq/build/nl-perm/strata",
+      "sha256": "c9f6d203311b960bef62776b227b74940782c7f61d018dbb88303fd9d80963d6",
+      "bytes": 65638792,
+      "build_switches": {
+        "STRATA_RDNA2_DOT_Z_PROMPT": false,
+        "STRATA_RDNA2_DOT_Z_EXPERTS": false,
+        "STRATA_RDNA2_DOT_Z_DENSE": false,
+        "STRATA_RDNA2_DOT_Z_HEAD": false,
+        "STRATA_RDNA2_DOT_Z_ATTN": false,
+        "STRATA_RDNA2_DOT_Z_MODE": 0,
+        "STRATA_MMQ_VEC_COPY": false,
+        "STRATA_MMQ_RDNA2_DOT_Z": false
+      },
+      "NL_perm_all_TJ_dispatch": true,
+      "runtime_control": {
+        "STRATA_MMQ_Q8K": "0",
+        "STRATA_PF_IQ_Q8K": "0",
+        "STRATA_NATIVE_Q8K": "0",
+        "STRATA_MMQ_RDNA2_TILES": "0"
+      }
+    }
+  ]
+}

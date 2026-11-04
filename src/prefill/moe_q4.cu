@@ -26,6 +26,7 @@
 
 #include <cuda_fp16.h>
 #include <cuda_runtime.h>
+#include "strata/kernels/dp4a.hpp"
 
 #include <cstdio>
 #include <cstdlib>
@@ -154,7 +155,7 @@ __global__ void __launch_bounds__(THREADS) q4_product_kernel(Args a) {
             const uint32_t* q = act + (t >> 2) * CHUNK_WORDS + 4 + (t & 3) * 8;
             int s = 0;
 #pragma unroll
-            for (int k = 0; k < 8; ++k) s = __dp4a((int) q[k], 0x01010101, s);
+            for (int k = 0; k < 8; ++k) s = STRATA_DP4A((int) q[k], 0x01010101, s);
             asum[t] = s;
         }
         __syncthreads();
@@ -182,7 +183,7 @@ __global__ void __launch_bounds__(THREADS) q4_product_kernel(Args a) {
                 for (int b = 0; b < 4; ++b) {
                     int s = 0;
 #pragma unroll
-                    for (int k = 0; k < 8; ++k) s = __dp4a((int) w[b * 8 + k], (int) aj[4 + b * 8 + k], s);
+                    for (int k = 0; k < 8; ++k) s = STRATA_DP4A((int) w[b * 8 + k], (int) aj[4 + b * 8 + k], s);
                     const float dx = bits_float(aj[b]);
                     const int sa = asum[j * 4 + b];
                     if constexpr (Q41) part += dx * (dw[b] * (float) s + mw[b] * (float) sa);
@@ -284,7 +285,7 @@ __global__ void __launch_bounds__(WI / R) q4_blk_kernel(ArgsW a) {
                 int s = 0;
                 if ((n >> 2) < nj) {
 #pragma unroll
-                    for (int k = 0; k < 8; ++k) s = __dp4a((int) q[k], 0x01010101, s);
+                    for (int k = 0; k < 8; ++k) s = STRATA_DP4A((int) q[k], 0x01010101, s);
                 }
                 asum[n] = s;
             }
@@ -334,7 +335,7 @@ __global__ void __launch_bounds__(WI / R) q4_blk_kernel(ArgsW a) {
                         for (int r = 0; r < R; ++r) {
                             int s = 0;
 #pragma unroll
-                            for (int k = 0; k < 8; ++k) s = __dp4a((int) w[r][b * 8 + k], (int) av[k], s);
+                            for (int k = 0; k < 8; ++k) s = STRATA_DP4A((int) w[r][b * 8 + k], (int) av[k], s);
                             float v;
                             if constexpr (Q41) v = dx * (dw[r][b] * (float) s + mw[r][b] * sa);
                             else v = (dw[r][b] * dx) * (float) s;
@@ -426,14 +427,14 @@ __global__ void __launch_bounds__(WI / R) q4_sload_kernel(ArgsW a) {
                     if constexpr (Q41) {                       // the row's integer sum over the block
                         int si = 0;
 #pragma unroll
-                        for (int k = 0; k < 8; ++k) si = __dp4a(0x01010101, (int) aj[4 + b * 8 + k], si);
+                        for (int k = 0; k < 8; ++k) si = STRATA_DP4A(0x01010101, (int) aj[4 + b * 8 + k], si);
                         sa = (float) si;
                     }
 #pragma unroll
                     for (int r = 0; r < R; ++r) {
                         int s = 0;
 #pragma unroll
-                        for (int k = 0; k < 8; ++k) s = __dp4a((int) w[r][b * 8 + k], (int) aj[4 + b * 8 + k], s);
+                        for (int k = 0; k < 8; ++k) s = STRATA_DP4A((int) w[r][b * 8 + k], (int) aj[4 + b * 8 + k], s);
                         if constexpr (Q41) part[r] += dx * (dw[r][b] * (float) s + mw[r][b] * sa);
                         else part[r] += (dw[r][b] * dx) * (float) s;
                     }
@@ -563,7 +564,7 @@ __global__ void __launch_bounds__(WI) nl_sload_kernel(ArgsN a) {
                     const float dx = bits_float(aj[b]);
                     int sm = 0;
 #pragma unroll
-                    for (int k = 0; k < 8; ++k) sm = __dp4a((int) w[b * 8 + k], (int) aj[4 + b * 8 + k], sm);
+                    for (int k = 0; k < 8; ++k) sm = STRATA_DP4A((int) w[b * 8 + k], (int) aj[4 + b * 8 + k], sm);
                     acc[jj] += dw[b] * dx * (float) sm;    // MMQ's expression and order: d8_0 * d8_1 * (float) sumi
                 }
             }
@@ -632,7 +633,7 @@ __global__ void __launch_bounds__(WI) q2_sload_kernel(ArgsN a) {
                     const float dx = bits_float(aj[b]);
                     int sm = 0;
 #pragma unroll
-                    for (int k = 0; k < 8; ++k) sm = __dp4a((int) w[b * 8 + k], (int) aj[4 + b * 8 + k], sm);
+                    for (int k = 0; k < 8; ++k) sm = STRATA_DP4A((int) w[b * 8 + k], (int) aj[4 + b * 8 + k], sm);
                     acc[jj] += dw[b] * dx * (float) sm;
                 }
             }
@@ -733,14 +734,20 @@ void nl_run(const mmq::Product& p, void* stream) {
     const int tj = g_nl_tj > 0 ? g_nl_tj : env_tj > 0 ? env_tj : 32;
     const dim3 g((unsigned) ((p.w_rows + WI - 1) / WI), (unsigned) ((p.max_rows + tj - 1) / tj), (unsigned) p.n);
     static const bool perm = [] { const char* v = std::getenv("STRATA_PF_NL_PERM"); return v != nullptr && v[0] == '1'; }();
-    if (perm && tj == 32) nl_sload_kernel<32, true><<<g, WI, 0, s>>>(a);
-    else if (tj == 64) nl_sload_kernel<64><<<g, WI, 0, s>>>(a);
-    else if (tj == 48) nl_sload_kernel<48><<<g, WI, 0, s>>>(a);
-    else if (tj == 40) nl_sload_kernel<40><<<g, WI, 0, s>>>(a);
-    else if (tj == 24) nl_sload_kernel<24><<<g, WI, 0, s>>>(a);
-    else if (tj == 20) nl_sload_kernel<20><<<g, WI, 0, s>>>(a);
-    else if (tj == 16) nl_sload_kernel<16><<<g, WI, 0, s>>>(a);
-    else nl_sload_kernel<32><<<g, WI, 0, s>>>(a);
+    // The live IQ3_S config uses TJ=20 and PERM=1. Previously the v_perm
+    // decoder was only selected at TJ=32, silently ignoring that switch at 20.
+#define STRATA_NL_GO(J) do { \
+        if (perm) nl_sload_kernel<J, true><<<g, WI, 0, s>>>(a); \
+        else nl_sload_kernel<J><<<g, WI, 0, s>>>(a); \
+    } while (0)
+    if (tj == 64) STRATA_NL_GO(64);
+    else if (tj == 48) STRATA_NL_GO(48);
+    else if (tj == 40) STRATA_NL_GO(40);
+    else if (tj == 24) STRATA_NL_GO(24);
+    else if (tj == 20) STRATA_NL_GO(20);
+    else if (tj == 16) STRATA_NL_GO(16);
+    else STRATA_NL_GO(32);
+#undef STRATA_NL_GO
     ck(cudaGetLastError(), "product (iq4_nl)");
 }
 

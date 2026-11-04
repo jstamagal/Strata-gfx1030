@@ -1,0 +1,9 @@
+strata: native IQ prompt tiles (STRATA_PF_IQ2S=1, STRATA_PF_IQ3=1, TJ=20, IQ_Q8K=1)
+PASS iq3_xxs edge rows, reversed ids, padded destination: rel L2 6.496e-03
+PASS iq3_xxs  gate+up W[1280 x 2560] 6 experts 269 rows: rel L2 vs FP64 6.566e-03, hash ce0869d2c182bd8d
+PASS iq3_xxs  gate+up experts read from their own blobs: the same bits (hash ce0869d2c182bd8d)
+time iq3_xxs  gate+up 16 x 40 rows, from their own blobs: product 0.174 ms = 12040 G MAC/s
+time iq3_xxs  gate+up 16 x 40 rows: quantize 0.017 ms, product 0.173 ms = 12105 G MAC/s | skewed 5120 rows: 0.808 ms = 20757 G MAC/s
+PASS iq3_xxs  down    W[2560 x 768] 6 experts 269 rows: rel L2 vs FP64 6.549e-03, hash c38940cbaef327aa
+time iq3_xxs  down    16 x 40 rows: quantize 0.014 ms, product 0.111 ms = 11309 G MAC/s | skewed 5120 rows: 0.495 ms = 20348 G MAC/s
+ALL PASS

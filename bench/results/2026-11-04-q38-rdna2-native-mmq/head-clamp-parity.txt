@@ -1,0 +1,3 @@
+draft head: 76 cases, logits/pick/probability checked bit for bit
+head_parity: staged sampler 400 cases, 0 mismatches
+head_parity: 608 cases, 0 mismatches (90 columns with a tied maximum, 0 non-finite columns among the default-grid cases)

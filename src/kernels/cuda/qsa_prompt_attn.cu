@@ -2414,7 +2414,7 @@ struct alignas(16) SmemD {       // 42.7 KB
 
 __device__ __forceinline__ int dot4_i8(uint32_t a, uint32_t b, int c) {
 #if STRATA_PA_DOT4
-    return __builtin_amdgcn_sdot4((int) a, (int) b, c, false);
+    return strata_dp4a_z((int) a, (int) b, c);
 #else
     __builtin_trap();
     return c;

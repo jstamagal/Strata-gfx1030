@@ -373,7 +373,7 @@ __device__ __forceinline__ float vec_dot_q3_K_q8_1(const void* __restrict__ vbq,
         const int vil = (vl >> (2 * i)) & 0x03030303;
         const int vih = ((vh >> i) << 2) & 0x04040404;
         const int vi = (int) (((uint32_t) vil | 0x80808080u) - (uint32_t) vih) ^ (int) 0x80808080u;
-        sumf += d8 * (float) (ggml_cuda_dp4a(vi, u, 0) * sc);
+        sumf += d8 * (float) strata_smul(ggml_cuda_dp4a(vi, u, 0), sc);
     }
     return d3 * sumf;
 }
@@ -2024,6 +2024,106 @@ __global__ void __launch_bounds__(256) native_gu_kernel(const unsigned long long
         }
     }
 }
+
+#if defined(__HIPCC__)
+// Owner 446f6881e's layout/accumulation lesson on native decode experts. The
+// native API receives q8_1, not floats: explicitly REquantize its reconstructed
+// activations to fp32-scaled Q8_K/128. This is an opt-in, non-exact experiment,
+// not a claim of the owner's float-input quantizer's output. The temporary rows
+// alias H + HQ only until GU completes, so no extra persistent scratch is needed.
+struct NativeQ8K {
+    float d;
+    int16_t bs[4];
+    int pad;
+    int8_t qs[128];
+};
+static_assert(sizeof(NativeQ8K) == 144);
+
+__global__ void native_q8k_repack(const block_q8_1* x, const int32_t* tok, const int32_t* start,
+                                  const int32_t* ng, NativeQ8K* y) {
+    const int e = blockIdx.y;
+    if (e >= start[*ng]) return;
+    const int lane = threadIdx.x & 31, b = blockIdx.x*4 + (threadIdx.x >> 5);
+    if (b >= 20) return;
+    const block_q8_1& src = x[(size_t) tok[e]*80 + b*4 + lane/8];
+    const float dx = __low2float(src.ds);
+    const int packed = get_int_b4(src.qs, lane%8);
+    float v[4];
+    float amax = 0;
+#pragma unroll
+    for (int k = 0; k < 4; ++k) {
+        v[k] = dx*(int8_t) (packed >> (8*k));
+        amax = fmaxf(amax, fabsf(v[k]));
+    }
+#pragma unroll
+    for (int o = 16; o > 0; o >>= 1) amax = fmaxf(amax, __shfl_xor_sync(0xffffffffu, amax, o));
+    const float inv = amax > 0 ? 127.0f/amax : 0.0f;
+    uint32_t q = 0;
+    int sum = 0;
+#pragma unroll
+    for (int k = 0; k < 4; ++k) {
+        const int qi = (int) roundf(v[k]*inv);
+        q |= uint32_t(qi & 255) << (8*k); sum += qi;
+    }
+    NativeQ8K& dst = y[(size_t) e*20+b];
+    ((int*) dst.qs)[lane] = q;
+#pragma unroll
+    for (int o = 4; o > 0; o >>= 1) sum += __shfl_xor_sync(0xffffffffu, sum, o);
+    if (lane%8 == 0) dst.bs[lane/8] = (int16_t) sum;
+    if (lane == 0) { dst.d = amax/127.0f; dst.pad = 0; }
+}
+
+template <int TY>
+__device__ __forceinline__ float native_kq_q8k_dot(const uint8_t* wr, const NativeQ8K* x, int kb, int iqs) {
+    const auto* q4 = (const block_q4_K*) wr + kb;
+    const auto* q5 = (const block_q5_K*) wr + kb;
+    const int bo = 2*((iqs/2)/4), qi = (iqs/2)%4;
+    const uint8_t* qs = TY == 12 ? q4->qs : q5->qs;
+    const uint8_t* scales = TY == 12 ? q4->scales : q5->scales;
+    const half2 dm = TY == 12 ? q4->dm : q5->dm;
+    const int* ql = (const int*) (qs + 16*bo + 4*qi);
+    const int vl0 = ql[0], vl1 = ql[4];
+    int vh0 = 0, vh1 = 0;
+    if constexpr (TY == 13) {
+        const int* qh = (const int*) (q5->qh + 4*qi);
+        vh0 = qh[0] >> bo; vh1 = qh[4] >> bo;
+    }
+    uint16_t aux[2]; k_scale_min(scales, bo, aux);
+    const uint8_t* sc = (const uint8_t*) aux;
+    int sumi = 0, summ = 0;
+#pragma unroll
+    for (int i = 0; i < 2; ++i) {
+        int v0 = (vl0 >> (4*i)) & 0x0f0f0f0f;
+        int v1 = (vl1 >> (4*i)) & 0x0f0f0f0f;
+        if constexpr (TY == 13) { v0 |= ((vh0 >> i) << 4) & 0x10101010; v1 |= ((vh1 >> i) << 4) & 0x10101010; }
+        const int* u = (const int*) (x[kb*2+(bo+i)/4].qs + ((bo+i)%4)*32) + qi;
+        const int dot = ggml_cuda_dp4a(v1, u[4], ggml_cuda_dp4a(v0, u[0], 0));
+        const int bs = ggml_cuda_dp4a(0x01010101, u[4], ggml_cuda_dp4a(0x01010101, u[0], 0));
+        sumi += strata_smul(dot, sc[i]); summ += strata_smul(bs, sc[2+i]);
+    }
+    const float2 d = __half22float2(dm);
+    return x[kb*2+bo/4].d*(d.x*sumi - d.y*summ);
+}
+
+template <int TY>
+__global__ void __launch_bounds__(256) native_gu_q8k_kernel(const unsigned long long* ptr, const int32_t* start,
+        const int32_t* ng, const NativeQ8K* x, NativeExpertLayout L, float* gate, float* up) {
+    const int lane = threadIdx.x%32, row = blockIdx.x*8 + threadIdx.x/32;
+    if (row >= 2*L.n_ff) return;
+    const bool is_up = row >= L.n_ff;
+    const int r = is_up ? row-L.n_ff : row;
+    for (int g = blockIdx.y; g < *ng; g += gridDim.y) {
+        const uint8_t* wr = (const uint8_t*) ptr[g] + (is_up ? L.up_off : 0) + (size_t) r*L.gu_row;
+        for (int e = start[g]; e < start[g+1]; ++e) {
+            float sum = 0;
+            for (int k = lane; k < (L.n_embd/256)*16; k += 32)
+                sum += native_kq_q8k_dot<TY>(wr, x+(size_t) e*20, k/16, 2*(k%16));
+            sum = warp_sum(sum);
+            if (lane == 0) (is_up ? up : gate)[(size_t) e*L.n_ff+r] = sum;
+        }
+    }
+}
+#endif
 
 // native_gu_kernel with the group's entries taken GRP_NC at a time, each weight part decoded once per pass.
 // A group has at most one entry per token of the window (kVerifyMaxT = 8; setup writes --spec 4, and a split window
@@ -6730,6 +6830,41 @@ void native_expert_grouped(const NativeExpertLayout& L, const unsigned long long
     if (L.gu_nib) {   // STRATA_EXPERT_NIBBLE's slots: the switch is refused at start in a build without the kernels
         std::fprintf(stderr, "native_expert_grouped: 4-bit gate/up slots are not built into this engine\n");
         std::exit(1);
+    }
+#endif
+#if defined(__HIPCC__)
+    static const bool native_q8k = env_on("STRATA_NATIVE_Q8K");
+    if (native_q8k && (L.gu_type == 12 || L.gu_type == 13) &&
+        (L.d_type == 7 || L.d_type == 8) && L.n_embd == 2560 && L.n_ff == 640 && !L.gu_nib && L.had_block == 0) {
+        int dev = 0;
+        static thread_local int cached_dev = -1;
+        static thread_local bool rdna2 = false;
+        if (cudaGetDevice(&dev) == cudaSuccess && dev != cached_dev) {
+            cudaDeviceProp prop{};
+            rdna2 = cudaGetDeviceProperties(&prop, dev) == cudaSuccess &&
+                (gfx_arch_is(prop.gcnArchName, "gfx1030") || gfx_arch_is(prop.gcnArchName, "gfx1031") || gfx_arch_is(prop.gcnArchName, "gfx1032"));
+            cached_dev = dev;
+        }
+        if (rdna2) {
+            const int64_t gyq = grid_groups > 0 && grid_groups <= cap_groups ? grid_groups : cap_groups;
+            if (g_exp_phase != 2) {
+                auto* qk = (NativeQ8K*) h; // H + HQ: cap*(2560+720) bytes >= cap*20*144
+                native_q8k_repack<<<dim3(5, (unsigned) cap_entries), 128, 0, s>>>(X, ent_tok, grp_start, n_groups, qk);
+                const dim3 gq((unsigned) ((2*L.n_ff+7)/8), (unsigned) gyq);
+                if (L.gu_type == 12) native_gu_q8k_kernel<12><<<gq, 256, 0, s>>>(grp_ptr, grp_start, n_groups, qk, L, gate, up);
+                else native_gu_q8k_kernel<13><<<gq, 256, 0, s>>>(grp_ptr, grp_start, n_groups, qk, L, gate, up);
+                check("native Q8_K gate/up");
+                if (g_exp_phase == 3) return;
+                const long long nh = (long long) cap_entries*L.n_ff;
+                swiglu_q8_1_entries_kernel<<<(unsigned) ((nh+255)/256), 256, 0, s>>>(gate, up, grp_start, n_groups, (int) L.n_ff, hq);
+            }
+            if (g_exp_phase == 1) return;
+            const dim3 gd((unsigned) ((L.n_embd+7)/8), (unsigned) gyq);
+            if (L.d_type == 7) launch_down<7>(gd, s, grp_ptr, grp_start, n_groups, ent_dst, hq, L, out);
+            else launch_down<8>(gd, s, grp_ptr, grp_start, n_groups, ent_dst, hq, L, out);
+            check("native Q8_K experts");
+            return;
+        }
     }
 #endif
     // STRATA_EXPERT_NIBBLE (nib_layout): only the gate/up step below takes another kernel (launch_gu_nib, in place of

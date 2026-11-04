@@ -129,7 +129,9 @@ int main(int argc, char** argv) {
     const bool do_bench = argc > 1 && std::strcmp(argv[1], "--bench") == 0;
     int fails = 0;
     try {
-        const ggml_type types[] = {GGML_TYPE_Q2_0, GGML_TYPE_Q8_0, GGML_TYPE_IQ2_XS, GGML_TYPE_Q4_1, GGML_TYPE_Q2_K};
+        const ggml_type types[] = {GGML_TYPE_Q2_0, GGML_TYPE_Q8_0, GGML_TYPE_IQ2_XS, GGML_TYPE_Q4_1, GGML_TYPE_Q2_K,
+                                   GGML_TYPE_Q4_K, GGML_TYPE_Q5_K, GGML_TYPE_Q6_K,
+                                   GGML_TYPE_IQ2_S, GGML_TYPE_IQ3_XXS, GGML_TYPE_IQ3_S};
         uint32_t seed = 11;
         for (ggml_type t : types)
             for (int64_t T : {1, 2, 7, 600, 2099}) fails += check(t, T, seed++);

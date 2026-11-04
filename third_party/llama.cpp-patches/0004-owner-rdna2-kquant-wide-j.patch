@@ -1,0 +1,61 @@
+Owner 8d24bb4a9: exact RDNA2 Q4_K/Q5_K/Q6_K J80/96/112/128 tiles.
+Base: pinned 3cf03257 plus Strata patches 0001..0003.
+STRATA_MMQ_RDNA2_TILES=1 selects the wider tiles at runtime; unset preserves J<=64.
+STRATA_MMQ_RDNA2_TILES_OFF compiles only the old configs.
+
+--- a/ggml/src/ggml-cuda/mmq-config-rdna2.cuh
++++ b/ggml/src/ggml-cuda/mmq-config-rdna2.cuh
+@@ -120,6 +120,12 @@
+     CASE(GGML_TYPE_Q4_K, 256, 2, 128,  40, GGML_CUDA_MMQ_SRAM_LAYOUT_Q8_1, MMQ_ITER_K, false, false);
+     CASE(GGML_TYPE_Q4_K, 256, 2, 128,  48, GGML_CUDA_MMQ_SRAM_LAYOUT_Q8_1, MMQ_ITER_K, false, false);
+     CASE(GGML_TYPE_Q4_K, 256, 2, 128,  64, GGML_CUDA_MMQ_SRAM_LAYOUT_Q8_1, MMQ_ITER_K, false, false);
++#ifndef STRATA_MMQ_RDNA2_TILES_OFF
++    CASE(GGML_TYPE_Q4_K, 256, 2, 128,  80, GGML_CUDA_MMQ_SRAM_LAYOUT_Q8_1, MMQ_ITER_K, false, false);
++    CASE(GGML_TYPE_Q4_K, 256, 2, 128,  96, GGML_CUDA_MMQ_SRAM_LAYOUT_Q8_1, MMQ_ITER_K, false, false);
++    CASE(GGML_TYPE_Q4_K, 256, 2, 128, 112, GGML_CUDA_MMQ_SRAM_LAYOUT_Q8_1, MMQ_ITER_K, false, false);
++    CASE(GGML_TYPE_Q4_K, 256, 2, 128, 128, GGML_CUDA_MMQ_SRAM_LAYOUT_Q8_1, MMQ_ITER_K, false, false);
++#endif
+ 
+     CASE(GGML_TYPE_Q5_K, 256, 2, 128,   8, GGML_CUDA_MMQ_SRAM_LAYOUT_Q8_1, MMQ_ITER_K, false, true);
+     CASE(GGML_TYPE_Q5_K, 256, 2, 128,  16, GGML_CUDA_MMQ_SRAM_LAYOUT_Q8_1, MMQ_ITER_K, false, true);
+@@ -132,6 +138,12 @@
+     CASE(GGML_TYPE_Q5_K, 256, 2, 128,  40, GGML_CUDA_MMQ_SRAM_LAYOUT_Q8_1, MMQ_ITER_K, false, false);
+     CASE(GGML_TYPE_Q5_K, 256, 2, 128,  48, GGML_CUDA_MMQ_SRAM_LAYOUT_Q8_1, MMQ_ITER_K, false, false);
+     CASE(GGML_TYPE_Q5_K, 256, 2, 128,  64, GGML_CUDA_MMQ_SRAM_LAYOUT_Q8_1, MMQ_ITER_K, false, false);
++#ifndef STRATA_MMQ_RDNA2_TILES_OFF
++    CASE(GGML_TYPE_Q5_K, 256, 2, 128,  80, GGML_CUDA_MMQ_SRAM_LAYOUT_Q8_1, MMQ_ITER_K, false, false);
++    CASE(GGML_TYPE_Q5_K, 256, 2, 128,  96, GGML_CUDA_MMQ_SRAM_LAYOUT_Q8_1, MMQ_ITER_K, false, false);
++    CASE(GGML_TYPE_Q5_K, 256, 2, 128, 112, GGML_CUDA_MMQ_SRAM_LAYOUT_Q8_1, MMQ_ITER_K, false, false);
++    CASE(GGML_TYPE_Q5_K, 256, 2, 128, 128, GGML_CUDA_MMQ_SRAM_LAYOUT_Q8_1, MMQ_ITER_K, false, false);
++#endif
+ 
+     CASE(GGML_TYPE_Q6_K, 256, 2, 128,   8, GGML_CUDA_MMQ_SRAM_LAYOUT_Q6_K, MMQ_ITER_K, false, true);
+     CASE(GGML_TYPE_Q6_K, 256, 2, 128,  16, GGML_CUDA_MMQ_SRAM_LAYOUT_Q6_K, MMQ_ITER_K, false, true);
+@@ -144,6 +156,12 @@
+     CASE(GGML_TYPE_Q6_K, 256, 2, 128,  40, GGML_CUDA_MMQ_SRAM_LAYOUT_Q6_K, MMQ_ITER_K, false, false);
+     CASE(GGML_TYPE_Q6_K, 256, 2, 128,  48, GGML_CUDA_MMQ_SRAM_LAYOUT_Q6_K, MMQ_ITER_K, false, false);
+     CASE(GGML_TYPE_Q6_K, 256, 2, 128,  64, GGML_CUDA_MMQ_SRAM_LAYOUT_Q6_K, MMQ_ITER_K, false, false);
++#ifndef STRATA_MMQ_RDNA2_TILES_OFF
++    CASE(GGML_TYPE_Q6_K, 256, 2, 128,  80, GGML_CUDA_MMQ_SRAM_LAYOUT_Q6_K, MMQ_ITER_K, false, false);
++    CASE(GGML_TYPE_Q6_K, 256, 2, 128,  96, GGML_CUDA_MMQ_SRAM_LAYOUT_Q6_K, MMQ_ITER_K, false, false);
++    CASE(GGML_TYPE_Q6_K, 256, 2, 128, 112, GGML_CUDA_MMQ_SRAM_LAYOUT_Q6_K, MMQ_ITER_K, false, false);
++    CASE(GGML_TYPE_Q6_K, 256, 2, 128, 128, GGML_CUDA_MMQ_SRAM_LAYOUT_Q6_K, MMQ_ITER_K, false, false);
++#endif
+ 
+ // ---------------------------------------------------------------------------------------------
+ 
+--- a/ggml/src/ggml-cuda/mmq.cuh
++++ b/ggml/src/ggml-cuda/mmq.cuh
+@@ -1571,7 +1571,11 @@
+     int J_best        = 0;
+     int ntiles_J_best = INT_MAX;
+ 
+-    for (int J = 8; J <= 128 && ntiles_J_best > 1; J += 8) {
++    // Runtime control for the exact J80..128 port; all other architectures keep their picker.
++    static const bool wide_j = [] { const char * e = getenv("STRATA_MMQ_RDNA2_TILES"); return e && e[0] == '1'; }();
++    const int J_limit = GGML_CUDA_CC_IS_RDNA2(cc) && !wide_j &&
++        (type == GGML_TYPE_Q4_K || type == GGML_TYPE_Q5_K || type == GGML_TYPE_Q6_K) ? 64 : 128;
++    for (int J = 8; J <= J_limit && ntiles_J_best > 1; J += 8) {
+         const ggml_cuda_mmq_config config = ggml_cuda_mmq_get_config(type, J, fallback, cc);
+         if (config.type == GGML_TYPE_COUNT) {
+             continue;

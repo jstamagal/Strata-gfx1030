@@ -1,0 +1,5 @@
+strata: native IQ prompt tiles (STRATA_PF_IQ2S=1, STRATA_PF_IQ3=1, TJ=24, IQ_Q8K=0)
+time iq2_s    gate+up 16 x 80 rows, from their own blobs: product 0.287 ms = 14590 G MAC/s
+time iq2_s    gate+up 16 x 80 rows: quantize 0.023 ms, product 0.286 ms = 14677 G MAC/s | skewed 5120 rows: 0.924 ms = 18163 G MAC/s
+time iq2_s    down    16 x 80 rows: quantize 0.017 ms, product 0.162 ms = 15563 G MAC/s | skewed 5120 rows: 0.544 ms = 18517 G MAC/s
+ALL PASS

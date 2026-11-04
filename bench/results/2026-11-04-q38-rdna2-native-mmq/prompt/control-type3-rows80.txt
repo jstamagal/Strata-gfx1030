@@ -1,0 +1,12 @@
+strata: prompt kernels: Q4_0 / Q4_1 experts on the RDNA2 int8 kernel (64 x 32 tiles, exact integer zero point; STRATA_PF_Q4=0 turns it off)
+strata: prompt kernels: Q4_0 / Q4_1 experts on the 256 x 32 tiles (STRATA_PF_Q4_WIDE=1: the same output bits)
+strata: prompt kernels: Q4_0 / Q4_1 experts read from their own blobs, no group copy (STRATA_PF_DIRECT=1)
+PASS q4_1     gate+up W[1280 x 2560] 6 experts 269 rows: rel L2 vs FP64 5.287e-03, hash c6349c370a975132
+PASS q4_1     gate+up experts read from their own blobs: the same bits (hash c6349c370a975132)
+time q4_1     gate+up 16 x 80 rows, from their own blobs: product 0.304 ms = 13794 G MAC/s
+time q4_1     gate+up 16 x 80 rows: quantize 0.021 ms, product 0.295 ms = 14209 G MAC/s | skewed 5120 rows: 0.992 ms = 16918 G MAC/s
+PASS q4_1     down    W[2560 x 640] 6 experts 269 rows: rel L2 vs FP64 5.370e-03, hash d07f3be2f8dc099f
+PASS q4_1     down    experts read from their own blobs: the same bits (hash d07f3be2f8dc099f)
+time q4_1     down    16 x 80 rows, from their own blobs: product 0.151 ms = 13908 G MAC/s
+time q4_1     down    16 x 80 rows: quantize 0.015 ms, product 0.153 ms = 13729 G MAC/s | skewed 5120 rows: 0.501 ms = 16734 G MAC/s
+ALL PASS

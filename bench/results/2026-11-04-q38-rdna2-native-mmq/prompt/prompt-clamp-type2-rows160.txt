@@ -1,0 +1,24 @@
+strata: prompt kernels: Q4_0 / Q4_1 experts on the RDNA2 int8 kernel (64 x 32 tiles, exact integer zero point; STRATA_PF_Q4=0 turns it off)
+strata: prompt kernels: Q4_0 / Q4_1 experts on the 256 x 32 tiles (STRATA_PF_Q4_WIDE=1: the same output bits)
+strata: prompt kernels: Q4_0 / Q4_1 experts read from their own blobs, no group copy (STRATA_PF_DIRECT=1)
+MMQ parity 344320 outputs: 0 different bits, rel L2 0.000e+00, max abs 0.000e+00
+PASS q4_0     gate+up W[1280 x 2560] 6 experts 269 rows: rel L2 vs FP64 5.244e-03, hash 7f070de20775f596
+MMQ parity 344320 outputs: 0 different bits, rel L2 0.000e+00, max abs 0.000e+00
+MMQ parity 344320 outputs: 0 different bits, rel L2 0.000e+00, max abs 0.000e+00
+PASS q4_0     gate+up experts read from their own blobs: the same bits (hash 7f070de20775f596)
+MMQ parity 3276800 outputs: 0 different bits, rel L2 0.000e+00, max abs 0.000e+00
+time q4_0     gate+up 16 x 160 rows, from their own blobs: product 0.370 ms = 22667 G MAC/s
+MMQ parity 3276800 outputs: 0 different bits, rel L2 0.000e+00, max abs 0.000e+00
+MMQ parity 6553600 outputs: 0 different bits, rel L2 0.000e+00, max abs 0.000e+00
+time q4_0     gate+up 16 x 160 rows: quantize 0.033 ms, product 0.363 ms = 23081 G MAC/s | skewed 5120 rows: 0.649 ms = 25846 G MAC/s
+MMQ parity 688640 outputs: 0 different bits, rel L2 0.000e+00, max abs 0.000e+00
+PASS q4_0     down    W[2560 x 640] 6 experts 269 rows: rel L2 vs FP64 5.427e-03, hash 5424fc45655bf564
+MMQ parity 688640 outputs: 0 different bits, rel L2 0.000e+00, max abs 0.000e+00
+MMQ parity 688640 outputs: 0 different bits, rel L2 0.000e+00, max abs 0.000e+00
+PASS q4_0     down    experts read from their own blobs: the same bits (hash 5424fc45655bf564)
+MMQ parity 6553600 outputs: 0 different bits, rel L2 0.000e+00, max abs 0.000e+00
+time q4_0     down    16 x 160 rows, from their own blobs: product 0.183 ms = 22860 G MAC/s
+MMQ parity 6553600 outputs: 0 different bits, rel L2 0.000e+00, max abs 0.000e+00
+MMQ parity 13107200 outputs: 0 different bits, rel L2 0.000e+00, max abs 0.000e+00
+time q4_0     down    16 x 160 rows: quantize 0.018 ms, product 0.180 ms = 23259 G MAC/s | skewed 5120 rows: 0.319 ms = 26291 G MAC/s
+ALL PASS

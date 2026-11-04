@@ -1,0 +1,142 @@
+{
+  "date": "2026-11-04",
+  "engine_base": "8df9767e2",
+  "branch": "basalt38/rdna2-mmq",
+  "hardware": "yoda, physical device 1, AMD Radeon Pro V620 gfx1030",
+  "gpu_filter": "HIP_VISIBLE_DEVICES=1",
+  "full_model_runs_by_this_lane": 0,
+  "live_shared_vendor_modified": false,
+  "live_main_or_configs_modified": false,
+  "ggml_pin": "3cf03257f219afbe7334045ff7c6a06ac68c627d",
+  "ggml_patch_application": "setup.py patch_llama_cpp applies third_party/llama.cpp-patches in sorted order; CMake only consumes the selected source. vendor-patch-check.json verifies 0001..0007 with fuzz=0 from the exact pin and byte identity of all six affected kernel files.",
+  "microbench_shapes": {
+    "gate_up": {"weight_rows": 1280, "K": 2560},
+    "down": {"weight_rows": 2560, "K": 640, "IQ_test_K": 768},
+    "expert_group": 16,
+    "uniform_rows_per_expert": [40, 80, 160],
+    "chunk_interpretation": "Mean counts for 2048/4096/8192 token chunks at 10 of 512 experts, not a recorded live routing histogram.",
+    "timing": "Existing hip_prefill_expert_bench: minimum of five timed calls after warmup, host wall time around synchronized GPU calls. Repeat files provide interleaved A/B controls. Synthetic random-byte weights with bounded block scales; existing FP64 checks and full-output comparisons."
+  },
+  "prompt_results": {
+    "q51_TJ16": {
+      "switch": "STRATA_PF_Q51_TJ=16 with STRATA_PF_Q51=1",
+      "pack": "UD-Q4_K_XL, 43 Q5_1 down layers",
+      "rows40_old32_new16_ms": [0.116, 0.083],
+      "rows80_old32_new16_ms": [0.176, 0.131],
+      "rows160_old32_new16_ms": [0.343, 0.238],
+      "all_output_max_abs_error": 0,
+      "all_output_different_floats": 0,
+      "default_TJ_unchanged": 32
+    },
+    "owner_asm_zero_heads": {
+      "compile_mode": 1,
+      "exact_shape_runs": 33,
+      "failed_runs": 0,
+      "all_output_different_floats": 0,
+      "rows80_control_new_ms": {"Q4_0_GU": [0.241, 0.257], "IQ2_S_GU": [0.270, 0.306], "Q5_1_down": [0.180, 0.203]},
+      "verdict": "Slower in the first sweep. Keep off; do not infer a native gain from the owner's vendor-MMQ gain."
+    },
+    "scheduler_visible_zero_heads": {
+      "compile_mode": 2,
+      "method": "sdot4 clamp=true only for compile-time zero accumulator; four signed-byte products sum within [-65024,65536], so saturation cannot change the result. The intrinsic preserves scheduler latency knowledge.",
+      "exact_shape_runs": 33,
+      "failed_runs": 0,
+      "all_output_different_floats": 0,
+      "rows80_three_interleaved_repeats_ms": {
+        "IQ2_S_GU_control": [0.270, 0.270, 0.269],
+        "IQ2_S_GU_clamp": [0.259, 0.261, 0.258],
+        "Q4_0_GU_control": [0.232, 0.233, 0.232],
+        "Q4_0_GU_clamp": [0.232, 0.232, 0.231],
+        "Q5_1_down_control": [0.175, 0.175, 0.176],
+        "Q5_1_down_clamp": [0.175, 0.175, 0.175]
+      },
+      "pack": "IQ3_S pack for the IQ2_S GU gain; initial apparent Q4_0 gain disappeared in interleaved repeats."
+    },
+    "IQ_tile_heights": {
+      "swept_TJ": [16, 20, 24, 32, 40, 48, 64],
+      "rows80_and160_best_TJ": {"IQ2_S": 20, "IQ3_XXS": 20, "IQ3_S": 20},
+      "verdict": "Retain the live TJ20 at 4096/8192 chunk means; larger native accumulator arrays did not help. Native Q4_0 and IQ4_NL already carried unsuccessful J64 trials, so no blind J128 extension was made to those kernels."
+    },
+    "IQ4_NL_perm_dispatch": {
+      "issue": "STRATA_PF_NL_PERM=1 was only honored at TJ32, not the live IQ3_S config's TJ20.",
+      "fix": "Honor the existing permutation flag for every existing tile height.",
+      "pack": "IQ3_S pack, 39 IQ4_NL down layers",
+      "rows80_first_sweep_control_new_ms": [0.134, 0.118],
+      "all_output_max_abs_error": 0,
+      "all_output_different_floats": 0,
+      "validated_rows": [40, 80, 160],
+      "timing_limit": "No interleaved repeat before the GPU cutoff; timing is preliminary."
+    },
+    "MMQ_Q8K": {
+      "switch": "STRATA_MMQ_Q8K=1",
+      "pack": "UD-Q4_K_XL",
+      "rows80_Q4_K_GU_control_new_ms": [0.289, 0.281],
+      "rows80_Q5_K_GU_control_new_ms": [0.307, 0.293],
+      "quantize_control_new_ms": [0.024, 0.022],
+      "max_rel_L2_vs_control": {"Q4_K": 0.006359391942524171, "Q5_K": 0.006971216916695216},
+      "exact_against_old_path": false
+    },
+    "native_IQ_Q8K": {
+      "switch": "STRATA_PF_IQ_Q8K=1 plus existing STRATA_PF_IQ2S=1 STRATA_PF_IQ3=1",
+      "pack": "IQ3_S pack",
+      "adaptation": "Same common fp32 activation scale per 128 values, but native IQ integer sub-block scales accumulate before one float fold. Not the owner's K-quant-only callback copied under an IQ type.",
+      "rows80_GU_control_new_ms": {"IQ2_S": [0.270, 0.262], "IQ3_XXS": [0.257, 0.258], "IQ3_S": [0.271, 0.267]},
+      "max_rel_L2_vs_control": {"IQ2_S": 0.007092131354990677, "IQ3_XXS": 0.0070712562479776945, "IQ3_S": 0.007091513547142269},
+      "exact_against_old_path": false,
+      "tested_path": "Gather quantizer; this is the gfx103x live default. Scatter cases added to existing test but not rebuilt/run after the 10:15 cutoff."
+    },
+    "MMQ_vector_copy": {
+      "source": "llama.cpp PR 30493, head 9e37a8578f47936fb7f89cbb45f4e98affc134a9",
+      "build_switch": "STRATA_MMQ_VEC_COPY=ON",
+      "exact_shape_runs": 33,
+      "failed_runs": 0,
+      "all_output_different_floats": 0,
+      "alignment": "Explicit int4 LDS base; even J; 144-byte activation rows; int2 source alignment checked at launch; partial thread groups copy only logical words. Existing K tails and all local patches retained.",
+      "rows80_three_interleaved_repeats_Q4_K_ms": {"control": [0.289, 0.289, 0.289], "vector": [0.310, 0.311, 0.311]},
+      "verdict": "Exact, but about 7% less throughput in this Q4_K microbench. Keep opt-in pending owner end-to-end test."
+    },
+    "owner_wide_J": {
+      "runtime_switch": "STRATA_MMQ_RDNA2_TILES=1",
+      "J": [80, 96, 112, 128],
+      "types": ["Q4_K", "Q5_K", "Q6_K"],
+      "gate": "Original non-fallback RDNA2 configs, 256 threads, I128, unchanged K iteration. Current group's p.max_rows continues to select the width; no total_rows/nchannels mean heuristic was substituted.",
+      "validation": "Wider-J plus vector-copy passed the K-quant test's 33 FP64 cases including raw/saturated weights, fallback rows, uneven experts, all four added J widths and padded K tails.",
+      "remaining": "Isolated J64-vs-wide-J bitwise/speed A/B was not run before the GPU cutoff. Expected exact from unchanged K accumulation order, but do not label this isolated control verified yet."
+    }
+  },
+  "decode_results": {
+    "owner_asm_expert_heads": "Complete existing decode lab --hash output byte-identical across all supported type pairs, T1..8, three routing plans; compared control and experts-dotz snapshots.",
+    "dense_clamp": "hip_mmvq_row_parity passed 3840 layout runs and 96 projection-set launches.",
+    "head_clamp": "hip_head_parity 8192 passed 608 cases, including 76 draft-head cases and 400 staged-sampler cases; 0 mismatches.",
+    "Q3_K_scale": "One missed native IQ Q3_K scale multiply was replaced with strata_smul; ISA shows four dot-loop v_mul_lo_u32 replaced by four v_mul_i32_i24. Two address products remain. This pack's routed experts do not use Q3_K.",
+    "native_Q8K": {
+      "switch": "STRATA_NATIVE_Q8K=1",
+      "scope": "Qwen3.8 native Q4_K/Q5_K gate-up with Q5_1/Q8_0 down, 2560/640 geometry, gfx103x only",
+      "adaptation": "Native API receives q8_1, so the prototype re-quantizes its reconstructed activations to common fp32/128 scales. It is an additional rounding step, not the owner's original-float quantizer. Temporary activation rows alias H+HQ until GU completes; no extra persistent scratch.",
+      "numeric_comparisons": 48,
+      "max_composed_output_rel_L2": 0.012956823204993527,
+      "speed_status": "Not timed before the cutoff; not ranked for adoption."
+    }
+  },
+  "attention_and_checkpoint_scope": {
+    "prompt_attention": "Existing STRATA_PA_DOT4 already keeps K int8. Zero-head variants were built for its shared dot helper; independent attention performance/quality test remains pending.",
+    "decode_attention": "qsa_decode_attn.cu and qsa_pattn.cu still widen q8 K in score loops. Identified, not ported: coordinator explicitly moved decode-only work after prompt work.",
+    "checkpoint": "llama-server checkpoint code is not linked into Strata. Native STRATA_CKPT_POOL and READY reuse checkpoint vectors/pages; STRATA_CKPT_ASYNC also has reusable pinned staging. Fresh vectors still zero on resize; no new global allocator was imported."
+  },
+  "quality": {
+    "tool": "tools/quant_quality.py logits",
+    "dump_env": "STRATA_DUMP_FIRST_LOGITS=<prefix>",
+    "procedure": "Owner keeps frozen config/placement, sends same fixed 36K prompt with max-new=1 for baseline and switch, then compares <prefix>.0 files. Reports full-vocabulary KL(ref||run), top1/top20 overlap and raw-logit error without changing KV/expert settings.",
+    "CPU_tests": "tools/test_quant_quality_logits.py: 4 passed",
+    "full_model_quality_numbers": "Pending owner runs; none fabricated."
+  },
+  "remaining": [
+    "Owner full-model prompt speed and quality A/B of pinned binaries; no model was loaded by this lane.",
+    "Isolated wider-J bitwise/speed check and interleaved IQ4_NL timing.",
+    "Scatter-specific Q8K cases were added after cutoff; compile/run still pending.",
+    "Independent expert-clamp, attention-clamp, dense/head speed benchmarks; native Q8K decode timing.",
+    "No native dense Q8K layout, int8 decode-attention port, routed-tile compaction, new narrow-warp heuristic or four-block plain-Q8_1 layout control was implemented.",
+    "HIP gfx1030 built and tested; CUDA and other HIP architectures not built."
+  ],
+  "large_temporary_data": "Raw parity/ISA/dump buffers were discarded after the coordinator's tmpfs cleanup. Retained logs, numeric-error summaries and ISA counters are here. Regenerate future large buffers under worktree/build on disk, not /tmp."
+}

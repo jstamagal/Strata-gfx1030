@@ -365,6 +365,23 @@ int main(int argc, char** argv) {
                     const size_t fa = ((size_t) lab.cap * kF * 4 + 255) & ~(size_t) 255;
                     std::vector<uint8_t> hq((size_t) lab.cap * (kF / 32) * 36);
                     ck(cudaMemcpy(hq.data(), lab.scr + 3 * fa, hq.size(), cudaMemcpyDeviceToHost), "hq");
+                    // Numeric A/B of non-exact activation experiments, not just an output hash.
+                    // Files are raw fp32; the caller owns the destination directory.
+                    if (const char* prefix = std::getenv("STRATA_LAB_DUMP")) {
+                        const std::string stem = std::string(prefix) + "." + std::to_string(pr[0]) + "-" + std::to_string(pr[1]) +
+                            ".T" + std::to_string(T) + ".P" + std::to_string(v);
+                        auto save = [](const std::string& path, const float* data, size_t n) {
+                            FILE* f = std::fopen(path.c_str(), "wb");
+                            if (!f) { std::perror(path.c_str()); std::exit(2); }
+                            const bool good = std::fwrite(data, sizeof(float), n, f) == n;
+                            const int closed = std::fclose(f);
+                            if (!good || closed != 0) { std::fprintf(stderr, "short lab dump: %s\n", path.c_str()); std::exit(2); }
+                        };
+                        save(stem + ".out.bin", o.data(), o.size());
+                        std::vector<float> gu((size_t) lab.cap*kF*2);
+                        ck(cudaMemcpy(gu.data(), lab.scr, gu.size()*4, cudaMemcpyDeviceToHost), "gate/up dump");
+                        save(stem + ".gu.bin", gu.data(), gu.size());
+                    }
                     size_t non_finite = 0;
                     for (const float f : o) non_finite += !std::isfinite(f);
                     std::printf("%-8s/%-7s T %d plan %d (%2zu groups): out %016llx hq %016llx (%zu non-finite)\n", name_of(pr[0]),

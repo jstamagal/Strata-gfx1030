@@ -1,0 +1,2242 @@
+{
+  "source_pack": "/home/ronald_rump/Strata-data/packs/unsloth-ud-q4_k_xl",
+  "source_directory": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL",
+  "metadata": {
+    "general.architecture": "qwen4exp",
+    "qwen4exp.block_count": 48,
+    "qwen4exp.embedding_length": 2560,
+    "qwen4exp.expert_count": 512,
+    "qwen4exp.expert_used_count": 10,
+    "qwen4exp.expert_feed_forward_length": 640,
+    "qwen4exp.embedding_length_per_layer_input": 160
+  },
+  "header_bytes_read": 11024625,
+  "expert_count": 512,
+  "selected_experts_per_token": 10,
+  "traffic_assumption": "Logical weight bytes per generated token: every selected expert read once, summed over 48 layers. Not measured DRAM/PCIe traffic; ignores inter-token reuse, CPU/GPU placement and shared/dense weights.",
+  "layer_role_counts": {
+    "gate:Q4_K": 47,
+    "up:Q4_K": 47,
+    "down:Q5_1": 43,
+    "gate:Q5_K": 1,
+    "up:Q5_K": 1,
+    "down:Q8_0": 5
+  },
+  "logical_expert_bytes_per_token_by_type": {
+    "Q4_K": 866304000,
+    "Q5_1": 528384000,
+    "Q8_0": 87040000,
+    "Q5_K": 22528000
+  },
+  "total_logical_expert_bytes_per_token": 1504256000,
+  "layers": [
+    {
+      "layer": 0,
+      "experts": 512,
+      "selected_per_token": 10,
+      "roles": {
+        "gate": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00002-of-00004.gguf"
+        },
+        "up": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00002-of-00004.gguf"
+        },
+        "down": {
+          "type": "Q5_1",
+          "type_id": 7,
+          "shape": [
+            640,
+            2560,
+            512
+          ],
+          "bytes_per_expert": 1228800,
+          "bytes_per_token_no_reuse": 12288000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00002-of-00004.gguf"
+        }
+      }
+    },
+    {
+      "layer": 1,
+      "experts": 512,
+      "selected_per_token": 10,
+      "roles": {
+        "gate": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00002-of-00004.gguf"
+        },
+        "up": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00002-of-00004.gguf"
+        },
+        "down": {
+          "type": "Q5_1",
+          "type_id": 7,
+          "shape": [
+            640,
+            2560,
+            512
+          ],
+          "bytes_per_expert": 1228800,
+          "bytes_per_token_no_reuse": 12288000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00002-of-00004.gguf"
+        }
+      }
+    },
+    {
+      "layer": 2,
+      "experts": 512,
+      "selected_per_token": 10,
+      "roles": {
+        "gate": {
+          "type": "Q5_K",
+          "type_id": 13,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 1126400,
+          "bytes_per_token_no_reuse": 11264000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00002-of-00004.gguf"
+        },
+        "up": {
+          "type": "Q5_K",
+          "type_id": 13,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 1126400,
+          "bytes_per_token_no_reuse": 11264000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00002-of-00004.gguf"
+        },
+        "down": {
+          "type": "Q8_0",
+          "type_id": 8,
+          "shape": [
+            640,
+            2560,
+            512
+          ],
+          "bytes_per_expert": 1740800,
+          "bytes_per_token_no_reuse": 17408000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00002-of-00004.gguf"
+        }
+      }
+    },
+    {
+      "layer": 3,
+      "experts": 512,
+      "selected_per_token": 10,
+      "roles": {
+        "gate": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00002-of-00004.gguf"
+        },
+        "up": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00002-of-00004.gguf"
+        },
+        "down": {
+          "type": "Q5_1",
+          "type_id": 7,
+          "shape": [
+            640,
+            2560,
+            512
+          ],
+          "bytes_per_expert": 1228800,
+          "bytes_per_token_no_reuse": 12288000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00002-of-00004.gguf"
+        }
+      }
+    },
+    {
+      "layer": 4,
+      "experts": 512,
+      "selected_per_token": 10,
+      "roles": {
+        "gate": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00002-of-00004.gguf"
+        },
+        "up": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00002-of-00004.gguf"
+        },
+        "down": {
+          "type": "Q8_0",
+          "type_id": 8,
+          "shape": [
+            640,
+            2560,
+            512
+          ],
+          "bytes_per_expert": 1740800,
+          "bytes_per_token_no_reuse": 17408000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00002-of-00004.gguf"
+        }
+      }
+    },
+    {
+      "layer": 5,
+      "experts": 512,
+      "selected_per_token": 10,
+      "roles": {
+        "gate": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00002-of-00004.gguf"
+        },
+        "up": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00002-of-00004.gguf"
+        },
+        "down": {
+          "type": "Q5_1",
+          "type_id": 7,
+          "shape": [
+            640,
+            2560,
+            512
+          ],
+          "bytes_per_expert": 1228800,
+          "bytes_per_token_no_reuse": 12288000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00002-of-00004.gguf"
+        }
+      }
+    },
+    {
+      "layer": 6,
+      "experts": 512,
+      "selected_per_token": 10,
+      "roles": {
+        "gate": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00002-of-00004.gguf"
+        },
+        "up": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00002-of-00004.gguf"
+        },
+        "down": {
+          "type": "Q5_1",
+          "type_id": 7,
+          "shape": [
+            640,
+            2560,
+            512
+          ],
+          "bytes_per_expert": 1228800,
+          "bytes_per_token_no_reuse": 12288000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00002-of-00004.gguf"
+        }
+      }
+    },
+    {
+      "layer": 7,
+      "experts": 512,
+      "selected_per_token": 10,
+      "roles": {
+        "gate": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00002-of-00004.gguf"
+        },
+        "up": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00002-of-00004.gguf"
+        },
+        "down": {
+          "type": "Q5_1",
+          "type_id": 7,
+          "shape": [
+            640,
+            2560,
+            512
+          ],
+          "bytes_per_expert": 1228800,
+          "bytes_per_token_no_reuse": 12288000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00002-of-00004.gguf"
+        }
+      }
+    },
+    {
+      "layer": 8,
+      "experts": 512,
+      "selected_per_token": 10,
+      "roles": {
+        "gate": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00002-of-00004.gguf"
+        },
+        "up": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00002-of-00004.gguf"
+        },
+        "down": {
+          "type": "Q5_1",
+          "type_id": 7,
+          "shape": [
+            640,
+            2560,
+            512
+          ],
+          "bytes_per_expert": 1228800,
+          "bytes_per_token_no_reuse": 12288000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00002-of-00004.gguf"
+        }
+      }
+    },
+    {
+      "layer": 9,
+      "experts": 512,
+      "selected_per_token": 10,
+      "roles": {
+        "gate": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00002-of-00004.gguf"
+        },
+        "up": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00002-of-00004.gguf"
+        },
+        "down": {
+          "type": "Q5_1",
+          "type_id": 7,
+          "shape": [
+            640,
+            2560,
+            512
+          ],
+          "bytes_per_expert": 1228800,
+          "bytes_per_token_no_reuse": 12288000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00002-of-00004.gguf"
+        }
+      }
+    },
+    {
+      "layer": 10,
+      "experts": 512,
+      "selected_per_token": 10,
+      "roles": {
+        "gate": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00002-of-00004.gguf"
+        },
+        "up": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00002-of-00004.gguf"
+        },
+        "down": {
+          "type": "Q5_1",
+          "type_id": 7,
+          "shape": [
+            640,
+            2560,
+            512
+          ],
+          "bytes_per_expert": 1228800,
+          "bytes_per_token_no_reuse": 12288000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00002-of-00004.gguf"
+        }
+      }
+    },
+    {
+      "layer": 11,
+      "experts": 512,
+      "selected_per_token": 10,
+      "roles": {
+        "gate": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "up": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "down": {
+          "type": "Q5_1",
+          "type_id": 7,
+          "shape": [
+            640,
+            2560,
+            512
+          ],
+          "bytes_per_expert": 1228800,
+          "bytes_per_token_no_reuse": 12288000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00002-of-00004.gguf"
+        }
+      }
+    },
+    {
+      "layer": 12,
+      "experts": 512,
+      "selected_per_token": 10,
+      "roles": {
+        "gate": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "up": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "down": {
+          "type": "Q5_1",
+          "type_id": 7,
+          "shape": [
+            640,
+            2560,
+            512
+          ],
+          "bytes_per_expert": 1228800,
+          "bytes_per_token_no_reuse": 12288000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        }
+      }
+    },
+    {
+      "layer": 13,
+      "experts": 512,
+      "selected_per_token": 10,
+      "roles": {
+        "gate": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "up": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "down": {
+          "type": "Q5_1",
+          "type_id": 7,
+          "shape": [
+            640,
+            2560,
+            512
+          ],
+          "bytes_per_expert": 1228800,
+          "bytes_per_token_no_reuse": 12288000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        }
+      }
+    },
+    {
+      "layer": 14,
+      "experts": 512,
+      "selected_per_token": 10,
+      "roles": {
+        "gate": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "up": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "down": {
+          "type": "Q5_1",
+          "type_id": 7,
+          "shape": [
+            640,
+            2560,
+            512
+          ],
+          "bytes_per_expert": 1228800,
+          "bytes_per_token_no_reuse": 12288000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        }
+      }
+    },
+    {
+      "layer": 15,
+      "experts": 512,
+      "selected_per_token": 10,
+      "roles": {
+        "gate": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "up": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "down": {
+          "type": "Q5_1",
+          "type_id": 7,
+          "shape": [
+            640,
+            2560,
+            512
+          ],
+          "bytes_per_expert": 1228800,
+          "bytes_per_token_no_reuse": 12288000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        }
+      }
+    },
+    {
+      "layer": 16,
+      "experts": 512,
+      "selected_per_token": 10,
+      "roles": {
+        "gate": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "up": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "down": {
+          "type": "Q5_1",
+          "type_id": 7,
+          "shape": [
+            640,
+            2560,
+            512
+          ],
+          "bytes_per_expert": 1228800,
+          "bytes_per_token_no_reuse": 12288000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        }
+      }
+    },
+    {
+      "layer": 17,
+      "experts": 512,
+      "selected_per_token": 10,
+      "roles": {
+        "gate": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "up": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "down": {
+          "type": "Q5_1",
+          "type_id": 7,
+          "shape": [
+            640,
+            2560,
+            512
+          ],
+          "bytes_per_expert": 1228800,
+          "bytes_per_token_no_reuse": 12288000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        }
+      }
+    },
+    {
+      "layer": 18,
+      "experts": 512,
+      "selected_per_token": 10,
+      "roles": {
+        "gate": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "up": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "down": {
+          "type": "Q5_1",
+          "type_id": 7,
+          "shape": [
+            640,
+            2560,
+            512
+          ],
+          "bytes_per_expert": 1228800,
+          "bytes_per_token_no_reuse": 12288000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        }
+      }
+    },
+    {
+      "layer": 19,
+      "experts": 512,
+      "selected_per_token": 10,
+      "roles": {
+        "gate": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "up": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "down": {
+          "type": "Q5_1",
+          "type_id": 7,
+          "shape": [
+            640,
+            2560,
+            512
+          ],
+          "bytes_per_expert": 1228800,
+          "bytes_per_token_no_reuse": 12288000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        }
+      }
+    },
+    {
+      "layer": 20,
+      "experts": 512,
+      "selected_per_token": 10,
+      "roles": {
+        "gate": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "up": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "down": {
+          "type": "Q5_1",
+          "type_id": 7,
+          "shape": [
+            640,
+            2560,
+            512
+          ],
+          "bytes_per_expert": 1228800,
+          "bytes_per_token_no_reuse": 12288000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        }
+      }
+    },
+    {
+      "layer": 21,
+      "experts": 512,
+      "selected_per_token": 10,
+      "roles": {
+        "gate": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "up": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "down": {
+          "type": "Q5_1",
+          "type_id": 7,
+          "shape": [
+            640,
+            2560,
+            512
+          ],
+          "bytes_per_expert": 1228800,
+          "bytes_per_token_no_reuse": 12288000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        }
+      }
+    },
+    {
+      "layer": 22,
+      "experts": 512,
+      "selected_per_token": 10,
+      "roles": {
+        "gate": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "up": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "down": {
+          "type": "Q5_1",
+          "type_id": 7,
+          "shape": [
+            640,
+            2560,
+            512
+          ],
+          "bytes_per_expert": 1228800,
+          "bytes_per_token_no_reuse": 12288000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        }
+      }
+    },
+    {
+      "layer": 23,
+      "experts": 512,
+      "selected_per_token": 10,
+      "roles": {
+        "gate": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "up": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "down": {
+          "type": "Q5_1",
+          "type_id": 7,
+          "shape": [
+            640,
+            2560,
+            512
+          ],
+          "bytes_per_expert": 1228800,
+          "bytes_per_token_no_reuse": 12288000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        }
+      }
+    },
+    {
+      "layer": 24,
+      "experts": 512,
+      "selected_per_token": 10,
+      "roles": {
+        "gate": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "up": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "down": {
+          "type": "Q5_1",
+          "type_id": 7,
+          "shape": [
+            640,
+            2560,
+            512
+          ],
+          "bytes_per_expert": 1228800,
+          "bytes_per_token_no_reuse": 12288000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        }
+      }
+    },
+    {
+      "layer": 25,
+      "experts": 512,
+      "selected_per_token": 10,
+      "roles": {
+        "gate": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "up": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "down": {
+          "type": "Q5_1",
+          "type_id": 7,
+          "shape": [
+            640,
+            2560,
+            512
+          ],
+          "bytes_per_expert": 1228800,
+          "bytes_per_token_no_reuse": 12288000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        }
+      }
+    },
+    {
+      "layer": 26,
+      "experts": 512,
+      "selected_per_token": 10,
+      "roles": {
+        "gate": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "up": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "down": {
+          "type": "Q5_1",
+          "type_id": 7,
+          "shape": [
+            640,
+            2560,
+            512
+          ],
+          "bytes_per_expert": 1228800,
+          "bytes_per_token_no_reuse": 12288000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        }
+      }
+    },
+    {
+      "layer": 27,
+      "experts": 512,
+      "selected_per_token": 10,
+      "roles": {
+        "gate": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "up": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "down": {
+          "type": "Q5_1",
+          "type_id": 7,
+          "shape": [
+            640,
+            2560,
+            512
+          ],
+          "bytes_per_expert": 1228800,
+          "bytes_per_token_no_reuse": 12288000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        }
+      }
+    },
+    {
+      "layer": 28,
+      "experts": 512,
+      "selected_per_token": 10,
+      "roles": {
+        "gate": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "up": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "down": {
+          "type": "Q5_1",
+          "type_id": 7,
+          "shape": [
+            640,
+            2560,
+            512
+          ],
+          "bytes_per_expert": 1228800,
+          "bytes_per_token_no_reuse": 12288000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        }
+      }
+    },
+    {
+      "layer": 29,
+      "experts": 512,
+      "selected_per_token": 10,
+      "roles": {
+        "gate": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "up": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "down": {
+          "type": "Q5_1",
+          "type_id": 7,
+          "shape": [
+            640,
+            2560,
+            512
+          ],
+          "bytes_per_expert": 1228800,
+          "bytes_per_token_no_reuse": 12288000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        }
+      }
+    },
+    {
+      "layer": 30,
+      "experts": 512,
+      "selected_per_token": 10,
+      "roles": {
+        "gate": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "up": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "down": {
+          "type": "Q8_0",
+          "type_id": 8,
+          "shape": [
+            640,
+            2560,
+            512
+          ],
+          "bytes_per_expert": 1740800,
+          "bytes_per_token_no_reuse": 17408000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        }
+      }
+    },
+    {
+      "layer": 31,
+      "experts": 512,
+      "selected_per_token": 10,
+      "roles": {
+        "gate": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "up": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "down": {
+          "type": "Q5_1",
+          "type_id": 7,
+          "shape": [
+            640,
+            2560,
+            512
+          ],
+          "bytes_per_expert": 1228800,
+          "bytes_per_token_no_reuse": 12288000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        }
+      }
+    },
+    {
+      "layer": 32,
+      "experts": 512,
+      "selected_per_token": 10,
+      "roles": {
+        "gate": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "up": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "down": {
+          "type": "Q5_1",
+          "type_id": 7,
+          "shape": [
+            640,
+            2560,
+            512
+          ],
+          "bytes_per_expert": 1228800,
+          "bytes_per_token_no_reuse": 12288000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        }
+      }
+    },
+    {
+      "layer": 33,
+      "experts": 512,
+      "selected_per_token": 10,
+      "roles": {
+        "gate": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "up": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "down": {
+          "type": "Q5_1",
+          "type_id": 7,
+          "shape": [
+            640,
+            2560,
+            512
+          ],
+          "bytes_per_expert": 1228800,
+          "bytes_per_token_no_reuse": 12288000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        }
+      }
+    },
+    {
+      "layer": 34,
+      "experts": 512,
+      "selected_per_token": 10,
+      "roles": {
+        "gate": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "up": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "down": {
+          "type": "Q5_1",
+          "type_id": 7,
+          "shape": [
+            640,
+            2560,
+            512
+          ],
+          "bytes_per_expert": 1228800,
+          "bytes_per_token_no_reuse": 12288000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        }
+      }
+    },
+    {
+      "layer": 35,
+      "experts": 512,
+      "selected_per_token": 10,
+      "roles": {
+        "gate": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "up": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "down": {
+          "type": "Q5_1",
+          "type_id": 7,
+          "shape": [
+            640,
+            2560,
+            512
+          ],
+          "bytes_per_expert": 1228800,
+          "bytes_per_token_no_reuse": 12288000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        }
+      }
+    },
+    {
+      "layer": 36,
+      "experts": 512,
+      "selected_per_token": 10,
+      "roles": {
+        "gate": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "up": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "down": {
+          "type": "Q5_1",
+          "type_id": 7,
+          "shape": [
+            640,
+            2560,
+            512
+          ],
+          "bytes_per_expert": 1228800,
+          "bytes_per_token_no_reuse": 12288000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        }
+      }
+    },
+    {
+      "layer": 37,
+      "experts": 512,
+      "selected_per_token": 10,
+      "roles": {
+        "gate": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "up": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "down": {
+          "type": "Q5_1",
+          "type_id": 7,
+          "shape": [
+            640,
+            2560,
+            512
+          ],
+          "bytes_per_expert": 1228800,
+          "bytes_per_token_no_reuse": 12288000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        }
+      }
+    },
+    {
+      "layer": 38,
+      "experts": 512,
+      "selected_per_token": 10,
+      "roles": {
+        "gate": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "up": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "down": {
+          "type": "Q5_1",
+          "type_id": 7,
+          "shape": [
+            640,
+            2560,
+            512
+          ],
+          "bytes_per_expert": 1228800,
+          "bytes_per_token_no_reuse": 12288000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        }
+      }
+    },
+    {
+      "layer": 39,
+      "experts": 512,
+      "selected_per_token": 10,
+      "roles": {
+        "gate": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "up": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "down": {
+          "type": "Q5_1",
+          "type_id": 7,
+          "shape": [
+            640,
+            2560,
+            512
+          ],
+          "bytes_per_expert": 1228800,
+          "bytes_per_token_no_reuse": 12288000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        }
+      }
+    },
+    {
+      "layer": 40,
+      "experts": 512,
+      "selected_per_token": 10,
+      "roles": {
+        "gate": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "up": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        },
+        "down": {
+          "type": "Q5_1",
+          "type_id": 7,
+          "shape": [
+            640,
+            2560,
+            512
+          ],
+          "bytes_per_expert": 1228800,
+          "bytes_per_token_no_reuse": 12288000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf"
+        }
+      }
+    },
+    {
+      "layer": 41,
+      "experts": 512,
+      "selected_per_token": 10,
+      "roles": {
+        "gate": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00004-of-00004.gguf"
+        },
+        "up": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00004-of-00004.gguf"
+        },
+        "down": {
+          "type": "Q5_1",
+          "type_id": 7,
+          "shape": [
+            640,
+            2560,
+            512
+          ],
+          "bytes_per_expert": 1228800,
+          "bytes_per_token_no_reuse": 12288000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00004-of-00004.gguf"
+        }
+      }
+    },
+    {
+      "layer": 42,
+      "experts": 512,
+      "selected_per_token": 10,
+      "roles": {
+        "gate": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00004-of-00004.gguf"
+        },
+        "up": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00004-of-00004.gguf"
+        },
+        "down": {
+          "type": "Q5_1",
+          "type_id": 7,
+          "shape": [
+            640,
+            2560,
+            512
+          ],
+          "bytes_per_expert": 1228800,
+          "bytes_per_token_no_reuse": 12288000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00004-of-00004.gguf"
+        }
+      }
+    },
+    {
+      "layer": 43,
+      "experts": 512,
+      "selected_per_token": 10,
+      "roles": {
+        "gate": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00004-of-00004.gguf"
+        },
+        "up": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00004-of-00004.gguf"
+        },
+        "down": {
+          "type": "Q5_1",
+          "type_id": 7,
+          "shape": [
+            640,
+            2560,
+            512
+          ],
+          "bytes_per_expert": 1228800,
+          "bytes_per_token_no_reuse": 12288000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00004-of-00004.gguf"
+        }
+      }
+    },
+    {
+      "layer": 44,
+      "experts": 512,
+      "selected_per_token": 10,
+      "roles": {
+        "gate": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00004-of-00004.gguf"
+        },
+        "up": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00004-of-00004.gguf"
+        },
+        "down": {
+          "type": "Q5_1",
+          "type_id": 7,
+          "shape": [
+            640,
+            2560,
+            512
+          ],
+          "bytes_per_expert": 1228800,
+          "bytes_per_token_no_reuse": 12288000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00004-of-00004.gguf"
+        }
+      }
+    },
+    {
+      "layer": 45,
+      "experts": 512,
+      "selected_per_token": 10,
+      "roles": {
+        "gate": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00004-of-00004.gguf"
+        },
+        "up": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00004-of-00004.gguf"
+        },
+        "down": {
+          "type": "Q5_1",
+          "type_id": 7,
+          "shape": [
+            640,
+            2560,
+            512
+          ],
+          "bytes_per_expert": 1228800,
+          "bytes_per_token_no_reuse": 12288000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00004-of-00004.gguf"
+        }
+      }
+    },
+    {
+      "layer": 46,
+      "experts": 512,
+      "selected_per_token": 10,
+      "roles": {
+        "gate": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00004-of-00004.gguf"
+        },
+        "up": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00004-of-00004.gguf"
+        },
+        "down": {
+          "type": "Q8_0",
+          "type_id": 8,
+          "shape": [
+            640,
+            2560,
+            512
+          ],
+          "bytes_per_expert": 1740800,
+          "bytes_per_token_no_reuse": 17408000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00004-of-00004.gguf"
+        }
+      }
+    },
+    {
+      "layer": 47,
+      "experts": 512,
+      "selected_per_token": 10,
+      "roles": {
+        "gate": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00004-of-00004.gguf"
+        },
+        "up": {
+          "type": "Q4_K",
+          "type_id": 12,
+          "shape": [
+            2560,
+            640,
+            512
+          ],
+          "bytes_per_expert": 921600,
+          "bytes_per_token_no_reuse": 9216000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00004-of-00004.gguf"
+        },
+        "down": {
+          "type": "Q8_0",
+          "type_id": 8,
+          "shape": [
+            640,
+            2560,
+            512
+          ],
+          "bytes_per_expert": 1740800,
+          "bytes_per_token_no_reuse": 17408000,
+          "tensors": 1,
+          "source_shard": "/home/ronald_rump/Strata-data/models/unsloth-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00004-of-00004.gguf"
+        }
+      }
+    }
+  ]
+}
