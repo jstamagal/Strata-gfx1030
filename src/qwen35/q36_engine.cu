@@ -1833,9 +1833,10 @@ struct Engine {
         });
     }
 
+    std::vector<bool> attn_rows_device;
+
     /// One device's own buffers (the active device's members): activations, the prompt's GEMM / MMQ / attention
     /// scratch, the argmax and routing tables, the input words, the vision tables.
-    std::vector<bool> attn_rows_device;
     void alloc_dev() {
         attn_rows_device.resize((size_t) n_dev, false);
 #if defined(__HIPCC__)

@@ -142,7 +142,7 @@ inline bool attn_rows_eligible(int HD, int H, int HKV, const RowSel& rs, bool st
 
 // Fixed graph grid: group size follows the live device position, not capture's
 // host position. Extra head groups and chunks exit before touching LDS.
-__global__ __launch_bounds__(kThreads) void k_attn_part_rows(const float* q, const float* kc, const float* vc, const int32_t* pos0,
+__global__ void k_attn_part_rows(const float* q, const float* kc, const float* vc, const int32_t* pos0,
                                 int t0, int H, int HKV, int ctx, float scale, int n_chunk,
                                 float* pacc, float* pm, float* pl, int nt) {
     __shared__ float sc[8][kChunkCells], sh[kThreads];
