@@ -9,6 +9,8 @@ void Engine::tp_swap(int from, int to) {
             std::swap(sess[i].conv, s.sessions[i].conv); std::swap(sess[i].S, s.sessions[i].S);
             std::swap(sess[i].kc, s.sessions[i].kc); std::swap(sess[i].vc, s.sessions[i].vc);
             std::swap(sess[i].hlast, s.sessions[i].hlast);
+            std::swap(sess[i].snap_conv, s.sessions[i].snap_conv); std::swap(sess[i].snap_S, s.sessions[i].snap_S);
+            std::swap(sess[i].snap_hlast, s.sessions[i].snap_hlast);
         }
     };
     swap(tp_state[from]); swap(tp_state[to]);

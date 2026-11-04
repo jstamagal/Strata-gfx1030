@@ -1619,6 +1619,15 @@ struct Engine {
         std::vector<ImgKey> imgs;           // the pictures among them
         bool active = false;                // a batch slot is decoding in it
         uint64_t used = 0;                  // when it was last used (the LRU pick)
+        // STRATA_Q36_SNAPSHOT (on; =0 off): the recurrent state (conv / S / hlast) as it was when the last prompt was read,
+        // so a request that matches that prompt but not the reply after it (a client that re-sends the reply as text
+        // that tokenizes differently) resumes there instead of reading the whole conversation again.  The K / V cells
+        // below snap_pos are untouched by the reply, so only the recurrent state needs a copy.
+        std::vector<float*> snap_conv, snap_S;
+        float* snap_hlast = nullptr;
+        int64_t snap_pos = 0;               // 0: no snapshot; else live[0 .. snap_pos) is the prompt it was taken after
+        int32_t snap_rdelta = 0;
+        std::vector<ImgKey> snap_imgs;
     };
     std::vector<Sess> sess;
     int n_sess = 1, cur = 0;
@@ -1725,11 +1734,15 @@ struct Engine {
                 ss.S.push_back(nullptr);
                 ss.kc.push_back(alloc_cache());
                 ss.vc.push_back(alloc_cache());
+                ss.snap_conv.push_back(nullptr);
+                ss.snap_S.push_back(nullptr);
             } else {
                 ss.conv.push_back(dalloc(C * (g.ssm_d_conv - 1)));
                 ss.S.push_back(dalloc((size_t) g.ssm_v_heads * g.ssm_state_size * g.ssm_state_size));
                 ss.kc.push_back(nullptr);
                 ss.vc.push_back(nullptr);
+                ss.snap_conv.push_back(snap_on ? dalloc(C * (g.ssm_d_conv - 1)) : nullptr);
+                ss.snap_S.push_back(snap_on ? dalloc((size_t) g.ssm_v_heads * g.ssm_state_size * g.ssm_state_size) : nullptr);
             }
         }
         CK(cudaSetDevice(tp ? cur_dev : home));
@@ -1738,8 +1751,11 @@ struct Engine {
             ss.S.push_back(nullptr);
             ss.kc.push_back(alloc_cache());
             ss.vc.push_back(alloc_cache());
+            ss.snap_conv.push_back(nullptr);
+            ss.snap_S.push_back(nullptr);
         }
         ss.hlast = dalloc((size_t) g.n_embd);
+        if (snap_on) ss.snap_hlast = dalloc((size_t) g.n_embd);
         CK(cudaSetDevice(cur_dev));
     }
 
@@ -1990,6 +2006,7 @@ struct Engine {
         CK(cudaStreamSynchronize(st));
         pos = 0;
         sess[(size_t) cur].pos = 0;
+        sess[(size_t) cur].snap_pos = 0;
         set_delta(0);
     }
 
@@ -3618,7 +3635,52 @@ struct Engine {
         b.rdelta = a.rdelta;
         b.live = a.live;
         b.imgs = a.imgs;
+        b.snap_pos = 0;   // its snapshot was of the state just overwritten
         if (dst == cur) load_cur();
+    }
+    static inline const bool snap_on = [] { const char* v = std::getenv("STRATA_Q36_SNAPSHOT"); return !(v && v[0] == '0'); }();
+    /// The current session's recurrent state as it is now (pos == live.size(): a prompt just read) into its snapshot.
+    void snap_save() {
+        Sess& ss = sess[(size_t) cur];
+        if (!snap_on || ss.snap_hlast == nullptr) return;
+        const auto& g = m->g;
+        const size_t C = (size_t) g.ssm_conv_channels;
+        for_devs([&](int d) {
+            for (size_t l = 0; l < ss.conv.size(); ++l) {
+                if (!tp && dev_of[l] != d) continue;
+                if (!ss.conv[l]) continue;
+                CK(cudaMemcpyAsync(ss.snap_conv[l], ss.conv[l], C * (g.ssm_d_conv - 1) * 4, cudaMemcpyDeviceToDevice, st));
+                CK(cudaMemcpyAsync(ss.snap_S[l], ss.S[l], (size_t) g.ssm_v_heads * g.ssm_state_size * g.ssm_state_size * 4,
+                                   cudaMemcpyDeviceToDevice, st));
+            }
+            if (tp || d == home) CK(cudaMemcpyAsync(ss.snap_hlast, ss.hlast, (size_t) g.n_embd * 4, cudaMemcpyDeviceToDevice, st));
+            CK(cudaStreamSynchronize(st));
+        });
+        ss.snap_pos = pos;
+        ss.snap_rdelta = ss.rdelta;
+        ss.snap_imgs = ss.imgs;
+    }
+    /// The current session back to its snapshot: the recurrent state, pos, rotary offset, and live cut to the prompt.
+    void snap_restore() {
+        Sess& ss = sess[(size_t) cur];
+        const auto& g = m->g;
+        const size_t C = (size_t) g.ssm_conv_channels;
+        for_devs([&](int d) {
+            for (size_t l = 0; l < ss.conv.size(); ++l) {
+                if (!tp && dev_of[l] != d) continue;
+                if (!ss.conv[l]) continue;
+                CK(cudaMemcpyAsync(ss.conv[l], ss.snap_conv[l], C * (g.ssm_d_conv - 1) * 4, cudaMemcpyDeviceToDevice, st));
+                CK(cudaMemcpyAsync(ss.S[l], ss.snap_S[l], (size_t) g.ssm_v_heads * g.ssm_state_size * g.ssm_state_size * 4,
+                                   cudaMemcpyDeviceToDevice, st));
+            }
+            if (tp || d == home) CK(cudaMemcpyAsync(ss.hlast, ss.snap_hlast, (size_t) g.n_embd * 4, cudaMemcpyDeviceToDevice, st));
+            CK(cudaStreamSynchronize(st));
+        });
+        pos = ss.snap_pos;
+        ss.pos = pos;
+        ss.live.resize((size_t) ss.snap_pos);
+        ss.imgs = ss.snap_imgs;
+        set_delta(ss.snap_rdelta);
     }
     // STRATA_Q36_PROMPT_SWAPS=n: at most n slot replacements after a prompt (each moves two expert blobs over PCIe,
     // ~0.8 ms on a V620: the full 2048 can hold the first token back by most of a second)
@@ -5036,6 +5098,19 @@ struct Serve {
         }
         return in_live == ss.imgs ? L : 0;
     }
+    /// STRATA_Q36_SNAPSHOT: the length of session ss's snapshot prompt when it is a proper start of `ids` with the same
+    /// pictures (the reply after it may differ), else 0.
+    size_t snap_match(const Engine::Sess& ss, const std::vector<int32_t>& ids, const std::vector<ImgKey>& imgs) const {
+        const size_t L = (size_t) ss.snap_pos;
+        if (L == 0 || L >= ids.size() || ss.live.size() < L || !std::equal(ss.live.begin(), ss.live.begin() + (long) L, ids.begin()))
+            return 0;
+        std::vector<ImgKey> in_snap;
+        for (const ImgKey& k : imgs) {
+            if (k.cell + k.n <= (int64_t) L) in_snap.push_back(k);
+            else if (k.cell < (int64_t) L) return 0;
+        }
+        return in_snap == ss.snap_imgs ? L : 0;
+    }
 
     /// The session a request alone takes: the one holding the longest start of its prompt, else an empty one, else the
     /// least recently used (never a decoding slot).
@@ -5045,7 +5120,7 @@ struct Serve {
         for (int i = 0; i < E.n_sess; ++i) {
             const Engine::Sess& ss = E.sess[(size_t) i];
             if (ss.active) continue;
-            const size_t l = match_len(ss, ids, imgs);
+            const size_t l = std::max(match_len(ss, ids, imgs), snap_match(ss, ids, imgs));
             if (l > bl) { bl = l; best = i; }
             if (ss.live.empty() && free_empty < 0) free_empty = i;
             if (lru < 0 || ss.used < E.sess[(size_t) lru].used) lru = i;
@@ -5159,6 +5234,14 @@ struct Serve {
             }
         }
         E.select(s);
+        if (reuse == 0) {   // STRATA_Q36_SNAPSHOT: the prompt before the last reply matches: resume there
+            const size_t l = snap_match(ss, ids, ir.imgs);
+            if (l > 0) {
+                E.snap_restore();
+                reuse = l;
+                std::fprintf(stderr, "strata serve: session %d: resumed from the snapshot after the last prompt (%zu tokens)\n", s, l);
+            }
+        }
         if (reuse == 0) {
             E.reset();
             ss.live.clear();
@@ -5195,6 +5278,7 @@ struct Serve {
             ss.imgs.clear();
         }
         E.sess[(size_t) E.cur].pos = E.pos;
+        if (!cancelled) E.snap_save();   // STRATA_Q36_SNAPSHOT: the state after this prompt, for a client that re-sends the reply differently
         const double prompt_ms = ms_since(t0);
         if (cancelled) {
             std::printf("DONE 0 %zu %.1f 0.0 cancel 0 0 %zu 0 0 0 0 0.0 %lld 0\n", ids.size(), prompt_ms, reuse, (long long) got);
