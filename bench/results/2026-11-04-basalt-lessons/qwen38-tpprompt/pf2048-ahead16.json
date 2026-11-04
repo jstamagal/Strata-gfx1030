@@ -1,5 +1,5 @@
 {
-  "exe": "/home/ronald_rump/inbox/agents/claude/strata-q38-tpprompt/build/strata",
+  "exe": "/home/ronald_rump/inbox/agents/claude/strata-q38-tpprompt/build/strata-tpprompt-06a0e3fec",
   "args": [
     "--pack",
     "/home/ronald_rump/Strata-data/packs/unsloth-ud-q4_k_xl",
