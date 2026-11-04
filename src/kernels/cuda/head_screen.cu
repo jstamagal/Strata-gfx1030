@@ -68,6 +68,52 @@ __global__ void pack_kernel(const void* weights, uint8_t* copy, int rows) {
 }
 
 struct Activation { int q[8]; float d; int sum[2], abs[2]; };
+__device__ __forceinline__ Activation load_activation(const X81& a) {
+    Activation z;z.d=__low2float(a.ds);
+#pragma unroll
+    for(int h=0;h<2;++h) {
+        int sx=0,sa=0;
+#pragma unroll
+        for(int t=0;t<4;++t) {
+            const int v=word(a.qs+h*16+t*4);z.q[h*4+t]=v;sx=STRATA_DP4A(v,0x01010101,sx);
+#pragma unroll
+            for(int b=0;b<4;++b)sa+=abs(int(int8_t(uint32_t(v)>>(8*b))));
+        }
+        z.sum[h]=sx;z.abs[h]=sa;
+    }
+    return z;
+}
+template<int TYPE>
+__device__ __forceinline__ void screen_group(const uint8_t* row,int g,const Activation& a,
+                                             float& center,float& width,unsigned& bad) {
+    const uint32_t* nb=reinterpret_cast<const uint32_t*>(row+(TYPE==8?160+g*16:g*20));
+    int dot[2]={};
+#pragma unroll
+    for(int h=0;h<2;++h) {
+#pragma unroll
+        for(int p=0;p<2;++p) {
+            const int q=h*2+p;const uint32_t n=nb[q];
+            const uint32_t t=TYPE==8?reinterpret_cast<const uint32_t*>(row+1440+g*8)[q/2]:nb[4];
+            const int sh=TYPE==8?4*(q&1):2*q;const uint32_t mask=TYPE==8?0x03030303u:0x01010101u;
+            const int v0=int((n&0x0f0f0f0fu)|(((t>>sh)&mask)<<4));
+            const int v1=int(((n>>4)&0x0f0f0f0fu)|(((t>>(sh+(TYPE==8?2:1)))&mask)<<4));
+            dot[h]=STRATA_DP4A(v0,a.q[h*4+p*2],dot[h]);dot[h]=STRATA_DP4A(v1,a.q[h*4+p*2+1],dot[h]);
+        }
+    }
+    if constexpr(TYPE==8) {
+        const float scale=__half2float(reinterpret_cast<const half*>(row)[g])*a.d;
+        const float mid=4.0f*float(dot[0]+dot[1])-126.5f*float(a.sum[0]+a.sum[1]);
+        center+=scale*mid;width+=fabsf(scale)*(1.5f*float(a.abs[0]+a.abs[1]));bad|=!finite(scale);
+    } else {
+        const float d=__half2float(reinterpret_cast<const half*>(row+1760)[g/8]);
+#pragma unroll
+        for(int h=0;h<2;++h) {
+            const float scale=(d*reinterpret_cast<const int8_t*>(row+1600)[2*g+h])*a.d;
+            const float mid=2.0f*float(dot[h])-31.5f*float(a.sum[h]);
+            center+=scale*mid;width+=fabsf(scale)*(0.5f*float(a.abs[h]));bad|=!finite(scale);
+        }
+    }
+}
 template<int TYPE, int NC>
 __launch_bounds__(128)
 __global__ void screen_kernel(const uint8_t* copy, const X81* x, float* y, int rows,
@@ -78,56 +124,14 @@ __global__ void screen_kernel(const uint8_t* copy, const X81* x, float* y, int r
     __shared__ float wm[4][NC];
     const int tid = int(threadIdx.x), lane = tid & 31, wave = tid >> 5;
     const int col = lane/G, glane = lane%G;
-    for (int i = tid; i < NC * 80; i += 128) {
-        const X81& a = x[i]; Activation& z = ax[i/80][i%80]; z.d = __low2float(a.ds);
-#pragma unroll
-        for (int h = 0; h < 2; ++h) {
-            int sx = 0, sa = 0;
-#pragma unroll
-            for (int t = 0; t < 4; ++t) {
-                const int v = word(a.qs+h*16+t*4); z.q[h*4+t] = v;
-                sx = STRATA_DP4A(v,0x01010101,sx);
-#pragma unroll
-                for (int b = 0; b < 4; ++b) sa += abs(int(int8_t(uint32_t(v)>>(8*b))));
-            }
-            z.sum[h] = sx; z.abs[h] = sa;
-        }
-    }
+    for (int i = tid; i < NC * 80; i += 128) ax[i/80][i%80]=load_activation(x[i]);
     __syncthreads();
     float best = ninf();
     for (int r = int(blockIdx.x)*4+wave; r < rows; r += kGrid*4) {
         const uint8_t* row = copy+size_t(r)*(TYPE==8?2080:1792);
         float center = 0.0f, width = 0.0f; unsigned bad = 0;
         // Columns occupy subwaves; repeated weight addresses coalesce, without NC copies in VGPRs.
-        for (int g = glane; g < 80; g += G) {
-            const uint32_t* nb = reinterpret_cast<const uint32_t*>(row+(TYPE==8?160+g*16:g*20));
-            const Activation& a = ax[col < NC ? col : 0][g];
-#pragma unroll
-            for (int h = 0; h < 2; ++h) {
-                int dot = 0;
-#pragma unroll
-                for (int p = 0; p < 2; ++p) {
-                    const int q = h*2+p;
-                    const uint32_t n = nb[q];
-                    const uint32_t t = TYPE==8?reinterpret_cast<const uint32_t*>(row+1440+g*8)[q/2]:nb[4];
-                    const int sh = TYPE==8?4*(q&1):2*q;
-                    const uint32_t mask = TYPE==8?0x03030303u:0x01010101u;
-                    const int v0 = int((n&0x0f0f0f0fu)|(((t>>sh)&mask)<<4));
-                    const int v1 = int(((n>>4)&0x0f0f0f0fu)|(((t>>(sh+(TYPE==8?2:1)))&mask)<<4));
-                    dot = STRATA_DP4A(v0,a.q[h*4+p*2],dot);
-                    dot = STRATA_DP4A(v1,a.q[h*4+p*2+1],dot);
-                }
-                float dw;
-                if constexpr(TYPE==8) dw = __half2float(reinterpret_cast<const half*>(row)[g]);
-                else dw = __half2float(reinterpret_cast<const half*>(row+1760)[g/8]) *
-                          reinterpret_cast<const int8_t*>(row+1600)[2*g+h];
-                const float scale = dw*a.d;
-                const float mid = (TYPE==8?4.0f:2.0f)*float(dot)-(TYPE==8?126.5f:31.5f)*float(a.sum[h]);
-                center += scale*mid;
-                width += fabsf(scale)*((TYPE==8?1.5f:0.5f)*float(a.abs[h]));
-                bad |= !finite(scale);
-            }
-        }
+        for (int g = glane; g < 80; g += G) screen_group<TYPE>(row,g,ax[col < NC ? col : 0][g],center,width,bad);
 #pragma unroll
         for (int o = G/2; o; o >>= 1) {
             center += __shfl_xor_sync(0xffffffffu,center,o);
@@ -145,6 +149,36 @@ __global__ void screen_kernel(const uint8_t* copy, const X81* x, float* y, int r
     if (!glane && col < NC) wm[wave][col] = best;
     __syncthreads();
     if (tid < NC) sc->lower[tid][blockIdx.x] = fmaxf(fmaxf(wm[0][tid],wm[1][tid]),fmaxf(wm[2][tid],wm[3][tid]));
+}
+
+// At wider T, columns use whole subwaves of the workgroup. Activation groups stay in registers:
+// no large LDS image limits residency, and the four waves reuse each row's weight cache lines.
+template<int TYPE,int NC>
+__launch_bounds__(128)
+__global__ void screen_wide_kernel(const uint8_t* copy,const X81* x,float* y,int rows,
+                                    const int32_t* keep,Scratch* sc) {
+    if(*keep<=0||*keep>64)return;
+    const int tid=int(threadIdx.x),col=tid/16,lane=tid%16;
+    Activation a[5];
+#pragma unroll
+    for(int s=0;s<5;++s)a[s]=load_activation(x[(col<NC?col:0)*80+lane+s*16]);
+    float best=ninf();
+    for(int r=int(blockIdx.x);r<rows;r+=kGrid) {
+        const uint8_t* row=copy+size_t(r)*(TYPE==8?2080:1792);
+        float center=0.0f,width=0.0f;unsigned bad=0;
+#pragma unroll
+        for(int s=0;s<5;++s)screen_group<TYPE>(row,lane+s*16,a[s],center,width,bad);
+#pragma unroll
+        for(int o=8;o;o>>=1) {
+            center+=__shfl_xor_sync(0xffffffffu,center,o);width+=__shfl_xor_sync(0xffffffffu,width,o);
+            bad|=__shfl_xor_sync(0xffffffffu,bad,o);
+        }
+        const float margin=fmaf(width,1.0625f,1e-6f);float lo=center-margin,hi=center+margin;
+        if(bad||!finite(lo)||!finite(hi)){lo=ninf();hi=pinf();}
+        if(!lane&&col<NC)y[size_t(col)*rows+r]=hi;
+        best=fmaxf(best,lo);
+    }
+    if(!lane&&col<NC)sc->lower[col][blockIdx.x]=best;
 }
 
 // Maxima refer to disjoint rows. The K-th maximum's bin lower edge cannot exceed the K-th exact logit.
@@ -204,6 +238,7 @@ void launch(const void* copy, const void* weights, const void* x, float* y, int 
             const int32_t* keep, void* scratch, cudaStream_t s) {
     auto* sc = static_cast<Scratch*>(scratch);
     if (TYPE == 14 && fitted_q6()) head_proxy_screen(copy,x,y,&sc->lower[0][0],rows,NC,keep,s);
+    else if constexpr(NC>=5) screen_wide_kernel<TYPE,NC><<<kGrid,128,0,s>>>(static_cast<const uint8_t*>(copy),static_cast<const X81*>(x),y,rows,keep,sc);
     else screen_kernel<TYPE,NC><<<kGrid,128,0,s>>>(static_cast<const uint8_t*>(copy), static_cast<const X81*>(x), y, rows, keep, sc);
     threshold_kernel<<<NC,256,0,s>>>(keep, sc);
     rescore_kernel<TYPE,NC><<<(rows+kSlice-1)/kSlice,256,0,s>>>(weights, static_cast<const X81*>(x), y, rows, keep, sc);
@@ -231,6 +266,13 @@ bool head_screen_supported(int type, int n_in, int n_out, int ncols) {
 }
 bool head_screen_enabled(int type) {
     return env_on(type == 8 ? "STRATA_HEAD_Q8_SCREEN" : "STRATA_HEAD_Q6_SCREEN");
+}
+int head_screen_max_cols() {
+    static const int value=[] {
+        const char* e=std::getenv("STRATA_HEAD_SCREEN_MAX_T");const int n=e?std::atoi(e):8;
+        return n>=1&&n<=8?n:8;
+    }();
+    return value;
 }
 std::size_t head_screen_copy_bytes(int type, int n_out) {
     if (!head_screen_supported(type,2560,n_out,1)) return 0;

@@ -11,6 +11,7 @@ inline constexpr int kHeadScreenGrid = 1024;
 // Original weights remain untouched for every exact consumer.
 bool head_screen_supported(int type, int n_in, int n_out, int ncols);
 bool head_screen_enabled(int type);
+int head_screen_max_cols();
 // Anything able to promote a tail row or read the full distribution requests exact logits.
 inline int head_screen_keep(const SamplerParams& p, bool sampling, bool full_read = false) {
     if (full_read || p.logit_bias || (p.penalty_last_n > 0 &&
@@ -32,7 +33,9 @@ void head_screen(int type, const void* copy, const void* weights, const void* x_
                  float* logits, int n_out, int ncols, const int32_t* keep, void* scratch, void* stream);
 
 // Fitted two-bit proposal head. Only draft ids/probabilities may change; never use for target logits.
-bool head_proxy_enabled();
+// Unset: gfx1030 Q8_0/2560 only. 0: exact. 1: all explicitly supported formats.
+bool head_proxy_enabled(int type, int n_in, int device = -1);
+std::size_t head_proxy_reserve_bytes(int type, int n_in, int n_rows, int device = -1, bool owns_proxy = true);
 bool head_proxy_supported(int type, int n_in);
 std::size_t head_proxy_bytes(int n_rows);
 std::size_t head_proxy_scratch_bytes(int n_rows);

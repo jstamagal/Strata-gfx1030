@@ -2,6 +2,7 @@
 #include "strata/kernels/head_screen.hpp"
 #include <cuda_runtime.h>
 #include <cstdlib>
+#include <cstring>
 #include <stdexcept>
 #include <string>
 #if defined(__HIPCC__)
@@ -305,7 +306,23 @@ __global__ void bound_screen_kernel(const uint2* codes,const half* scales,const 
 void check_proxy() { const auto e=cudaGetLastError(); if (e!=cudaSuccess) throw std::runtime_error(std::string("head proxy: ")+cudaGetErrorString(e)); }
 #endif
 } // namespace
-bool head_proxy_enabled() { const char* e=std::getenv("STRATA_MTP_HEAD_PROXY"); return e&&e[0]=='1'&&!e[1]; }
+bool head_proxy_enabled(int type,int n_in,int device) {
+    if(!head_proxy_supported(type,n_in))return false;
+    if(const char* e=std::getenv("STRATA_MTP_HEAD_PROXY"))return e[0]=='1'&&!e[1];
+#if defined(__HIPCC__)
+    if(type!=8)return false;
+    if(device<0&&cudaGetDevice(&device)!=cudaSuccess){(void)cudaGetLastError();return false;}
+    cudaDeviceProp p{};
+    if(cudaGetDeviceProperties(&p,device)!=cudaSuccess){(void)cudaGetLastError();return false;}
+    return std::strncmp(p.gcnArchName,"gfx1030",7)==0&&(p.gcnArchName[7]=='\0'||p.gcnArchName[7]==':');
+#else
+    (void)device;return false;
+#endif
+}
+std::size_t head_proxy_reserve_bytes(int type,int n_in,int rows,int device,bool owns_proxy) {
+    if(rows<=0||rows>1048576||!head_proxy_enabled(type,n_in,device))return 0;
+    return (owns_proxy?head_proxy_bytes(rows):0)+head_proxy_scratch_bytes(rows);
+}
 bool head_proxy_supported(int type,int n_in) {
 #if defined(__HIPCC__)
     return (type==8||type==13||type==14)&&n_in==2560;

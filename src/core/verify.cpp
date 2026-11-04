@@ -2760,7 +2760,8 @@ bool Verifier::record_window(int T, cudaStream_t cs, std::string& err) {
         // STRATA_HEAD_WIDE=1: the head's logits (native_mmvq's bits), the greedy pick and the non-finite flags in two
         // launches (kernels/head_wide.hpp); one column chunk only (a window up to kFusedGrMaxT rows), not for a
         // recorded batch window wider than the kernel's columns
-        const bool head_screen_on = !batch_rec_ && T <= kFusedGrMaxT && head_screen_scratch_ != nullptr &&
+        const bool head_screen_on = !batch_rec_ && T <= kFusedGrMaxT && T <= strata::kernels::head_screen_max_cols() &&
+            head_screen_scratch_ != nullptr &&
             head_ != nullptr && head_->screen_copy() != nullptr &&
             strata::kernels::head_screen_supported(head_->type(), (int)N, (int)n_vocab_, T);
         const bool head_wide_on = !head_screen_on && T <= kFusedGrMaxT && head_wide_scratch_ != nullptr && head_ != nullptr && head_->loaded() &&
@@ -3338,7 +3339,8 @@ void Verifier::stage_inputs(int T, const int32_t* tokens, int64_t pos0) {
         const bool full = (spec_q_ != nullptr && spec_nq_ > 0) || strata::kernels::head_dump_enabled() ||
                           std::getenv("STRATA_LOGITS_DUMP") || std::getenv("STRATA_DBG_NAN");
         *h_head_keep_ = strata::kernels::head_screen_keep(sampling_, head_sampling_, full);
-        screened_logits_ = *h_head_keep_ > 0 && T <= kFusedGrMaxT;
+        screened_logits_ = head_screen_scratch_ != nullptr && *h_head_keep_ > 0 && T <= kFusedGrMaxT &&
+                           T <= strata::kernels::head_screen_max_cols();
     }
     if (h_sp_ != nullptr) {
         // STRATA_HEAD_SAMPLE=1: this window's sampling parameters for the graph's sampler nodes; `greedy` for a

@@ -50,6 +50,31 @@ static std::vector<int> top(const float* p,int n,int k) {
     };
     k=std::min(k,n); std::partial_sort(ids.begin(),ids.begin()+k,ids.end(),cmp); ids.resize(k); return ids;
 }
+static void set_env(const char* name,const char* value) {
+#if defined(_WIN32)
+    _putenv_s(name,value?value:"");
+#else
+    if(value)setenv(name,value,1);else unsetenv(name);
+#endif
+}
+static void proxy_policy() {
+    const char* e=std::getenv("STRATA_MTP_HEAD_PROXY");const bool had=e!=nullptr;const std::string saved=e?e:"";
+    cudaDeviceProp p{};ck(cudaGetDeviceProperties(&p,0),"policy device");
+    const bool gfx1030=std::strncmp(p.gcnArchName,"gfx1030",7)==0&&(p.gcnArchName[7]=='\0'||p.gcnArchName[7]==':');
+    set_env("STRATA_MTP_HEAD_PROXY",nullptr);
+    const bool automatic=head_proxy_enabled(8,2560,0);
+    if(automatic!=gfx1030||head_proxy_enabled(13,2560,0)||head_proxy_enabled(14,2560,0)||head_proxy_enabled(8,2304,0))std::abort();
+    const size_t owned=head_proxy_reserve_bytes(8,2560,106299,0),borrowed=head_proxy_reserve_bytes(8,2560,106299,0,false);
+    if(owned!=(gfx1030?85176080u:0u)||borrowed!=(gfx1030?132880u:0u)||head_proxy_reserve_bytes(14,2560,106299,0))std::abort();
+    set_env("STRATA_MTP_HEAD_PROXY","0");
+    if(head_proxy_enabled(8,2560,0)||head_proxy_reserve_bytes(8,2560,106299,0))std::abort();
+    set_env("STRATA_MTP_HEAD_PROXY","1");
+    for(int type:{8,13,14})if(!head_proxy_enabled(type,2560,0)||head_proxy_reserve_bytes(type,2560,106299,0)!=85176080u)std::abort();
+    if(head_proxy_enabled(23,2560,0)||head_proxy_enabled(8,2304,0))std::abort();
+    set_env("STRATA_MTP_HEAD_PROXY","invalid");if(head_proxy_enabled(8,2560,0))std::abort();
+    set_env("STRATA_MTP_HEAD_PROXY",had?saved.c_str():nullptr);
+    std::printf("head proxy policy: unset Q8_0=%s Q6_K=off Q5_K=off, owned reserve=%zu shared scratch=%zu bytes; explicit0/1 PASS\n",automatic?"on":"off",owned,borrowed);
+}
 static void policy() {
     SamplerParams p; p.greedy=true;
     if(head_screen_keep(p,true)!=1) std::abort();
@@ -108,7 +133,7 @@ static DumpRows read_inputs(const char* path,int limit) {
     return out;
 }
 static int dump_smoke(const char* path) {
-    setenv("STRATA_HEAD_DUMP",path,1);setenv("STRATA_HEAD_DUMP_MAX","6",1);head_dump_prepare(2560);
+    set_env("STRATA_HEAD_DUMP",path);set_env("STRATA_HEAD_DUMP_MAX","6");head_dump_prepare(2560);
     cudaStream_t s;ck(cudaStreamCreate(&s),"dump stream");
     Buffer x(2*2560*4),q(native_q8_1_bytes(2560,2)),y(8*4),map(4*4),pos(2*4);
     std::vector<float> hx(5120);for(size_t i=0;i<hx.size();++i)hx[i]=float(int(i%37)-18)*0.125f;
@@ -219,6 +244,40 @@ static int exercise(int type,std::vector<uint8_t> hw,int rows,bool bench,bool re
             if(std::memcmp(a.data(),b.data(),rows*4)){++errors;std::printf("BAD ACTIVATION MISMATCH type=%d\n",type);}
             native_quantize_q8_1(x.as<float>(),xq.p,N,8,s);
         }
+        if(inputs&&!inputs->verify.empty()) {
+            size_t at=0;int batch=0;long checks=0;
+            while(at<inputs->verify.size()) {
+                const int cols=std::min<int>(1+batch%8,int(inputs->verify.size()-at));
+                std::array<uint8_t,MT*2880> qbatch;
+                for(int j=0;j<cols;++j) {
+                    const auto& r=inputs->verify[at+j];
+                    if(int(r.header.type)!=type||int(r.header.n_vocab)!=rows)throw std::runtime_error("captured verify metadata mismatch");
+                    std::copy(r.q.begin(),r.q.end(),qbatch.begin()+j*2880);
+                }
+                ck(cudaMemcpyAsync(xq.p,qbatch.data(),size_t(cols)*2880,cudaMemcpyHostToDevice,s),"replay batch Q8_1");
+                native_mmvq(type,w.p,xq.p,ya.as<float>(),N,rows,cols,s);ck(cudaStreamSynchronize(s),"replay reference");
+                ck(cudaMemcpy(a.data(),ya.p,size_t(cols)*rows*4,cudaMemcpyDeviceToHost),"replay reference logits");
+                std::vector<std::vector<int>> reference(cols);
+                for(int j=0;j<cols;++j) {
+                    reference[j]=top(a.data()+size_t(j)*rows,rows,64);
+                    if(reference[j][0]!=inputs->verify[at+j].header.token){++errors;std::printf("SAVED VERIFY PICK MISMATCH input=%zu\n",at+j);}
+                }
+                for(int k:{1,20,64}) {
+                    ck(cudaMemcpy(keep.p,&k,4,cudaMemcpyHostToDevice),"replay K");
+                    head_screen(type,copy.p,w.p,xq.p,yb.as<float>(),rows,cols,keep.as<int32_t>(),scratch.p,s);ck(cudaStreamSynchronize(s),"replay screen");
+                    ck(cudaMemcpy(b.data(),yb.p,size_t(cols)*rows*4,cudaMemcpyDeviceToHost),"replay screened logits");
+                    for(int j=0;j<cols;++j) {
+                        const float* ar=a.data()+size_t(j)*rows;const float* br=b.data()+size_t(j)*rows;
+                        const auto ids=top(br,rows,k);bool same=std::equal(ids.begin(),ids.end(),reference[j].begin());
+                        for(int id:ids)same=same&&std::memcmp(ar+id,br+id,4)==0;
+                        if(!same){++errors;std::printf("CAPTURE TOPK MISMATCH input=%zu T=%d K=%d\n",at+j,cols,k);}
+                        ++checks;
+                    }
+                }
+                at+=cols;++batch;
+            }
+            std::printf("captured verify sweep: %zu inputs, %ld exact top-K column checks (varying T1..8), cumulative errors=%ld\n",inputs->verify.size(),checks,errors);
+        }
         std::printf("screen parity type=%d rows=%d: %ld columns, %ld mismatches, %ld differing tail entries at K20\n",type,rows,cases,errors,tail);
         if(bench) {
             Buffer flush(384ull<<20),sink(4);ck(cudaMemset(flush.p,1,384ull<<20),"flush init");ck(cudaMemset(sink.p,0,4),"sink");
@@ -283,6 +342,26 @@ static int exercise(int type,std::vector<uint8_t> hw,int rows,bool bench,bool re
         int repeat;float rp;ck(cudaMemcpy(&repeat,oa.p,4,cudaMemcpyDeviceToHost),"repeat pick");ck(cudaMemcpy(&rp,pr.p,4,cudaMemcpyDeviceToHost),"repeat p");
         if(repeat!=pick||std::memcmp(&p,&rp,4)){++errors;std::printf("PROXY NONDETERMINISTIC type=%d trial=%d\n",type,trial);}
     }
+    if(inputs&&!inputs->draft.empty()) {
+        size_t changed_all=0;
+        for(size_t i=0;i<inputs->draft.size();++i) {
+            const auto& r=inputs->draft[i];
+            if(int(r.header.type)!=type||int(r.header.n_vocab)!=nr||r.header.vocab_hash!=vocab_hash)
+                throw std::runtime_error("captured draft metadata mismatch");
+            ck(cudaMemcpyAsync(xq.p,r.q.data(),2880,cudaMemcpyHostToDevice,s),"replay draft Q8_1");
+            native_mmvq(type,dw.p,xq.p,ya.as<float>(),N,nr,1,s);
+            head_proxy_pick(type,proxy.p,dw.p,xq.p,nr,yb.as<float>(),ps.p,ob.as<int32_t>(),pr.as<float>(),s);ck(cudaStreamSynchronize(s),"replay draft");
+            ck(cudaMemcpy(a.data(),ya.p,nr*4,cudaMemcpyDeviceToHost),"replay draft exact");
+            ck(cudaMemcpy(b.data(),yb.p,nr*4,cudaMemcpyDeviceToHost),"replay draft approximate");
+            int pick;float p;ck(cudaMemcpy(&pick,ob.p,4,cudaMemcpyDeviceToHost),"replay draft pick");ck(cudaMemcpy(&p,pr.p,4,cudaMemcpyDeviceToHost),"replay draft probability");
+            const int exact=top(a.data(),nr,1)[0];changed_all+=pick!=exact;
+            if(exact!=r.header.subset_index||map[exact]!=r.header.token) {++errors;std::printf("SAVED DRAFT PICK MISMATCH input=%zu\n",i);}
+            if(pick<0||pick>=nr||!std::isfinite(p)||p<=0||p>1||std::memcmp(&a[pick],&b[pick],4)) {
+                ++errors;std::printf("CAPTURE PROXY MISMATCH input=%zu\n",i);
+            }
+        }
+        std::printf("captured draft sweep: %zu inputs, changed proposals=%zu, chosen-row bits exact, cumulative errors=%ld\n",inputs->draft.size(),changed_all,errors);
+    }
     std::printf("proxy parity type=%d rows=%d: 12 cases, exact chosen-row bits checked, changed drafts=%d, total errors=%ld\n",type,nr,changed,errors);
     if(bench) {
         Buffer flush(384ull<<20),sink(4);ck(cudaMemset(flush.p,1,384ull<<20),"flush init");ck(cudaMemset(sink.p,0,4),"sink");
@@ -308,6 +387,7 @@ int main(int argc,char** argv) {
     }
     if(rows<1||rows>1048576||input_limit<1||input_limit>20000||(input_path&&!gguf))return 1;
     int count=0;ck(cudaGetDeviceCount(&count),"devices");if(!count)return 77;ck(cudaSetDevice(0),"device 0");
+    proxy_policy();
     if(dump_path)return dump_smoke(dump_path);
     DumpRows inputs;if(input_path)inputs=read_inputs(input_path,input_limit);
     if(gguf) {

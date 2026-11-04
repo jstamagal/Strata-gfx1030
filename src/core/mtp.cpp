@@ -692,17 +692,23 @@ bool MtpDrafter::experts_reclaim(std::string& err) {
 
 uint64_t MtpDrafter::bind_bytes(uint64_t head_row_bytes, int64_t n_vocab) const {
     uint64_t bytes = head_logits_ ? 0 : (uint64_t) max_t_ * (uint64_t) n_vocab * sizeof(float);
-    if (dhead_ == nullptr && owns_draft_head_ && !full_head_env()) {
+    if (dhead_ == nullptr && !full_head_env()) {
         if (FILE* f = std::fopen(vocab_file().c_str(), "rb")) {
             std::fseek(f, 0, SEEK_END);
             const long size = std::ftell(f);
             std::fclose(f);
             if (size >= 4 && size % 4 == 0) {
-                bytes += (uint64_t)(size / 4) * head_row_bytes + (uint64_t)size;
-                if (strata::kernels::head_proxy_enabled() && !q4_head_ &&
-                    (head_row_bytes == 2720 || head_row_bytes == 2100 || head_row_bytes == 1760))
-                    bytes += strata::kernels::head_proxy_bytes((int)(size / 4)) +
-                             strata::kernels::head_proxy_scratch_bytes((int)(size / 4));
+                if (owns_draft_head_) bytes += (uint64_t)(size / 4) * head_row_bytes + (uint64_t)size;
+                const int n_in = g_ ? (int)g_->n_embd : 0;
+                const int type = head_row_bytes == 2720 ? 8 : head_row_bytes == 2100 ? 14 : head_row_bytes == 1760 ? 13 : -1;
+                const size_t proxy = !q4_head_ && !strata::kernels::head_dump_enabled()
+                    ? strata::kernels::head_proxy_reserve_bytes(type,n_in,(int)(size/4),device_,owns_draft_head_) : 0;
+                bytes += proxy;
+                if (proxy > 0 && !head_proxy_reserve_noted_) {
+                    std::fprintf(stderr,"strata mtp: 2-bit head%s reserves %llu bytes before expert-cache sizing (STRATA_MTP_HEAD_PROXY=0 disables)\n",
+                                 std::getenv("STRATA_MTP_HEAD_PROXY") ? " (forced)" : " (auto gfx1030 Q8_0)", (unsigned long long)proxy);
+                    head_proxy_reserve_noted_ = true;
+                }
             }
         }
     }
@@ -934,7 +940,8 @@ bool MtpDrafter::bind(const WeightTable& wt, const NativeHead* head, const float
         }
     }
     // Only a plain local subset: exact rescoring reads unchanged main-head rows, copied at bind above.
-    if (strata::kernels::head_proxy_enabled() && !strata::kernels::head_dump_enabled() && dhead_ &&
+    if (head_proxy_scratch_ == nullptr && strata::kernels::head_proxy_enabled(dhead_type_,(int)g_->n_embd,device_) &&
+        !strata::kernels::head_dump_enabled() && dhead_ &&
         (shared ? shared->dhead_plain_ : dhead_plain_) &&
         strata::kernels::head_proxy_supported(dhead_type_, (int)g_->n_embd)) {
         const size_t pb = strata::kernels::head_proxy_bytes((int)n_dvocab_);
@@ -960,8 +967,9 @@ bool MtpDrafter::bind(const WeightTable& wt, const NativeHead* head, const float
             std::fprintf(stderr, "strata mtp: proxy did not fit; exact draft head retained\n");
         } else {
             vram_ += sb + (shared == nullptr ? pb : 0);
-            std::fprintf(stderr, "strata mtp: fitted 2-bit head over %lld rows; draft picks and tail probabilities may change\n",
-                         (long long)n_dvocab_);
+            std::fprintf(stderr, "strata mtp: fitted 2-bit head over %lld rows%s (%llu bytes); draft picks and tail probabilities may change; STRATA_MTP_HEAD_PROXY=0 disables\n",
+                         (long long)n_dvocab_, std::getenv("STRATA_MTP_HEAD_PROXY") ? " (forced)" : " (auto gfx1030 Q8_0)",
+                         (unsigned long long)(sb + (shared == nullptr ? pb : 0)));
         }
     }
     if (coupled_draft_env() && cparams_ == nullptr && !setup_coupled(err)) return false;
