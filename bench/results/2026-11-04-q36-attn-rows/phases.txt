@@ -1,0 +1,13 @@
+device 0: AMD Radeon Pro V620 (gfx1030), 36 HIP multiprocessors, wave32
+nt=1 ctx=64 full_us=7.653 scores_only_us=6.028 scores_softmax_us=6.493
+nt=1 ctx=256 full_us=14.906 scores_only_us=6.795 scores_softmax_us=7.443
+nt=1 ctx=1000 full_us=13.346 scores_only_us=7.423 scores_softmax_us=8.053
+nt=1 ctx=4096 full_us=27.198 scores_only_us=8.717 scores_softmax_us=9.372
+nt=1 ctx=30000 full_us=76.810 scores_only_us=28.948 scores_softmax_us=30.403
+nt=1 ctx=65536 full_us=147.708 scores_only_us=50.255 scores_softmax_us=53.202
+nt=4 ctx=64 full_us=9.767 scores_only_us=7.452 scores_softmax_us=7.985
+nt=4 ctx=256 full_us=19.858 scores_only_us=9.282 scores_softmax_us=9.828
+nt=4 ctx=1000 full_us=28.938 scores_only_us=19.340 scores_softmax_us=21.073
+nt=4 ctx=4096 full_us=45.270 scores_only_us=14.208 scores_softmax_us=22.720
+nt=4 ctx=30000 full_us=216.725 scores_only_us=82.885 scores_softmax_us=82.215
+nt=4 ctx=65536 full_us=544.155 scores_only_us=195.258 scores_softmax_us=193.688
