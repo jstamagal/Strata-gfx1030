@@ -1,0 +1,16 @@
+w11_i120k_25auto run1 prompt 118329 2744.0 tok/s 43.12 s; gen 100 87.1 tok/s drafts 40 / 52
+46e49661a70d
+w11_i120k_25auto run2 prompt 118329 2654.4 tok/s 44.58 s; gen 100 78.8 tok/s drafts 35 / 51
+a11908806b42
+w11_i120k_25p4k run1 prompt 118329 2833.1 tok/s 41.77 s; gen 100 87.7 tok/s drafts 42 / 57
+2ae91bef44f0
+w11_i120k_25p4k run2 prompt 118329 2729.8 tok/s 43.35 s; gen 100 86.1 tok/s drafts 44 / 62
+fdeb914dced0
+w11_i120k_25auto_b run1 prompt 118329 2728.6 tok/s 43.37 s; gen 100 87.0 tok/s drafts 40 / 52
+46e49661a70d
+w11_i120k_25auto_b run2 prompt 118329 2621.7 tok/s 45.13 s; gen 100 79.1 tok/s drafts 35 / 51
+a11908806b42
+w11_i120k_25p4k_b run1 prompt 118329 2829.8 tok/s 41.82 s; gen 100 87.2 tok/s drafts 42 / 57
+2ae91bef44f0
+w11_i120k_25p4k_b run2 prompt 118329 2671.7 tok/s 44.29 s; gen 100 86.2 tok/s drafts 44 / 62
+fdeb914dced0

@@ -275,3 +275,18 @@ Raw: `qwen38-window10/`. Live IQ3_S config (split 25), build-hip 11db64ca4. Agen
 - **Long lookup windows: no effect, because they never switched on.** The engine logs "--lookup-max-t 0: a layer split's
   windows stop at 8 tokens". Copy-heavy edits already accept 97% of drafts at 8 rows (~370 tok/s), so the 8-row cap is
   the ceiling. Lifting it on the split is code work (branch basalt38/split-lookup16).
+
+## Window 11: IQ3_S at a 120K prompt, split 25, 2048 (auto) vs 4096-token chunks
+
+Raw: `qwen38-window11/`. 118,329-token prompt, 100 tokens out, interleaved twice (a / b):
+
+| arm | prompt tok/s (run1 / run2) | gen tok/s |
+|---|---|---|
+| auto (2048) a | 2744.0 / 2654.4 | 87.1 / 78.8 |
+| 4096 a | 2833.1 / 2729.8 | 87.7 / 86.1 |
+| auto (2048) b | 2728.6 / 2621.7 | 87.0 / 79.1 |
+| 4096 b | 2829.8 / 2671.7 | 87.2 / 86.2 |
+
+At 120K, 4096 is +2.9% on prompt and +4.6% on the generation after it, the same in both repeats (+0.4% at 36K in window 8).
+The IQ3_S config now uses --prefill 4096, like UD4 and Q4_0. Overlap watch over windows 9-11: the harness never ran two
+engines at once, but free memory fell to 0.8 GB during an engine load.
