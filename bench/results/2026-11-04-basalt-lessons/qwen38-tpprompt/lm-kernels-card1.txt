@@ -1,0 +1,9 @@
+moe_shared_init T=1: worst relative error 2.38e-07 ok
+moe_shared_init T=512: worst relative error 4.71e-07 ok
+moe_shared_init T=2049: worst relative error 5.89e-07 ok
+moe_scatter_add tokens=512 rows=1 (<= 8 per token, 1 tokens in the group): 0 values differ from the host chain, 0 differ between two launches ok
+moe_scatter_add tokens=512 rows=700 (<= 8 per token, 384 tokens in the group): 0 values differ from the host chain, 0 differ between two launches ok
+moe_scatter_add tokens=4096 rows=5000 (<= 8 per token, 2880 tokens in the group): 0 values differ from the host chain, 0 differ between two launches ok
+moe_scatter_add tokens=8192 rows=8192 (<= 1 per token, 8192 tokens in the group): 0 values differ from the host chain, 0 differ between two launches ok
+moe_scatter_add tokens=300 rows=2400 (<= 8 per token, 300 tokens in the group): 0 values differ from the host chain, 0 differ between two launches ok
+PASS

@@ -1,0 +1,508 @@
+and AVX-VNNI-INT8 builds (plus AVX-512 when available) across widths 1..8,
+shifted token positions, partial row ranges, extreme quantizer activations and
+scale edge cases. Update `avx_bench` to time `avx2 mt` and `vnni8 mt` side by
+side with `us/call`, and document the path in `docs/precision/index.md`.
+
+Validation (Intel Core Ultra 9 285K, RTX 5090 at 475 W):
+- Frozen original-kernel FNV-1a output hashes match across widths 1..8 on both
+  real geometries (`2560x640` gate/up and `640x2560` down); against double,
+  gate/up max abs/rel error is 6.21e-6 / 8.11e-4, down 4.17e-7 / 8.69e-4.
+- `native_expert_parity --synthetic nvfp4/nvfp4 nvfp4/nvfp4`: 0 failures.
+- Greedy identity: all 1,024 tokens match the baseline build at `--spec 0` and
+  `--spec 7` (`--expert-cache 8715 --pool-workers 15 --kv int8`).
+- Paired 1-thread cache microbench (475 W): gate/up 1.25x-1.43x faster
+  (nt=2: 143.7 -> 108.2 us, nt=4: 256.6 -> 179.1 us), down 1.20x-1.33x faster
+  (nt=2: 71.3 -> 59.3 us, nt=4: 127.5 -> 95.6 us).
+- Development A/B (`basalt-bench`, 475 W, 3 pairs including reversed order):
+  `tg conv` 16.7523 -> 16.5018 ms/window (-1.50%, 59.70 -> 60.60 passes/s),
+  `tg struct` 83.4628 -> 82.5365 ms/window (-1.11%, 11.98 -> 12.12 passes/s),
+  `tg prose` 23.7748 -> 23.2077 ms/window (-2.39%, 42.06 -> 43.09 passes/s).
+
+Co-authored-by: Antigravity <noreply@google.com>
+
+dbc51581
+kernels: byte reads out of register values go through packed_byte everywhere
+
+--
+Bitwise equal across the two builds and to the previous kernel (codes 0..3
+against -127..127 cannot saturate a pair sum). iq_avx2_test checks both
+builds against each other and a double reference, alone vs grouped tokens
+and any row range. One thread, one expert in cache: 44.3 -> 39.1 us at 1
+token, 68 -> 57 us at 2.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+Net change of the PR (two commits), merged onto the IQ4_NL pass and pdep changes.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+--
+
+Every output bit is unchanged (bitwise against the previous kernel on
+random and real-geometry inputs, nt 1-8, any row range). One thread, one
+expert in cache, AVX-VNNI: 47.6 -> 28.3 us at 1 token, 74.6 -> 46.7 us at 2.
+iq256 down rows now require n / 32 <= 64 (iq4nl256_fits); wider rows take
+the ggml dot.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+Net change of the PR (four commits).
+--
+
+q6k_vhead_parity checks every column against the column computed alone and adds
+a set of flat columns; the old kernel fails it at 7-8 columns at 20,000 rows and
+at every width at 248,320 rows. Cold microbench at 248,320 rows, 360 W: 211-254
+us at T=1-8 (old kernel in the same job 213-254 us); flat columns, which now
+rescore every qualifying row, 961-2559 us. Engine (tiers pinned, lookup off):
+greedy tokens and every accepted row's logit hash are identical at --spec 1, 4,
+5, 6, 7 and 8 on conv, struct and prose.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+--
+native Q8_0 / Q2_0 / IQ3_XXS / IQ4_XS key's T-column Q8_1 quantization and
+MMVQ in the exact multi-column layout. ple_key_rows_parity checks it
+against the per-row calls and a CPU reference, and the window built on it
+against the per-row chain, plain and segmented, with a microbench line.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+859d3495
+kernels: the two-stage Q8_0 head screens a share of its rows on another card
+
+--
+q80_vhead_parity, on each card (5090 at 400 W, 5060 Ti at 180 W): 248,320 rows with the last fifth as the share
+(198,656 + 49,664), both sides on one stream in the order the cards meet; at K 1, 20, 64 and 0 and 1..8 columns the
+merged top-K lists are the exact head's (K 0 bitwise) and 48 sampler settings draw the same tokens and
+probabilities. Cold microbench at K 20, us at 1..8 columns: the first part on the 5090 274-300 plus the merge 5-8;
+the share screened and listed on the 5060 Ti 280-305 (on the 5090 92-111).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+8e0a447a
+verify: a Q8_0 head runs in bit planes, two-stage for the requests that read only the top of its list
+--
+  two-stage pick 35.0 us against 35.3 us before (5090, cold).
+
+Speed, cold, 400 W + 180 W unless noted:
+- node trace of one prose reply (same text, 541 windows): the head 439 -> 350 us per window (screen 332, exact
+  rows 18);
+- prose, the same text in both builds: basalt-bench seed 42 306.998 -> 312.932 tok/s (7.67 -> 7.52 ms/window),
+  seed 7 314.795 -> 318.37 (7.34 -> 7.26); bench.sh with a fresh server, seed 102 303.1 -> 306.5, seed 103
+  298.1 -> 299.3 (seed 101: 293.8 -> 309.7, different texts);
+- 5090 alone (400 W), bench.sh prose, A B B A, seed 101: 257.8 / 258.1 -> 264.6 / 262.2 tok/s (each build's own
+  text);
+- guards, A B B A: struct 576.4 / 575.9 -> 579.7 / 581.2 (7230 tokens in all four); conv 338.6 / 337.8 ->
+  341.8 / 342.9 (same text); prefill 7772 / 7756 -> 7756 / 7778 tok/s; 62.6K-token prompt then 600 tokens: prompt
+  10060 / 10031 -> 10062 / 10057 tok/s, decode 284.5 / 278.5 -> 271.8 / 300.9 (acceptance 60-68%, texts differ).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+1605b862
+kernels: a Q8_0 head in bit planes, and a two-stage verify head that keeps the exact top K
+
+--
+1,152 sampler draws (greedy, top_k <= K with top_p / min_p / temperature) identical, a column's entries independent of
+the width; K 0 the exact head. CPU reference (double) max rel 7.7e-4.
+
+Cold microbench (L2 flushed, 400 W), us at 1..8 columns:
+  Q8_0 head before (native_mmvq to 3, one-wave from 4): 434 438 447 458 463 468 479 479
+  exact pass on the planes:                            447 447 448 455 460 470 481 496
+  two-stage, K 20:                                     338 344 345 348 357 362 370 378
+The screen streams 516 MB at about 1.5 TB/s (a plain read of those bytes: 321 us); scoring the listed rows takes
+6-15 us here.
+
+--
+
+- qsa_mid_parity: both halves against dense_tc, bitwise, 7 formats, T 1..8,
+  4 grids, each half writing only its rows; against a double reference the
+  same error as dense_tc (Q6_K 1.35e-4 of max(1, |ref|)). Microbench, 5090
+  at 400 W, L2 cold, T 3: dense_tc 19.60 us, query half 11.97 us, gate half
+  on its share 10.88 us.
+- In the engine (nsys, cold prose seed 42, 400 W + 180 W), attention read end
+  to FFN read end of a QSA layer, T 1..5: 51.2/54.5/60.2/63.5/68.2 ->
+  47.1/50.7/55.1/58.0/62.8 us.
+- Cold prose, basalt-bench, 400 W + 180 W, the same texts per seed: window
+  time at equal T -0.41% over 4 runs a side (seeds 42 and 7); tok/s seed 42
+  299.1/297.5 -> 298.8/299.0, seed 7 303.5 -> 305.3/304.5. 5090 alone at
+  400 W, same text: -0.16% (250.0 -> 250.6/250.1).
+- Greedy identity, tiers pinned, both shapes: identical.
+- Long context (62.6K-token prompt, 600 tokens, temperature 0.6): 290.2/270.1
+  -> 280.5/277.4 tok/s at 69/63% vs 65/64% accepted drafts (other texts),
+  no loss at equal acceptance; prompt read 10151/10117 -> 10100/10195 tok/s.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+643cb978
+mtp: a Q8_0 draft head screens its rows through a 2-bit copy and reads its exact rows from the main head
+
+--
+- Real draft inputs (cold prose and conv, two cards): the pick equals the exact argmax in 3565 of 3566 steps; the
+  draft probability's mean error +0.005 (as the Q6_K head's).
+- Same text (pinned tiers, temperature 0.6, prose and conv, seeds 42 and 7, two cards): texts IDENTICAL; draft
+  -0.13..-0.17 ms/window; windows -0.6% prose, flat conv. Traced chain step 185.4 -> 132.6 us. Expert cache
+  9469 -> 9574 slots on the 5090.
+- Greedy identity, tiers pinned, 1200 tokens, conv/struct/prose: IDENTICAL on two cards and on the 5090 alone.
+- Cold bench.sh prose through a fresh server, fixed server seeds, ABBA: two cards, seeds 101-108, 301.31 -> 303.89
+  tok/s (+0.85%; the texts differ per build and seed, tokens per window 2.277 vs 2.272); the 5090 alone, seeds
+  101-104, 249.97 -> 254.08 (+1.64%). The shorter draft leaves the adaptive round's join exposed in more windows
+  (cold prose seed 42: idle before the next window 0.071 -> 0.114 ms), which takes back part of the draft's saving.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+c4e3a93c
+kernels: the proxy draft head keeps its rescored rows in a fixed order
+
+--
+i | parity(i) << 7, so ksigns8 deposits the eight 7-bit indices into bytes with _pdep_u64 (IQ2_XS first packs its
+indices with _pext_u64) and sets bit 7 from a byte parity. IQ3_S and IQ2_S, whose grid index takes extra high bits,
+look up the grid with one AVX-512 gather instead of 16 / 8 scalar loads and inserts; the byte-indexed grids keep
+their scalar loads, which are faster there. The integers are unchanged, so the rows are bit for bit.
+
+BMI2: -mbmi2 for iq_avx512.cpp only (MSVC compiles the intrinsics without a switch); cpu_avx512_ok now also requires
+the BMI2 cpuid bit (every AVX-512 CPU has it).
+
+iq_avx512_test (label avx512, like expert_multi_test): gate/up and dot rows of the five formats at 2560/640, 1 to 8
+tokens, random / all-ones / all-zero codes and saturating activations, against FNV hashes frozen from the previous
+--
+- hashes: equal to the frozen ones for all five formats; token-count dependence 0 words; max rel vs double
+  3.6e-6 .. 7.0e-6 (unchanged). pool_native_test 603 runs, 0 mismatches; iq_avx2_test passes.
+
+Microbench (iq_avx512_test --bench: 200 gate/up rows, cache-resident, one Zen 5 thread; us, before -> after, min of 2):
+  IQ2_XXS nt1 49.3 -> 37.3 (-24%), nt2 59.0 -> 41.8 (-29%), nt4 68.7 -> 54.1 (-21%)
+  IQ2_XS  nt1 60.5 -> 44.0 (-27%), nt2 63.1 -> 48.4 (-23%), nt4 74.3 -> 63.0 (-15%)
+  IQ3_XXS nt1 67.4 -> 56.0 (-17%), nt2 77.6 -> 61.6 (-21%), nt4 85.5 -> 71.3 (-17%)
+  IQ3_S   nt1 73.9 -> 71.2 (-4%),  nt2 82.5 -> 73.3 (-11%), nt4 91.8 -> 83.0 (-10%)
+  IQ2_S   nt1 48.5 -> 44.7 (-8%),  nt2 55.2 -> 49.2 (-11%), nt4 66.3 -> 62.6 (-6%)
+basalt-bench (conv/struct/prose x2, alternated with upstream twice, 175 W cap, together with the Q2_0 down change):
+host CPU 4.28 / 4.31 -> 4.07 / 4.08 ms/window (--decode-timing), CPU-tier wait 1.93 / 1.99 -> 1.91 / 1.91 ms/window
+(--wait-stats), 17.88 / 17.84 -> 17.56 / 17.59 ms/window.
+
+Co-authored-by: mitalbert <15214337+mitalbert@users.noreply.github.com>
+Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>
+cc2e1412
+cpu: avoid MSVC aggregate copies in NVFP4 expert rows (#118)
+
+--
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+
+58293bfe
+tests: dec_commit_parity --finisher runs the finisher before, during and after the commit, with a microbench
+
+Co-Authored-By: Claude Sonnet <noreply@anthropic.com>
+
+481be493
+kernels: the GDN commit claims its items from a counter, and a finisher kernel drains what is left
+
+--
+Co-Authored-By: Claude Sonnet <noreply@anthropic.com>
+
+79cca42f
+kernels: mid_chain can stamp its phase times into a device buffer for the microbench
+
+A template flag instantiates a stamping k_mid for (14, 14, 14) and the generic types; the engine instances are unchanged.
+
+Co-Authored-By: Claude Sonnet <noreply@anthropic.com>
+
+3c231ebf
+--
+Co-Authored-By: Claude Sonnet <noreply@anthropic.com>
+
+231f8d4c
+tests: mid_chain_parity compares the mid chain with the three kernels it replaces, with a CPU line and a hot/cold microbench
+
+Co-Authored-By: Claude Sonnet <noreply@anthropic.com>
+
+0fa6bd7e
+kernels: mid_chain runs the GDN projection pair, recurrence and output projection as one persistent launch
+
+--
+The last line runs one expert of the decode geometry through
+run_split_multi_native cold, then reads another with the pool's idle work
+(gate/up rows first, then down, split over the workers) and computes it.
+Ryzen 9 9950X, 15 workers + host, 1 token: cold 61.1 us (45.2 GB/s), idle
+read 53.7 us, after the read 38.0 us; 3 tokens: 61.9 / 54.2 / 41.2 us.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+e4c9bb1b
+cpu pool: idle work for the parked workers between batches
+--
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+9651f5ea
+tests: dec_moe_parity glue bench line gives the groups, expert bytes and GB/s
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+5c4be131
+dec_moe: NVFP4 gate/up takes the glue path: the plan and the tier ring inside the gate/up launch
+
+--
+Adds a Q8_0 format to dense_tc (int8 tensor-core dot, exact int32 per
+32-value block, fixed-order fp32 scale sum), the Q8_0 pair combinations,
+a parity test against a float64 CPU reference and native_mmvq at real
+projection geometry, and a pair microbench line. Rounds differently from
+native_mmvq; accuracy against float64 is equal. precision.md records the
+Q4_K_XL quality gate.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+
+db465d2c
+--
+
+Q8_0/Q8_0 joins DM_GU_FMTS and DM_PAIRS (Split<8> and the Q8_0 down dots already existed), so Q8_0 packs plan the MoE tail on the device
+instead of falling back to the host-planned path. Bitwise to the per-entry kernels; iq_multi_parity and dec_moe_parity --kq gain the
+(8,8) pair, with a microbench line.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+
+0574f4c4
+kernels: the shared-memory opt-ins of the head, decode attention, selection, prompt attention and hyper-connection launches are per device, race-free and checked
+
+--
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
+
+288a52da
+tests: iq_multi_parity --bench times the Q4_K, Q5_K, Q5_1 and Q8_0 mmvq and the UD-Q4_K_XL grouped pairs, with GB/s
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+
+8b2904c3
+decode: Q4_K, Q5_K, Q5_1 and Q8_0 experts take the decode-once kernels and the device-planned MoE tail
+
+--
+columns, the same integer and float expressions), Q5_1 down rows on the 8-lane sub-warp dot like IQ4_NL, and the pairs
+(12,7) (12,8) (13,8) in DM_PAIRS. dec_moe_formats_ok now checks the pair list. Bitwise to the per-entry kernels
+(iq_multi_parity, dec_moe_parity --kq, greedy identity on the Q4_K_XL pack). 5090 alone, 400 W, one ABBA arm each:
+conv 21.55 -> 19.90 ms/window, prose 20.24 -> 15.25.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+
+c503da47
+quants: the scalar UE4M3 scale decoders read 0xFF as NaN (zero) like the SIMD and CUDA ones, with an exhaustive test
+
+--
+q and p are rounded to FP16 (FP32 accumulate) instead of the hi/lo split, and the V scale is folded into the
+FP16 B operand. Numerics change: output within 1.5e-3 of the output scale of an FP64 reference (was 1e-6);
+the parity test bounds it and checks batch independence. Kernel time per 4096-query chunk at 16K context,
+400 W: 4.19 -> 2.84 ms. Engine A/B, ABBA, 400 W, NVFP4 pack: prefill 16.7K 5320 -> 5422 tok/s,
+33.3K 6283 -> 6454, 66.6K 6299 -> 6497. Adapted from Infernix (Apache-2.0).
+
+Co-Authored-By: Ian Ranson <ian.ranson@users.noreply.github.com>
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+
+f00f329d
+tests: native_expert_parity checks the NVFP4 multi-token CPU kernel bitwise against the ggml dot for 1..9 tokens and split row ranges, with a 1/2/4/8-token microbench line
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+9d4aa866
+kernels: NVFP4 CPU experts take an AVX-512 VNNI multi-token kernel that decodes each block once for all tokens of a window
+
+--
+4 bytes via dpbusd, same per-lane fp32 d_y * scale products, same fused accumulation and final reduction);
+AVX-2 CPUs keep the ggml dot. Gate and up rows run fused, down rows two at a time.
+
+Microbench (native_expert_parity, one thread, cache-resident expert, us per expert, ggml dot / multi-token):
+1 token 212/100, 2 tokens 423/133, 4 tokens 844/191, 8 tokens 1686/333 (x2.1 / x3.2 / x4.4 / x5.1).
+From DRAM with 15 threads both are bandwidth-bound at 1 token (43 vs 48 GB/s); at 4-8 tokens per expert
+the kernel holds ~45 GB/s where the ggml dot falls to 16-27 GB/s.
+
+basalt-bench on the NVFP4 pack (400 W, dev numbers, ABAB x4):
+conv 135.0 -> 139.0 tok/s (+2.9%, noisy), prose 89.4 -> 92.5 tok/s (+3.5%, b ahead in all 4 rounds).
+Greedy identical on the NVFP4 pack (pinned tiers) and on IQ3_S vs main; numerics unchanged.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+74271907
+tests: dec_moe_parity --nvfp4 runs every check on synthetic NVFP4 experts with the scale tail
+--
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+5aa4b618
+tests: iq_multi_parity and native_grouped_parity check NVFP4 (synthetic blobs with the scale tail), with a grouped microbench line
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+29c26afa
+kernels: NVFP4 experts take the decode-once grouped kernels (Split<40>, tail scale per finished dot, 8-lane K=40 down rows), bitwise equal to the per-entry path
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+084f3a23
+tests: native_expert_parity checks NVFP4 on the GPU against the double expert, the CPU tier and to_float, with a microbench line
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+8bfa5833
+kernels: NVFP4 experts on the generic GPU path (Fmt<40> dp4a dot, tail scales in the grouped gate/up and down kernels, scaled FP16 dequant for the prompt fallback)
+
+--
+tests: native_expert_parity checks NVFP4 on the CPU tier, synthetic and from a pack
+
+--synthetic nvfp4/nvfp4 and --experts FILE (experts.bin or a .basalt): AVX2/AVX-512 dots vs
+plain C, the CPU expert with its tail scales vs a double-precision expert, a microbench line.
+These checks create no CUDA context.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+62afe47a
+engine: expert layout v6, NVFP4 experts carry and apply their FP32 scale tail on the CPU tier
+--
+10dd14e3
+dec_moe: plan the glue's groups from a per-expert token mask and warp scans, in three barriers
+
+Plan phase (wait to plan done, block median, conv, 400 W): T1 1.12 -> 0.54 us, T4 1.41 -> 0.74, T7 1.76 -> 0.90.
+Microbench: about -0.4..-0.6 us per call at T1-T7. Bitwise: --glue sweep (104 configs) and greedy identity (IQ3_S, 900 tokens) unchanged.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+a2414b06
+tests: native_grouped_parity --glue also routes repeated, out-of-table and blob-less ids and checks the plan against the plain grouping with them
+
+--
+runs it changes. greedy_identity (IQ3_S, --expert-cache 9000
+--peer-slots 7400): GREEDY IDENTICAL. native_grouped_parity --gu2: 0 failures.
+
+Microbench (native_grouped_parity --glue, IQ3_S/IQ4_NL, 48-call graph,
+RTX 5090 at 400 W), us per call main -> new:
+T1 17.61 -> 17.03, T2 27.77 -> 27.08, T3 32.55 -> 31.52, T4 38.14 -> 37.38,
+T5 45.86 -> 43.83, T6 55.72 -> 54.40, T7 59.99 -> 59.95.
+In-engine phase stamps (conv, 128-register build): last block end after
+the wait -1.3..-1.5 us per launch at T4-T7, unchanged at T1-T3.
+basalt-bench, 400 W, ABBA 4+4 processes, conv/struct/prose fixed-mix ms per
+window: 7.291 -> 7.307, 10.608 -> 10.654, 6.872 -> 6.885 (within noise);
+verify ms by T flat within +-0.08 ms.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+
+
+--
+(T >= 5) waited on its own loads. Both now issue before the loops. Same
+arithmetic in the same order: bitwise.
+
+Microbench (hc_fused_parity 200 1 8 --rot 8, 400 W, 2 alternating pairs):
+read+router T5-8 -0.3..-0.6 us/read (16.9/18.4/19.6/20.5 -> 16.6/17.8/19.0/20.0),
+read T5-8 -0.1..-0.3, T1-4 unchanged.
+Parity: 48 hashes identical, window/reversal independence 0, stress 3008 reads 0.
+Greedy identity vs 572356e (IQ3_S, --expert-cache 9000 --peer-slots 7400,
+1200 tokens): GREEDY IDENTICAL.
+basalt-bench conv/struct/prose, 6 ABBA processes, 400 W:
+neutral within the spread (conv 424.4 -> 422.5 tok/s +-9/15, ms/window
+7.278 -> 7.207; prose 341.2 -> 341.3, 6.866 -> 6.813; struct 626.8 -> 624.2,
+10.558 -> 10.681); verify ms by T within one standard error at every T.
+docs/precision.md: line references moved, numerics unchanged.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+
+
+--
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+c516ee29
+tests: q8_K quantizer parity against ggml's reference, with a microbench line
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+669349e6
+kernels: AVX-512 Q8_K activation quantizer for the CPU expert pool, bit for bit with ggml's
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+e4ffe469
+kernels: the sampler can report each row's probability of a given token (sample_tokens_probe), with parity and a microbench
+
+The tail writes qprob[t], the final probability of query[t] under row t's
+chain, after the pick; picks are bit-identical to sample_tokens. Parity
+(248,320 vocab, 7 and 70 rows, three chains): picks identical, prob max abs
+2.7e-8 vs double, same value whatever the window width. Microbench (400 W):
+8 rows top_k 20 34.7 -> 35.3 us per call.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+3545989d
+head: a two-stage Q6_K verify head (2-bit copy on int8 tensor cores, near-top rows rescored exactly), with parity and a microbench
+
+q6k_vproxy_pack lays a 2-bit copy of every head row out as m16n8k32 A fragments; q6k_vhead scores all
+rows from it, takes a per-column threshold from a histogram of block maxima (at or below the 64th best
+approximate logit, less a margin of 4), lists the rows above it and rescores them with the Q6_K
+kernel's arithmetic.  Other rows keep their approximate logits.  The grid does not depend on the
+column count, so a column's logits are the same bits at every window width.
+
+q6k_vhead_parity: the copy against a CPU fit, near-top rows bitwise equal to q6k_head_mmvq, the rest
+equal to a CPU score of the copy, the same argmax, column 0 the same at every width; cold microbench
+at 248,320 rows, 400 W: 144-170 us vs q6k_head 358-488 us at T1-8.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+bb1ec2a0
+kernels: the 2-bit copy's group fit is its own helper, so a second copy layout can share it
+--
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+6d428a17
+head: a 2-bit copy of Q6_K draft-head rows and its two-stage argmax, with parity and a microbench
+
+The copy is packed from the Q6_K rows with each group's scale raised by sqrt(|w|^2 / <w, w_hat>), so the rows near the best are not scored low and the draft probability stays close to the exact one. The near-best rows are rescored with the Q6_K head's own arithmetic. q6k_head_parity checks the picks against the exact argmax on rows dequantized on the CPU, the probability against a double-precision softmax, and times the two-stage pass against the head plus top-prob pass it replaces.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+f214c883
+--
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+
+bae903f8
+dequant: the FP16/BF16/FP32 weight dequantizers write each 32-value group as 16-byte stores, 7x faster (IQ4_XS 10240 x 2560: 376 -> 52 us), bitwise identical
+
+dequant_f16_parity: random blocks of IQ4_XS, Q8_0, Q5_K and Q6_K, the FP16 output bitwise against the FP32 path
+rounded to half, against the scalar-store instance and the CPU dequantizers, with a microbench line. The dense
+projections of every prompt chunk dequantize their weights first, so a 268-token read spends 38 ms less there;
+the Q8 gate gives the same PPL/KLD/top-1 digits as before.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+
+8fe619d0
+qsa: the int8 verify attention chunk blocks run two per multiprocessor, so a window's 198 blocks run in one wave
+
+The kernel is limited to 128 registers and the block's shared memory is carved out for two. Output is bitwise unchanged. qsa_dec_attn_parity gains a microbench line for a 3-row, 2051-cell block-selected window with the pools cold: 22.3 -> 20.4 us (chunk + merge); in a 50k decode trace the chunk-to-merge span goes 25.7 -> 23.5 us per layer.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+
+4565268c
+qsa_scores_parity: a microbench line for the segment scores entry
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+
+6f3bc7e4
+qsa: the decode indexer's register-query scores and reduce-scatter cluster top-k are the only path
+
+--
+1a80aa25
+qsa: the decode indexer's block scores keep the queries in registers, and its cluster top-k exchanges the radix histograms as a reduce-scatter, behind --exp idx50_indexer (1 scores, 2 top-k)
+
+Both paths give the same scores bit for bit and the same selected cells. At 50k context, per layer in a microbench: scores 14.8 -> 10.2 us cold, top-k 17.0 -> 8.8 us; qsa_scores_parity checks both.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+
+9e0239c1
+qsa: the draft layer's attention over a wide window of one row runs on tensor cores in chunks of up to 256 cells, and its merge splits the chunks over four groups
+
+The draft only proposes tokens (verify decides each one), so the kernel takes fp16 products with fp32 accumulation and an online softmax instead of the reference chunk arithmetic. Parity: against a double-precision CPU reference within 0.25% of the largest output, the same bits on 200 repeats, windows of 1 to 32768 cells with masked pages; microbench at 32768 cells 54 -> 27 us warm and 64 -> 41 us flushed, at 1250 cells 9.3 -> 7.7 us warm. In the draft graph at 50k the step's attention and merge go 74 -> 43 us. Greedy identical on the three fixtures with the tiers pinned.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+
+b1197497
+verify: batch windows take segments of several rows per slot, each keeping its own row count at commit; the PLE window kernel advances a segment's history row by row
+
+--
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+7289ad51
+qsa: segment chain parity against the per-slot kernels and a microbench line per kernel
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+df742d6a
+qsa: segment tables for the decode chain, and the K/V post and indexer appends over segments
+

@@ -1,0 +1,68 @@
+UpdateCTestConfiguration  from :/home/ronald_rump/inbox/agents/claude/strata-q38-tpprompt/build/DartConfiguration.tcl
+Test project /home/ronald_rump/inbox/agents/claude/strata-q38-tpprompt/build
+Constructing a list of tests
+Done constructing a list of tests
+Updating test list for fixtures
+Added 0 tests to meet fixture requirements
+Checking test dependency graph...
+Checking test dependency graph end
+test 15
+    Start 15: route_ahead_test
+
+15: Test command: /home/ronald_rump/inbox/agents/claude/strata-q38-tpprompt/build/route_ahead_test
+15: Working Directory: /home/ronald_rump/inbox/agents/claude/strata-q38-tpprompt/build
+15: Test timeout computed to be: 10000000
+15: PASS: default-off/device selection, bounded bank, route ranking, cache filter, history reset
+1/4 Test #15: route_ahead_test .................   Passed    0.00 sec
+test 71
+    Start 71: hip_lm_split_residual
+
+71: Test command: /home/ronald_rump/inbox/agents/claude/strata-q38-tpprompt/build/hip_lm_split_residual
+71: Working Directory: /home/ronald_rump/inbox/agents/claude/strata-q38-tpprompt/build
+71: Test timeout computed to be: 60
+71: GPU0 rows=4096 generation=0 layers=24: host 577.929 ms, resident 28.931 ms, host traffic 8053.1 MB, resident input 167.8 MB, 0 differing words: PASS
+71: GPU0 rows=4353 generation=1 layers=24: host 615.112 ms, resident 30.862 ms, host traffic 8558.3 MB, resident input 178.3 MB, 0 differing words: PASS
+71: GPU0 rows=2048 generation=2 layers=24: host 288.633 ms, resident 10.458 ms, host traffic 4026.5 MB, resident input 83.9 MB, 0 differing words: PASS
+71: GPU0 rows=17 generation=3 layers=24: host 3.464 ms, resident 0.274 ms, host traffic 33.4 MB, resident input 0.7 MB, 0 differing words: PASS
+71: GPU1 rows=4096 generation=0 layers=24: host 1217.563 ms, resident 48.208 ms, host traffic 8053.1 MB, resident input 167.8 MB, 0 differing words: PASS
+71: GPU1 rows=4353 generation=1 layers=24: host 1242.478 ms, resident 43.790 ms, host traffic 8558.3 MB, resident input 178.3 MB, 0 differing words: PASS
+71: GPU1 rows=2048 generation=2 layers=24: host 574.171 ms, resident 16.426 ms, host traffic 4026.5 MB, resident input 83.9 MB, 0 differing words: PASS
+71: GPU1 rows=17 generation=3 layers=24: host 6.033 ms, resident 0.325 ms, host traffic 33.4 MB, resident input 0.7 MB, 0 differing words: PASS
+71: PASS: residual transfer policy and HC output are bit-identical
+2/4 Test #71: hip_lm_split_residual ............   Passed    5.44 sec
+test 72
+    Start 72: hip_route_ahead_parity
+
+72: Test command: /home/ronald_rump/inbox/agents/claude/strata-q38-tpprompt/build/hip_route_ahead_parity
+72: Working Directory: /home/ronald_rump/inbox/agents/claude/strata-q38-tpprompt/build
+72: Test timeout computed to be: 60
+72: GPU0 1-MiB expert byte fixture: reference 85.084 ms/896 copies; hints 83.275 ms/908 copies, predicted 96 hit 84 waste 12; all hashes identical, hit+miss exercised yes
+72: GPU1 1-MiB expert byte fixture: reference 152.482 ms/896 copies; hints 150.506 ms/908 copies, predicted 96 hit 84 waste 12; all hashes identical, hit+miss exercised yes
+72: PASS: exact expert bytes despite predictions, misses and wrapping
+3/4 Test #72: hip_route_ahead_parity ...........   Passed    0.65 sec
+test 73
+    Start 73: hip_lm_kernels_parity
+
+73: Test command: /home/ronald_rump/inbox/agents/claude/strata-q38-tpprompt/build/hip_lm_kernels_parity
+73: Working Directory: /home/ronald_rump/inbox/agents/claude/strata-q38-tpprompt/build
+73: Test timeout computed to be: 60
+73: moe_shared_init T=1: worst relative error 2.38e-07 ok
+73: moe_shared_init T=512: worst relative error 4.71e-07 ok
+73: moe_shared_init T=2049: worst relative error 5.89e-07 ok
+73: moe_scatter_add tokens=512 rows=1 (<= 8 per token, 1 tokens in the group): 0 values differ from the host chain, 0 differ between two launches ok
+73: moe_scatter_add tokens=512 rows=700 (<= 8 per token, 384 tokens in the group): 0 values differ from the host chain, 0 differ between two launches ok
+73: moe_scatter_add tokens=4096 rows=5000 (<= 8 per token, 2880 tokens in the group): 0 values differ from the host chain, 0 differ between two launches ok
+73: moe_scatter_add tokens=8192 rows=8192 (<= 1 per token, 8192 tokens in the group): 0 values differ from the host chain, 0 differ between two launches ok
+73: moe_scatter_add tokens=300 rows=2400 (<= 8 per token, 300 tokens in the group): 0 values differ from the host chain, 0 differ between two launches ok
+73: PASS
+4/4 Test #73: hip_lm_kernels_parity ............   Passed    0.71 sec
+
+The following tests passed:
+	route_ahead_test
+	hip_lm_split_residual
+	hip_route_ahead_parity
+	hip_lm_kernels_parity
+
+100% tests passed out of 4
+
+Total Test time (real) =   6.80 sec
