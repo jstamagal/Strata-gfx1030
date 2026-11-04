@@ -2275,6 +2275,10 @@ struct Engine {
     void quant(const float* xin, int n, int T, void* q) { K::native_quantize_q8_1(xin, q, n * T, 1, st); }
     // ---- decode kernels of this engine (q36_kernels.cuh), each the old kernel's bits (STRATA_Q36_VERIFY=1 compares)
     bool fast_k = std::getenv("STRATA_Q36_OLD_KERNELS") == nullptr;
+    bool router_fast = [] {
+        const char* v = std::getenv("STRATA_Q36_ROUTER_FAST");
+        return !v || std::strcmp(v, "0") != 0;
+    }();
     bool verify_k = std::getenv("STRATA_Q36_VERIFY") != nullptr;
     float* vbuf = nullptr;                       // verify scratch
     long long v_calls = 0, v_bad = 0;
@@ -2518,12 +2522,18 @@ struct Engine {
         const int Kp = (int) m->top_k;
         grouped_by_route = false;
         if (!fast_k || T > 8 || m->g.n_expert != 256 || Kp != 8) return false;
-        if (slot_of)
-            q36k::k_route_group<true><<<1, dim3(32, 8), 0, st>>>(logits_r, ids, ewts, T, ld, slot_of, L.blobs, L.stride, grp_ptr,
-                                                                 grp_start, n_groups, ent_dst, ent_tok);
-        else
-            q36k::k_route_group<false><<<1, dim3(32, 8), 0, st>>>(logits_r, ids, ewts, T, ld, nullptr, L.blobs, L.stride, grp_ptr,
-                                                                  grp_start, n_groups, ent_dst, ent_tok);
+        auto launch = [&](auto hybrid, auto mask) {
+            q36k::k_route_group<decltype(hybrid)::value, decltype(mask)::value><<<1, dim3(32, 8), 0, st>>>(
+                logits_r, ids, ewts, T, ld, slot_of, L.blobs, L.stride, grp_ptr,
+                grp_start, n_groups, ent_dst, ent_tok);
+        };
+        if (slot_of) {
+            if (router_fast) launch(std::true_type{}, std::true_type{});
+            else launch(std::true_type{}, std::false_type{});
+        } else {
+            if (router_fast) launch(std::false_type{}, std::true_type{});
+            else launch(std::false_type{}, std::false_type{});
+        }
         grouped_by_route = true;
         if (verify_k) {
             // the old top-k into scratch, the ids / weights compared, then the old grouping of the new ids
@@ -2941,29 +2951,29 @@ struct Engine {
         if (fused_router) {
             if (tp_stats_capturing) ++tp_stats_router[cur_dev];
             if (router_q8 && tp_router_4w && T == 1)
-                q36tp_fuse2::router_group<false, 4, true><<<(router_rows + 3) / 4, 128, 0, st>>>(
+                q36tp_fuse2::launch_router_group<false, 4, true>(
                     ext ? L.router_ext : L.router, h, logits_r, N, router_rows, T, router_rows, ids, ewts,
-                    L.blobs, L.stride, grp_ptr, grp_start, n_groups, ent_dst, ent_tok, tp_route_done[cur_dev], (q36k::QB*)xq);
+                    L.blobs, L.stride, grp_ptr, grp_start, n_groups, ent_dst, ent_tok, tp_route_done[cur_dev], (q36k::QB*)xq, st, router_fast);
             else if (router_q8)
-                q36tp_fuse2::router_group<false, 8, true><<<rows8(router_rows) * T, kThreads, 0, st>>>(
+                q36tp_fuse2::launch_router_group<false, 8, true>(
                     ext ? L.router_ext : L.router, h, logits_r, N, router_rows, T, router_rows, ids, ewts,
-                    L.blobs, L.stride, grp_ptr, grp_start, n_groups, ent_dst, ent_tok, tp_route_done[cur_dev], (q36k::QB*)xq);
+                    L.blobs, L.stride, grp_ptr, grp_start, n_groups, ent_dst, ent_tok, tp_route_done[cur_dev], (q36k::QB*)xq, st, router_fast);
             else if (tp_router_pair && T >= 2)
-                q36tp_router_pair::router_group<<<rows8(router_rows) * ((T + 1) / 2), kThreads, 0, st>>>(
+                q36tp_router_pair::launch_router_group(
                     ext ? L.router_ext : L.router, h, logits_r, N, router_rows, T, router_rows, ids, ewts,
-                    L.blobs, L.stride, grp_ptr, grp_start, n_groups, ent_dst, ent_tok, tp_route_done[cur_dev]);
+                    L.blobs, L.stride, grp_ptr, grp_start, n_groups, ent_dst, ent_tok, tp_route_done[cur_dev], st, router_fast);
             else if (tp_router_4w && T == 1)
-                q36tp_fuse2::router_group<false, 4><<<(router_rows + 3) / 4, 128, 0, st>>>(
+                q36tp_fuse2::launch_router_group<false, 4>(
                     ext ? L.router_ext : L.router, h, logits_r, N, router_rows, T, router_rows, ids, ewts,
-                    L.blobs, L.stride, grp_ptr, grp_start, n_groups, ent_dst, ent_tok, tp_route_done[cur_dev], nullptr);
+                    L.blobs, L.stride, grp_ptr, grp_start, n_groups, ent_dst, ent_tok, tp_route_done[cur_dev], nullptr, st, router_fast);
             else if (tp_router_fence)
-                q36tp_fuse2::router_group<true><<<rows8(router_rows) * T, kThreads, 0, st>>>(
+                q36tp_fuse2::launch_router_group<true>(
                     ext ? L.router_ext : L.router, h, logits_r, N, router_rows, T, router_rows, ids, ewts,
-                    L.blobs, L.stride, grp_ptr, grp_start, n_groups, ent_dst, ent_tok, tp_route_done[cur_dev], nullptr);
+                    L.blobs, L.stride, grp_ptr, grp_start, n_groups, ent_dst, ent_tok, tp_route_done[cur_dev], nullptr, st, router_fast);
             else
-                q36tp_fuse2::router_group<false><<<rows8(router_rows) * T, kThreads, 0, st>>>(
+                q36tp_fuse2::launch_router_group<false>(
                     ext ? L.router_ext : L.router, h, logits_r, N, router_rows, T, router_rows, ids, ewts,
-                    L.blobs, L.stride, grp_ptr, grp_start, n_groups, ent_dst, ent_tok, tp_route_done[cur_dev], nullptr);
+                    L.blobs, L.stride, grp_ptr, grp_start, n_groups, ent_dst, ent_tok, tp_route_done[cur_dev], nullptr, st, router_fast);
             grouped_by_route = true;
             if (router_q8 && tp_join_q8_check) {
                 // verify_q8 caches scratch in vq; keep a separate allocation for each TP device.

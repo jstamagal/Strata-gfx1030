@@ -1187,7 +1187,7 @@ if(STRATA_ENABLE_CUDA OR STRATA_ENABLE_HIP)
     target_include_directories(hip_q36_router_mask PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/qwen35)
     target_link_libraries(hip_q36_router_mask PRIVATE strata_hip_runtime)
     add_test(NAME hip_q36_router_mask COMMAND hip_q36_router_mask)
-    set_tests_properties(hip_q36_router_mask PROPERTIES ENVIRONMENT "HIP_VISIBLE_DEVICES=1")
+    set_tests_properties(hip_q36_router_mask PROPERTIES ENVIRONMENT "HIP_VISIBLE_DEVICES=1" SKIP_RETURN_CODE 77)
     # the decode path's routed experts per format pair on this card: us per grouped call and GB/s against a plain
     # streaming read, and output hashes for A/B of bitwise switches (a lab tool, not a ctest; synthetic, no model)
     add_executable(hip_decode_expert_lab tests/hip/decode_expert_lab.cpp)

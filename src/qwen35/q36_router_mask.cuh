@@ -9,13 +9,12 @@ __device__ __forceinline__ void route_group_mask_body(const float* __restrict__ 
         const uint8_t* blobs, unsigned long long blob, unsigned long long* grp_ptr,
         int32_t* grp_start, int32_t* n_groups, int32_t* ent_dst, int32_t* ent_tok) {
     constexpr int NE = 256, K = 8, V = NE / 32;
-    __shared__ unsigned masks[NE], prefix[NE], totals[8];
+    __shared__ unsigned masks[NE], prefix[NE], totals[8], resident_waves[8];
     __shared__ int sids[128];
     const int tid = threadIdx.x + blockDim.x * threadIdx.y;
     const int threads = blockDim.x * blockDim.y;
     const int lane = tid & 31;
     for (int id = tid; id < NE; id += threads) masks[id] = 0;
-    __syncthreads();
     for (int tk = tid / 32; tk < n_tok; tk += threads / 32) {
         const float* lg = logits + (size_t) tk * ld;
         float values[V];
@@ -55,7 +54,6 @@ __device__ __forceinline__ void route_group_mask_body(const float* __restrict__ 
                 values[expert / 32] = -INFINITY;
                 ids[(size_t) tk * K + rank] = expert;
                 sids[tk * K + rank] = expert;
-                if (!HY || slot_of[expert] >= 0) atomicOr(masks + expert, 1u << tk);
                 selected_sum += best;
             }
             if (rank == lane) selected = best;
@@ -65,6 +63,24 @@ __device__ __forceinline__ void route_group_mask_body(const float* __restrict__ 
         if (lane < K) weights[(size_t) tk * K + lane] = selected * inverse_selected_sum;
     }
     __syncthreads();
+    const int pick = tid < n_tok * K ? sids[tid] : 0;
+    const bool valid = tid < n_tok * K && (!HY || slot_of[pick] >= 0);
+    if (valid) atomicOr(masks + pick, 1u << (tid / K));
+    if constexpr (HY) {
+        const unsigned present = __ballot_sync(0xffffffffu, valid);
+        if (lane == 0) resident_waves[tid / 32] = present;
+    }
+    __syncthreads();
+    if constexpr (HY) {
+        // Empty plans do not need the expert scan; residency loads stay off the argmax path.
+        unsigned present = 0;
+#pragma unroll
+        for (int w = 0; w < 8; ++w) if (w < threads / 32) present |= resident_waves[w];
+        if (!present) {
+            if (tid == 0) { grp_start[0] = 0; *n_groups = 0; }
+            return;
+        }
+    }
     for (int id = tid; id < NE; id += threads) {
         const unsigned bits = masks[id];
         const unsigned pack = (__popc(bits) << 16) | (bits != 0);

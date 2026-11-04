@@ -1,5 +1,6 @@
-// TP decode launch fusions. Original kernels remain unchanged for the default path.
+// TP decode launch fusions.
 #pragma once
+#include <type_traits>
 namespace q36tp_fuse2 {
 
 // The two products are independent once QKV, Z and the input norm are ready. Convolution blocks
@@ -128,13 +129,20 @@ __global__ void __launch_bounds__(512) gdn_seq_q(float* state, const float* h, i
 // The router projection keeps the same warp-per-row summation as k_gemv_f32. Its final block performs
 // the exact route/group body after all projection blocks have published their logits. The counter is
 // per rank and reset by the final block, so graph replay and consecutive layers use the same address.
-// The selection and grouping expressions are copied verbatim from q36k::k_route_group.
-template <bool HY>
+// gfx1030 uses token masks for grouping; the selection arithmetic and tie order stay unchanged.
+template <bool HY, bool Mask = true>
 __device__ __forceinline__ void route_group_body(const float* __restrict__ logits, int32_t* __restrict__ ids,
                                                      float* __restrict__ weights, int n_tok, int ld, const int32_t* slot_of,
                                                      const uint8_t* blobs, unsigned long long blob,
                                                      unsigned long long* grp_ptr, int32_t* grp_start, int32_t* n_groups,
                                                      int32_t* ent_dst, int32_t* ent_tok) {
+#if defined(__gfx1030__)
+    if constexpr (Mask) {
+        q36k::route_group_mask_body<HY>(logits, ids, weights, n_tok, ld, slot_of,
+            blobs, blob, grp_ptr, grp_start, n_groups, ent_dst, ent_tok);
+        return;
+    }
+#endif
     constexpr int NE = 256, K = 8, V = NE / 32;
     __shared__ int sids[64], sid[64];
     const int tk = threadIdx.x / 32;
@@ -220,7 +228,8 @@ __device__ __forceinline__ void route_group_body(const float* __restrict__ logit
     }
 }
 
-template <bool LightFence = false, int Warps = 8, bool QuantizeInput = false>
+template <bool LightFence = false, int Warps = 8, bool QuantizeInput = false, bool Mask = true,
+          int Unroll = 8, bool Finish = true>
 __global__ void __launch_bounds__(256) router_group(const float* W, const float* x, float* logits,
         int n_in, int n_out, int n_tok, int ld, int32_t* ids, float* weights,
         const uint8_t* blobs, unsigned long long blob, unsigned long long* grp_ptr,
@@ -234,6 +243,10 @@ __global__ void __launch_bounds__(256) router_group(const float* W, const float*
         const float4* wr = (const float4*) (W + (size_t) o * n_in);
         const float4* xr = (const float4*) (x + (size_t) tk * n_in);
         float acc = 0.f;
+        // Overlap independent loads; keep every lane's additions in their original order.
+#if defined(__gfx1030__)
+#pragma unroll Unroll
+#endif
         for (int i = lane; i < n_in / 4; i += 32) {
             const float4 a = wr[i], b = xr[i];
             acc += a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
@@ -249,6 +262,7 @@ __global__ void __launch_bounds__(256) router_group(const float* W, const float*
                             ((const volatile float*)x)[(size_t)tk * n_in + i], lane);
         }
     }
+    if constexpr (!Finish) return;
     if constexpr (LightFence) {
         // Only warp leaders stored logits. Drain those stores before the CTA
         // announces completion; the other lanes have nothing to fence.
@@ -273,8 +287,26 @@ __global__ void __launch_bounds__(256) router_group(const float* W, const float*
         if (last) atomicExch(done, 0u);
     }
     __syncthreads();
-    if (last) route_group_body<false>(logits, ids, weights, n_tok, ld, nullptr,
+    if (last) route_group_body<false, Mask>(logits, ids, weights, n_tok, ld, nullptr,
                                       blobs, blob, grp_ptr, grp_start, n_groups, ent_dst, ent_tok);
+}
+
+template <bool LightFence = false, int Warps = 8, bool QuantizeInput = false>
+inline void launch_router_group(const float* W, const float* x, float* logits,
+        int n_in, int n_out, int n_tok, int ld, int32_t* ids, float* weights,
+        const uint8_t* blobs, unsigned long long blob, unsigned long long* grp_ptr,
+        int32_t* grp_start, int32_t* n_groups, int32_t* ent_dst, int32_t* ent_tok,
+        unsigned* done, q36k::QB* xq, cudaStream_t stream, bool fast = true) {
+    const int grid = ((n_out + Warps - 1) / Warps) * n_tok;
+    auto launch = [&](auto mask, auto unroll) {
+        router_group<LightFence, Warps, QuantizeInput, decltype(mask)::value, decltype(unroll)::value>
+            <<<grid, Warps * 32, 0, stream>>>(W, x, logits, n_in, n_out, n_tok, ld, ids, weights,
+                blobs, blob, grp_ptr, grp_start, n_groups, ent_dst, ent_tok, done, xq);
+    };
+    if (!fast) launch(std::false_type{}, std::integral_constant<int, 1>{});
+    else if (n_in != 3072) launch(std::true_type{}, std::integral_constant<int, 1>{});
+    else if (n_tok == 1) launch(std::true_type{}, std::integral_constant<int, 4>{});
+    else launch(std::true_type{}, std::integral_constant<int, 8>{});
 }
 
 // The join publishes/sums exactly as q36tp::join. The norm consumes the completed joined rows
