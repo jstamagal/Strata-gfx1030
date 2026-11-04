@@ -102,3 +102,18 @@ Raw output in `qwen38-window3/`.
 
 Decode text differs per split (placement), but the decode trend is large and one-way: 24 stays the decode split. A
 prompt-only split point near 28 is the open lever.
+
+## DFlash2 vs MTP, serial (window 3b)
+
+build-hip (main before the proxy merge), live adaptive config, essay x4 per load, mean of runs 2-4. DFlash2 pack
+q4_0-selq4 (`--draft dflash2 --draft-conf 0.35 --spec 6`), 106,299-id draft vocab unless noted. Raw output in `qwen38-window3/`.
+
+| drafter | pipeline windows | tok/s | drafts accepted |
+|---|---|---|---|
+| MTP (live) | 2 | 75.1 | ~67% |
+| MTP | off | 69.3 | 72% |
+| DFlash2 | off | 69.0 | 46% |
+| DFlash2, en 40,525-id vocab | off | 68.5 | 45% |
+
+Serial DFlash2 ties serial MTP on prose; pipeline windows are worth +8.4% to MTP, so DFlash2 needs its pipelined
+version to compete. Code and tool-call prompts not measured yet.
