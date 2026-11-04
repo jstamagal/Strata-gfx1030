@@ -1,0 +1,10 @@
+i_base run1 996 tok 69.0 tok/s drafts 426 / 600
+i_base run2 996 tok 69.1 tok/s drafts 426 / 600
+                 PROFILE, ranked by routing frequency, no eviction.
+d5dcd30186c2
+d5dcd30186c2
+i_ra run1 996 tok 70.3 tok/s drafts 426 / 600
+i_ra run2 996 tok 70.4 tok/s drafts 426 / 600
+                 PROFILE, ranked by routing frequency, no eviction.
+d5dcd30186c2
+d5dcd30186c2

@@ -1,0 +1,12 @@
+p24 run1 prompt 36411 1294.6 tok/s 28.13 s; gen 32 79.7 tok/s drafts 14 / 16
+76da9abb6cf2
+p24 run2 prompt 36411 1306.1 tok/s 27.88 s; gen 32 69.6 tok/s drafts 11 / 16
+618a75facdcb
+p28 run1 prompt 36411 1495.6 tok/s 24.34 s; gen 32 70.5 tok/s drafts 11 / 14
+618a75facdcb
+p28 run2 prompt 36411 1497.6 tok/s 24.31 s; gen 32 71.4 tok/s drafts 11 / 12
+618a75facdcb
+p32 run1 prompt 36411 1117.1 tok/s 32.59 s; gen 32 63.3 tok/s drafts 11 / 14
+618a75facdcb
+p32 run2 prompt 36411 1118.3 tok/s 32.56 s; gen 32 67.2 tok/s drafts 12 / 15
+618a75facdcb

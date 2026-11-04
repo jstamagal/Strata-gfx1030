@@ -44,7 +44,7 @@ Raw output in `qwen38-window1/`. Baseline on every branch exe: 67.0-67.2 tok/s, 
 | branch | switch | tok/s | text | verdict |
 |---|---|---|---|---|
 | head (9dee938b) | proxy auto-on, nothing set | 69.0 / 69.1 / 69.1 | identical | **+2.9%** |
-| head | + `STRATA_HEAD_Q8_SCREEN=1` | 67.8 / 67.9 / 67.9 | **changed** (1134 tokens) | bug: the "certified" screen changed a greedy pick |
+| head | + `STRATA_HEAD_Q8_SCREEN=1` | 67.8 / 67.9 / 67.9 | **changed** (1134 tokens) | not a wrong pick: its 492 MiB copy moves the expert layout (window 3 control below) |
 | tier (efef3efb) | `STRATA_STALL_READAHEAD=1` | 68.3 / 68.4 | identical | **+1.9%** |
 | tier | `STRATA_DRAFT_CONTEXT=1` | 67.7 / 67.8 | identical | +0.9% |
 | tier | `STRATA_MTP_KV_SIDE=1` / `STRATA_CPU_EXPERT_WARM=1` | 67.0-67.1 | identical | none |
@@ -62,3 +62,43 @@ rocBLAS table regenerated for the running build 5.8.0.565c4c74 (the repo had onl
 rocBLAS defaults), live config, ~36K prompt, two interleaved loads per side: defaults 1331.3 / 1341.1 and 1331.7 / 1340.1,
 new table 1338.7 / 1345.5 and 1338.7 / 1345.4 prompt tok/s: +0.4%. The z GEMM is 1.32x faster alone but overlaps the GDN
 recurrence, which stays the tail.
+
+## Integration build = main + head + tier (window 2)
+
+`basalt38/integrate` 11db64ca4 (now main). Raw output in `qwen38-window2/`.
+
+Frozen (`--adapt-swaps 0`, 2 essays): base 69.0 / 69.1, + `STRATA_STALL_READAHEAD=1` 70.3 / 70.4, md5 d5dcd30186c2 both.
+
+Live adaptive config, 4 essays per load (run 1 is warm-up, mean of runs 2-4), two interleaved passes:
+
+| switch | pass 1 | pass 2 | verdict |
+|---|---|---|---|
+| none | 79.0 | 79.1 | baseline |
+| `STRATA_STALL_READAHEAD=1` | 78.4 (one 67.9 outlier excluded) | 78.4 | frozen-only win; stays off |
+| `STRATA_ADAPT_EARLY_RANK=1` | 79.4 | 78.4 | noise |
+| `STRATA_ADAPT_IDLE_GAPS=1` | 78.6 | 78.8 | none |
+| `STRATA_ADAPT_ACROSS=1` | 78.0 | 78.3 | none |
+| `STRATA_ADAPT_ONCE=1` | 76.8 | 78.5 | loses |
+
+The live config's greedy text varies run to run (placement adapts), so these compare speed only.
+
+## Window 3
+
+Raw output in `qwen38-window3/`.
+
+- Head reservation fix 8e39ffc31 (reserve the 2-bit proxy before card 1's cache is sized): card 1 drops 8444 -> 8320 slots
+  (~350 MiB) for an 85 MB buffer, frozen text changes (1156 tokens, 67.3 / 67.4). Left out of main.
+- Q8 verify screen control: forcing the exact head with request `frequency_penalty` 1e-20 + `penalty_last_n` 64 keeps
+  d5dcd30186c2 without the screen and 17d89f4ce465 with it, so the screen picks are exact and the text change is the
+  layout its 492 MiB copy causes. Not measurable on the frozen bench; parked.
+- Layer split (card 0 = PCIe 4.0 x8, card 1 = x4: the board's second slot is x4 in every mode):
+
+| split (card 0 layers) | 36K prompt tok/s | frozen decode tok/s |
+|---|---|---|
+| 24 (live) | 1295 / 1306 | 69.0 |
+| 26 | - | 66.6 / 66.7 |
+| 28 | **1496 / 1498 (+15%)** | 64.6 / 64.7 |
+| 32 | 1117 / 1118 | 58.5 / 58.6 |
+
+Decode text differs per split (placement), but the decode trend is large and one-way: 24 stays the decode split. A
+prompt-only split point near 28 is the open lever.

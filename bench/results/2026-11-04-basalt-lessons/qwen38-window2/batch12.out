@@ -1,0 +1,108 @@
+i_lbase1 run1 1077 tok 75.1 tok/s drafts 448 / 651
+i_lbase1 run2 1195 tok 78.5 tok/s drafts 508 / 744
+i_lbase1 run3 1120 tok 79.4 tok/s drafts 473 / 683
+i_lbase1 run4 1054 tok 79.2 tok/s drafts 439 / 616
+                 PROFILE, ranked by routing frequency, no eviction.
+d19f489cf95f
+0c07323afcbd
+5f61d2df034d
+31994ce0c535
+i_lra1 run1 1111 tok 75.7 tok/s drafts 465 / 687
+i_lra1 run2 1100 tok 67.9 tok/s drafts 459 / 686
+i_lra1 run3 1085 tok 78.1 tok/s drafts 459 / 688
+i_lra1 run4 1103 tok 78.7 tok/s drafts 474 / 701
+                 PROFILE, ranked by routing frequency, no eviction.
+1a14d620d608
+7f77a7309bdd
+1827585982b7
+12e021cc140e
+i_learly1 run1 1135 tok 74.9 tok/s drafts 466 / 706
+i_learly1 run2 1058 tok 78.8 tok/s drafts 445 / 626
+i_learly1 run3 1130 tok 80.8 tok/s drafts 495 / 703
+i_learly1 run4 1088 tok 78.6 tok/s drafts 459 / 652
+                 PROFILE, ranked by routing frequency, no eviction.
+746cb6d72791
+11c228ccd00d
+3116286b736f
+2b37d272f7f7
+i_lidle1 run1 1093 tok 72.0 tok/s drafts 458 / 685
+i_lidle1 run2 1039 tok 78.8 tok/s drafts 448 / 637
+i_lidle1 run3 1106 tok 79.9 tok/s drafts 480 / 692
+i_lidle1 run4 1054 tok 77.2 tok/s drafts 432 / 623
+                 PROFILE, ranked by routing frequency, no eviction.
+034f3cea38ee
+2a968d371451
+b699fac0370c
+2f844965edc2
+i_lacross1 run1 1117 tok 77.0 tok/s drafts 467 / 700
+i_lacross1 run2 1130 tok 80.0 tok/s drafts 485 / 686
+i_lacross1 run3 1058 tok 76.7 tok/s drafts 429 / 634
+i_lacross1 run4 1098 tok 77.2 tok/s drafts 453 / 657
+                 PROFILE, ranked by routing frequency, no eviction.
+304e88e54f5f
+2e3fcc35fad8
+7a77e73e9266
+62a43d809654
+i_lonce1 run1 1028 tok 74.9 tok/s drafts 431 / 647
+i_lonce1 run2 1087 tok 76.6 tok/s drafts 451 / 664
+i_lonce1 run3 1115 tok 78.0 tok/s drafts 472 / 673
+i_lonce1 run4 1060 tok 75.7 tok/s drafts 432 / 680
+                 PROFILE, ranked by routing frequency, no eviction.
+2b2e429b8889
+54d7a7def966
+795e86fe2856
+68fbd3ad2dda
+i_lbase2 run1 1050 tok 77.4 tok/s drafts 448 / 653
+i_lbase2 run2 1105 tok 79.1 tok/s drafts 463 / 675
+i_lbase2 run3 1197 tok 78.4 tok/s drafts 503 / 741
+i_lbase2 run4 1109 tok 79.7 tok/s drafts 467 / 681
+                 PROFILE, ranked by routing frequency, no eviction.
+72140e1d1dc4
+90410e07ef89
+794cfae38df9
+e716bfb301d0
+i_lra2 run1 1141 tok 74.9 tok/s drafts 472 / 727
+i_lra2 run2 1072 tok 77.0 tok/s drafts 440 / 646
+i_lra2 run3 1140 tok 80.1 tok/s drafts 491 / 677
+i_lra2 run4 1134 tok 78.2 tok/s drafts 474 / 688
+                 PROFILE, ranked by routing frequency, no eviction.
+69d7b65a5e67
+f1b1a33ebd32
+c49420dd7397
+a1bd24a9deb5
+i_learly2 run1 1072 tok 75.4 tok/s drafts 443 / 671
+i_learly2 run2 1033 tok 77.8 tok/s drafts 423 / 628
+i_learly2 run3 1034 tok 79.0 tok/s drafts 431 / 636
+i_learly2 run4 1076 tok 78.5 tok/s drafts 451 / 664
+                 PROFILE, ranked by routing frequency, no eviction.
+420f31657045
+f68ab195f953
+0d6724964811
+8ca3d7efcb47
+i_lidle2 run1 1066 tok 71.2 tok/s drafts 443 / 662
+i_lidle2 run2 1095 tok 77.4 tok/s drafts 449 / 661
+i_lidle2 run3 1039 tok 80.1 tok/s drafts 451 / 650
+i_lidle2 run4 1094 tok 79.0 tok/s drafts 465 / 686
+                 PROFILE, ranked by routing frequency, no eviction.
+9c28dccb8a75
+769382f2bd96
+415760120ccc
+b96fab2fc6f8
+i_lacross2 run1 1073 tok 75.6 tok/s drafts 452 / 651
+i_lacross2 run2 1079 tok 79.1 tok/s drafts 450 / 671
+i_lacross2 run3 1081 tok 78.6 tok/s drafts 452 / 652
+i_lacross2 run4 1094 tok 77.3 tok/s drafts 450 / 656
+                 PROFILE, ranked by routing frequency, no eviction.
+c767d3c6187b
+400367681475
+0b2719a1b4f2
+107c67228c67
+i_lonce2 run1 1113 tok 75.7 tok/s drafts 464 / 679
+i_lonce2 run2 1114 tok 78.6 tok/s drafts 473 / 688
+i_lonce2 run3 1081 tok 77.7 tok/s drafts 450 / 654
+i_lonce2 run4 1061 tok 79.1 tok/s drafts 457 / 655
+                 PROFILE, ranked by routing frequency, no eviction.
+56a6ea9085de
+fe4238645980
+e06cfdbbcab2
+60c18daca146

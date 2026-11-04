@@ -1,0 +1,35 @@
+w3_old run1 996 tok 68.9 tok/s drafts 426 / 600
+w3_old run2 996 tok 69.0 tok/s drafts 426 / 600
+                 PROFILE, ranked by routing frequency, no eviction.
+d5dcd30186c2
+d5dcd30186c2
+w3_new run1 1156 tok 67.3 tok/s drafts 484 / 717
+w3_new run2 1156 tok 67.4 tok/s drafts 484 / 717
+                 PROFILE, ranked by routing frequency, no eviction.
+cc46896b3aad
+cc46896b3aad
+q_ctl run1 996 tok 68.9 tok/s drafts 426 / 600
+q_ctl run2 996 tok 69.0 tok/s drafts 426 / 600
+                 PROFILE, ranked by routing frequency, no eviction.
+d5dcd30186c2
+d5dcd30186c2
+q_q8 run1 1134 tok 67.7 tok/s drafts 490 / 698
+q_q8 run2 1134 tok 67.9 tok/s drafts 490 / 698
+                 PROFILE, ranked by routing frequency, no eviction.
+17d89f4ce465
+17d89f4ce465
+s26 run1 1160 tok 66.6 tok/s drafts 480 / 704
+s26 run2 1160 tok 66.7 tok/s drafts 481 / 703
+                 PROFILE, ranked by routing frequency, no eviction.
+b5885e8f30a5
+b5885e8f30a5
+s28 run1 1105 tok 64.6 tok/s drafts 470 / 690
+s28 run2 1105 tok 64.7 tok/s drafts 470 / 690
+                 PROFILE, ranked by routing frequency, no eviction.
+357ab088b00d
+357ab088b00d
+s32 run1 1118 tok 58.5 tok/s drafts 480 / 696
+s32 run2 1118 tok 58.6 tok/s drafts 480 / 696
+                 PROFILE, ranked by routing frequency, no eviction.
+e179208b7fec
+e179208b7fec
