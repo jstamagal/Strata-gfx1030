@@ -642,3 +642,22 @@ Next:
 - window ZB checks s2gptq on the main binary;
 - mtpq_ab2 (live / s2gptq-a / q4n / q4_0-gptq-a, 2 passes, traced) and a corpus capture are staged by the agent;
 - adoption follows ZB.
+
+**MTP drafter roadmap** (mtpq agent's interim summary, 16:40; branch basalt38/mtp-quant at 390eb3dae).
+
+Offline:
+- Live S2 gets 98.7% of BF16's gated hits per step. Q4_0 and Q4_0/Q8_0 experts match BF16.
+- Upgrading only the down matrices to Q4_0 removes 49% of the S2-GPTQ error at 1/3 of the bytes.
+
+Not built:
+- **S2 grouped kernel with Q4_0 down rows:** keeps the S2 path, adds about 236 MiB, should get most of q4n's gain.
+- **Training tiers** (main model frozen throughout):
+
+| tier | what | engineering | compute | expected |
+|---|---|---|---|---|
+| A | rank-r head adapter + logit bias with a gate-aware loss | ~0.5 day runtime | CPU, minutes | +1-3%, low confidence (a 3.6K-step probe gave ungated E[L] +2.1%, gated -1.2%) |
+| B | quantization-aware tuning of the S2 experts (fp16 scales + mixer) to the BF16 drafter's distribution (KL on replayed captures) | ~1 day | ~1 GPU-hour on one V620 | targets Q4-quality drafts at S2 bytes and speed; best value per cost |
+| C | self-distil the whole MTP block to the deployed abliterated IQ3_S verifier (7-step chain unrolled) | 3-4 days | data 2-4 h on the GPU pair, training 4-10 h on one V620 | largest upside: 82-84% per-depth acceptance, and top-2 holds 42% of misses |
+
+Training data comes from STRATA_MTP_CAPTURE (~360 records per second of generation, 72 KB each). Full-block
+training needs a round-input hook (~1 h); distillation needs a verify top-k dump (~0.5 day).
