@@ -721,6 +721,7 @@ Verifier::~Verifier() {
     }
     if (cs_) cudaStreamSynchronize(cs_);
     if (sh_cs_) cudaStreamSynchronize(sh_cs_);
+    if (read_ahead_cs_) cudaStreamSynchronize(read_ahead_cs_);
     for (auto& row : exec_)
         for (auto& e : row)
             if (e) cudaGraphExecDestroy(e);
@@ -752,6 +753,9 @@ Verifier::~Verifier() {
     if (slot_hist_d_) cudaFree(slot_hist_d_);
     if (cs_ && cs_ != ext_stream_) cudaStreamDestroy(cs_);   // set_stream: the stage's stream, shared, not ours
     if (sh_cs_) cudaStreamDestroy(sh_cs_);
+    if (read_ahead_cs_) cudaStreamDestroy(read_ahead_cs_);
+    if (read_ahead_fork_) cudaEventDestroy(read_ahead_fork_);
+    if (read_ahead_join_) cudaEventDestroy(read_ahead_join_);
     if (copy_) { cudaStreamSynchronize(copy_); cudaStreamDestroy(copy_); }
     if (side_) cudaStreamDestroy(side_);
     if (side2_) cudaStreamDestroy(side2_);
@@ -1292,6 +1296,15 @@ bool Verifier::init(const WeightTable& wt, const ModelGeometry& g, SessionState&
         err = "verify: event create failed";
         return false;
     }
+#if defined(STRATA_USE_HIP)
+    if (env_on("STRATA_STALL_READAHEAD") &&
+        (make_stream(&read_ahead_cs_, gp_lo) != cudaSuccess ||
+         cudaEventCreateWithFlags(&read_ahead_fork_, cudaEventDisableTiming) != cudaSuccess ||
+         cudaEventCreateWithFlags(&read_ahead_join_, cudaEventDisableTiming) != cudaSuccess)) {
+        err = "verify: read-ahead stream create failed";
+        return false;
+    }
+#endif
     {   // STRATA_DF_BRANCH=1 (opt-in): the mixer's side branches.  Off by default: on Linux (open modules, GSP) a
         // stage's window with the branches stopped inside its graph when an NVML query (nvidia-smi) came between
         // requests (2x RTX 3090 and 2x RTX 2080 Ti, #905); never seen on Windows.  0 / unset: one stream, as before
@@ -2618,6 +2631,52 @@ bool Verifier::record_window(int T, cudaStream_t cs, std::string& err) {
             // pcie_frac 0), so its launch is kPcieGroupRows block rows striding over the groups, not cap of them
             grouped(p_ptr2, p_start2, p_counts + 2, kPcieGroupRows, hit_out, false);
             stamp(l, 22, grp);
+#if defined(STRATA_USE_HIP)
+            const bool read_ahead = read_ahead_cs_ && l + 1 < le_ && !batch_rec_;
+            if (read_ahead) {
+                StallReadAhead ranges;
+                const LayerView next(wt, l + 1);
+                auto add = [&](const void* p, uint64_t bytes) {
+                    if (!p || bytes < 4) return;
+                    if (ranges.n == 12) {
+                        static bool warned = false;
+                        if (!warned) { std::fputs("strata verify: read-ahead range list full\n", stderr); warned = true; }
+                        return;
+                    }
+                    ranges.p[ranges.n] = p; ranges.bytes[ranges.n++] = bytes;
+                };
+                for (const char* name : {"attn_qkv.weight", "attn_gate.weight", "ssm_out.weight", "attn_q.weight",
+                                         "attn_k.weight", "attn_v.weight", "indexer.q_proj.weight", "indexer.k_proj.weight",
+                                         "attn_output.weight"}) {
+                    const WeightRef* w = next.get(name);
+                    if (!w) continue;
+                    if (w->native_data) add(w->native_data, (uint64_t) iq_row_bytes(w->native_type, w->ne0) * w->ne1);
+                    else add(w->data, w->bytes);
+                }
+                static const bool ffn = [] { const char* e = std::getenv("STRATA_STALL_READAHEAD_FFN"); return !e || std::atoi(e) != 0; }();
+                if (ffn) for (const char* name : {"hc_ffn_down.weight", "hc_ffn_inject.weight", "hc_ffn_up.weight",
+                                                 "ffn_gate_inp.weight", "ffn_gate_inp_shexp.weight"}) {
+                    const WeightRef* w = next.get(name);
+                    if (!w) continue;
+                    if (w->hc_q8) add(w->hc_q8, (uint64_t) ((w->ne0 + 31) / 32) * 34 * w->ne1);
+                    else add(w->data, w->bytes);
+                }
+                static const uint64_t budget = [] {
+                    const char* e = std::getenv("STRATA_STALL_READAHEAD_MB");
+                    return (uint64_t) std::clamp(e ? std::atoi(e) : 32, 0, 128) * 1048576;
+                }();
+                static const int blocks = [] { const char* e = std::getenv("STRATA_STALL_READAHEAD_BLOCKS"); return std::clamp(e ? std::atoi(e) : 4, 1, 16); }();
+                static const int chunks = [] { const char* e = std::getenv("STRATA_STALL_READAHEAD_CHUNKS"); return std::clamp(e ? std::atoi(e) : 8, 1, 16); }();
+                if (cudaEventRecord(read_ahead_fork_, cs) != cudaSuccess ||
+                    cudaStreamWaitEvent(read_ahead_cs_, read_ahead_fork_, 0) != cudaSuccess) {
+                    err = "verify: read-ahead fork failed"; return false;
+                }
+                stall_read_ahead(ranges, m_flag_, ring, device_plan_ ? skip_ + grp : nullptr, budget, blocks, read_ahead_cs_, nullptr, chunks);
+                if (cudaGetLastError() != cudaSuccess || cudaEventRecord(read_ahead_join_, read_ahead_cs_) != cudaSuccess) {
+                    err = "verify: read-ahead launch failed"; return false;
+                }
+            }
+#endif
             if (device_plan_) {   // no CPU share when the device planned the group: its rows are zeros
                 wait_flag_ge_or(m_flag_, ring, skip_ + grp, cs);
                 copy_or_zero_from_mapped(parts_out, m_ymiss_ + (size_t) tb * K * N, (long long) n * K * N,
@@ -2642,6 +2701,11 @@ bool Verifier::record_window(int T, cudaStream_t cs, std::string& err) {
                 else
                     copy_from_mapped(parts_out, m_ymiss_ + (size_t) tb * K * N, (int64_t) n * K * N, cs);
             }
+#if defined(STRATA_USE_HIP)
+            if (read_ahead && cudaStreamWaitEvent(cs, read_ahead_join_, 0) != cudaSuccess) {
+                err = "verify: read-ahead join failed"; return false;
+            }
+#endif
             // 143-amdk: the add of the GPU's hit rows is done by the combine that follows (one launch fewer)
             hits_in_combine = fuse_hits_on() && !prof_on_ && !remote_opt_ && !sg_gated_[grp] && dec_batch && n > 1 &&
                               native_moe_combine_enabled() && n <= 8 &&

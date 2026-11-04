@@ -547,6 +547,12 @@ if(STRATA_ENABLE_CUDA OR STRATA_ENABLE_HIP)
     set_tests_properties(qsa_scores_gfx1100_parity PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 180
       ENVIRONMENT "STRATA_SCORES_THREAD=1;STRATA_SCORES_THREAD_TRACE=1")
   endif()
+  if(STRATA_ENABLE_HIP AND STRATA_BUILD_TESTS)
+    set_source_files_properties(bench/micro/stall_read_ahead.cu PROPERTIES LANGUAGE HIP)
+    add_executable(stall_read_ahead_bench bench/micro/stall_read_ahead.cu)
+    target_include_directories(stall_read_ahead_bench PRIVATE ${_strata_gpu_include_directories})
+    target_link_libraries(stall_read_ahead_bench PRIVATE strata_kernels ${_strata_gpu_runtime_target})
+  endif()
   # perf-review D-1: the tensor-core prompt attention vs the FP32 kernel and FP64 (GPU, synthetic, no model); with
   # the tests, or alone with -DSTRATA_PARITY_PROMPT_ATTN=ON.  CUDA only: HIP compiles the tensor-core kernel out.
   if((STRATA_BUILD_TESTS OR STRATA_PARITY_PROMPT_ATTN) AND STRATA_ENABLE_CUDA)
