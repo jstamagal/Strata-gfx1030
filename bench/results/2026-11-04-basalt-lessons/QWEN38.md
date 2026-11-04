@@ -595,3 +595,35 @@ Found only in the chat:
 - **Survival calibration.**
 
 The zero-build items are queued as inserts/51-windowzb.sh (with a per-kernel profile of both cards).
+
+## Window MTPQ-AB1: MTP drafter weights rebuilt from BF16 (16:25)
+
+Raw: `qwen38-mtpqAB1/`. Binary: strata-q38-mtpq build-hip (563dbb2f). Live IQ3_S config with KV_PF_SLOTS=1. Six
+drafters, agent and edits, two passes in reverse order. The gates passed (11776 slots, 4 zero-doorbell graphs, 100%
+resident), and the text is identical everywhere. GPTQ was calibrated on agent cases 0/2/4; 4 agent cases and all of
+edits are held out.
+
+| drafter | MiB | agent tok/s (both passes) | held-out agent | edits |
+|---|---|---|---|---|
+| live S2 | 839 | 148.99 (149.0 / 149.0) | 147.98 | 340.5 / 368.6 (pass 1 slow) |
+| q2w (weighted refit) | 839 | 150.13 (+0.8%) | +0.9% | 368.5 |
+| **s2gptq** (all S2, GPTQ, same bytes) | 839 | **151.90 (+2.0%)**, 152.0 / 151.8 | **+1.4%** | 366.6 |
+| mixr15 (+97 Q4_0-GPTQ experts) | 967 | 150.85 (+1.2%) | +1.1% | 368.6 |
+| mixr40 (+134 Q4_0-GPTQ experts) | 1016 | 151.42 (+1.6%) | +1.6% | 369.5 |
+| qo4 (q/o projections Q4_0) | 817 | 146.98 (-1.3%) | -0.4% | 368.5 |
+
+Edits are flat for every variant against live's clean second pass (368.6). The summary's +4% edit figures compare
+against live's slow first pass, a stall-type outlier.
+
+Profile arms (one agent pass, with DRAFT_TIMING / MTP_PROFILE on):
+
+| drafter | tok/s | ms per round |
+|---|---|---|
+| live | 148.0 | — |
+| q4n, all native Q4_0 RTN | **151.5** | — |
+| mixr40 | 150.5 | — |
+| n2live, live bytes in the native Q2_0 layout | **91.4** | 25.2 |
+
+The q4n smoke run earlier read -4.5%. n2live has the same bytes and acceptance as live but is 38% slower, so the
+native grouped path has a large fixed cost in some layouts. The mtpq agent is reading the priority-0 profile arms.
+Adoption is held until that analysis lands; s2gptq is the low-risk candidate (same VRAM, +2.0% / held-out +1.4%).
