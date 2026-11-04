@@ -1,0 +1,3 @@
+[strata] KV cache: INT8 (configured)
+[strata] tensor split across GPUs [0, 1] (every layer on both)
+ready: http://127.0.0.1:8090/v1  (OpenAI: /v1/chat/completions, Anthropic: /v1/messages, context 65535 tokens)
