@@ -627,3 +627,18 @@ Profile arms (one agent pass, with DRAFT_TIMING / MTP_PROFILE on):
 The q4n smoke run earlier read -4.5%. n2live has the same bytes and acceptance as live but is 38% slower, so the
 native grouped path has a large fixed cost in some layouts. The mtpq agent is reading the priority-0 profile arms.
 Adoption is held until that analysis lands; s2gptq is the low-risk candidate (same VRAM, +2.0% / held-out +1.4%).
+
+**MTPQ-AB1, mtpq agent's analysis** (`strata-q38-mtpq/bench/results/2026-11-04-mtpq/ab1-stallfree.txt`, a445b20f8):
+- **n2live's -38% was window stalls:** 7 gaps over 300 ms (17.1, 2.1, 1.4, 2.9, 3.0, 2.2, 0.8 s) add up to its whole
+  deficit. Without the stalls it sits ~1% behind live, in line with the native Q2_0 kernel's microbench. The 17.1 s
+  gap came close to #267's 20 s limit.
+- **q4n's -4.5% in 41z was also stalls:** three cases ran 1.0-1.2 s slower at identical draft counts. Run clean,
+  q4n gives 151.5 and 151.0 (priority on and off) against live's 148.0, i.e. **+2.0-2.3%**. RTN uses no
+  calibration, so every case is held out. Cost: +675 MiB on card 1; it keeps 11776 slots with 1038 MiB free.
+- **STRATA_HIP_MTP_PRIORITY=0 is neutral for both drafters.** The chain (3.7-3.9 ms) runs hidden under card 1's
+  ~10 ms stage-1 window. DRAFT_TIMING / MTP_PROFILE print nothing in pipelined decode (synchronous path only).
+
+Next:
+- window ZB checks s2gptq on the main binary;
+- mtpq_ab2 (live / s2gptq-a / q4n / q4_0-gptq-a, 2 passes, traced) and a corpus capture are staged by the agent;
+- adoption follows ZB.
