@@ -928,3 +928,18 @@ IQ3_S config, off/on via `STRATA_PL_UNDO_KEEP_GDN`, agent x3 + edit x2, traces +
   MMU notifier into evicting the process; a full KFD restore re-validates every BO including the 46.84 GiB userptr
   arena. Second probe `evict2.bt` (eviction fence + `amdgpu_amdkfd_gpuvm_restore_process_bos` duration) running from
   17:56. Window EVP (forced compaction during decode) is first in insert 53.
+
+## Window ZB, drafter arm: s2gptq-a ADOPTED (18:12)
+
+zb_s2g_1/2 vs zb_live_1/2 (main build-hip d4d10152, live IQ3_S config, only `--mtp` differs): 151.9 / 151.7 vs
+148.8 / 148.9 tok/s (+2.1% / +1.9%); held-out 4 cases +1.5% (150.0 vs 147.8), calibration cases +4.3% / +1.7%. Text
+identical in all 6 cases both passes; accepted drafts up in every case; gates hold (CUDA1 11776 slots, 4 zero-doorbell
+graphs, 100% resident); drafter 839 MiB and CUDA1 free 1712 MiB in both (no VRAM change). No stalls (each case within
+0.1% across passes). Matches AB1 on the mtpq binary (+2.0%, held-out +1.4%). Read by the mtpq agent, checked by the
+coordinator.
+
+- **Adopted:** `strata-sc117-IQ3_S-qwen-abliterated.json` (gitignored live config) `--mtp` now
+  `~/Strata-data/mtp/q38-s2-gptq-a` (was `~/Strata-data/mtp/rt`). Revert = that one line.
+- The harness copy `strata-ab/qwen-iq3s.json` stays on rt for the rest of today's queue, so windows stay comparable
+  with today's ledger; refresh it at the next natural break.
+- Other configs still on rt (swift Q4_0 x5, instruct IQ3_XXS) are other packs: untested with this drafter, unchanged.
