@@ -5411,10 +5411,11 @@ bool Verifier::exact_head_logits() const {
     if (!screened_logits_) return true;
     const OnDevice on_device(device_);
     if (!head_ || !head_->loaded() || last_t_ <= 0) return false;
-    std::string err;
-    for (int t = 0; t < last_t_; ++t)
-        if (!head_->run(head_mixed_ + (size_t)t * g_->n_embd,
-                        head_logits_ + (size_t)t * n_vocab_, cs_, err)) return false;
+    try {
+        // A screened window is one chunk: xq_ still holds the exact image its head read.
+        strata::kernels::native_mmvq(head_->type(), head_->weights(), xq_, head_logits_,
+                                    (int)g_->n_embd, (int)n_vocab_, last_t_, cs_);
+    } catch (const std::exception&) { return false; }
     if (cudaStreamSynchronize(cs_) != cudaSuccess) return false;
     screened_logits_ = false;
     return true;
