@@ -37,6 +37,13 @@ bool native_mmvq_multi_exact();
 // Set before graph capture.
 void native_mmvq_set_b6_rows(int mode);
 int native_mmvq_b6_rows();
+// TP Q8_0 dense/head lab override: -1 reads STRATA_Q36_TPX_Q8_ROW (exactly "1"),
+// 0 forces the existing launch, 1/2/4 use that many rows per wave32 in the
+// bit-exact row kernel. The engine switch selects 2 rows and 4 waves per block.
+void native_mmvq_tpx_q8_tune(int rows);
+// TP IQ4_XS/Q4_K/Q5_K dense lab override: -1 reads STRATA_Q36_TPX_K_ROW
+// (exactly "1"), 0 is the existing launch, 1/2/4 rows per wave32.
+void native_mmvq_tpx_k_tune(int rows);
 
 // One quantization may serve multiple weight matrices sharing the same input.
 // Q8_1 stores FP16 scale and FP16 warp sum of the ORIGINAL float inputs; it does

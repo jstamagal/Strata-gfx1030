@@ -14,6 +14,7 @@
 #include "strata/kernels/dp4a.hpp"
 #include "strata/kernels/q8_1_finite.hpp"
 #include "s26_tsum.cuh"
+#include "../../qwen35/q36_experts.hpp"
 
 #include <cuda_fp16.h>
 #include <cuda_runtime.h>
@@ -5466,6 +5467,93 @@ constexpr bool nib_layout(const NativeExpertLayout& L) {
 #endif
 }
 
+#include "../../qwen35/q36_tpx_expert.cuh"
+
+template<int T>
+bool launch_tpx_gu_type(const NativeExpertLayout& L, dim3 grid, cudaStream_t s,
+                        const unsigned long long* grp_ptr, const int32_t* grp_start, const int32_t* n_groups,
+                        const int32_t* ent_tok, const block_q8_1* xq, float* gate, float* up) {
+    if ((L.n_embd / Fmt<T>::qk) * Fmt<T>::ipb < 16) return false;
+    const dim3 tg((unsigned) ((2 * L.n_ff + 15) / 16), grid.y);
+    // Match launch_gu's decode table choice, so changing the row layout does
+    // not also change IQ3_XXS's sign/codebook decoder on real weights.
+    if constexpr (T == 18) {
+        if (stage_tables_on()) tpx_gu_half_kernel<T, true><<<tg, 256, 0, s>>>(grp_ptr, grp_start, n_groups, ent_tok, xq, L, gate, up);
+        else tpx_gu_half_kernel<T, false><<<tg, 256, 0, s>>>(grp_ptr, grp_start, n_groups, ent_tok, xq, L, gate, up);
+    } else if constexpr (kStageIqGrid<T>) {
+        if (g_stage_grid) tpx_gu_half_kernel<T, true><<<tg, 256, 0, s>>>(grp_ptr, grp_start, n_groups, ent_tok, xq, L, gate, up);
+        else tpx_gu_half_kernel<T, false><<<tg, 256, 0, s>>>(grp_ptr, grp_start, n_groups, ent_tok, xq, L, gate, up);
+    } else {
+        tpx_gu_half_kernel<T, false><<<tg, 256, 0, s>>>(grp_ptr, grp_start, n_groups, ent_tok, xq, L, gate, up);
+    }
+    return true;
+}
+bool launch_tpx_gu(const NativeExpertLayout& L, dim3 grid, cudaStream_t s,
+                   const unsigned long long* grp_ptr, const int32_t* grp_start, const int32_t* n_groups,
+                   const int32_t* ent_tok, const block_q8_1* xq, float* gate, float* up) {
+    if (!tpx_switch(g_tpx_gu, "STRATA_Q36_TPX_GU16")) return false;
+    if (L.n_embd % 256 || L.n_ff % 16) { tpx_expert_trace("gu", L, false); return false; }
+    // The first TP engine run faulted with GU16 while the synthetic lab passed.  The
+    // lab's measured wins were IQ3_XXS and IQ4_XS; keep the other special format
+    // decoders on their proven engine path until they are checked with real blobs.
+    // A lab override still tests every format.  The opt-in below permits engine
+    // isolation of the remaining formats without changing GU16's safe set.
+    if (g_tpx_gu < 0 && L.gu_type != 18 && L.gu_type != 23 &&
+        !tpx_switch(-1, "STRATA_Q36_TPX_GU16_OTHER")) { tpx_expert_trace("gu", L, false); return false; }
+    tpx_expert_trace("gu", L, true);
+#define TPX_GU(T) case T: return launch_tpx_gu_type<T>(L, grid, s, grp_ptr, grp_start, n_groups, ent_tok, xq, gate, up)
+    switch (L.gu_type) {
+        TPX_GU(16); TPX_GU(18); TPX_GU(19); TPX_GU(22); TPX_GU(23); TPX_GU(11); TPX_GU(12); TPX_GU(8);
+        default: return false;
+    }
+#undef TPX_GU
+}
+
+template<int T>
+bool launch_tpx_down_type(const NativeExpertLayout& L, dim3 grid, cudaStream_t s,
+                          const unsigned long long* grp_ptr, const int32_t* grp_start, const int32_t* n_groups,
+                          const int32_t* ent_dst, const block_q8_1* hq, float* out) {
+    if ((L.n_ff / Fmt<T>::qk) * Fmt<T>::ipb < 16) return false;
+    const dim3 td((unsigned) ((L.n_embd + 15) / 16), grid.y);
+    tpx_down_half_kernel<T><<<td, 256, 0, s>>>(grp_ptr, grp_start, n_groups, ent_dst, hq, L, out);
+    return true;
+}
+bool launch_tpx_down(const NativeExpertLayout& L, dim3 grid, cudaStream_t s,
+                     const unsigned long long* grp_ptr, const int32_t* grp_start, const int32_t* n_groups,
+                     const int32_t* ent_dst, const block_q8_1* hq, float* out) {
+    if (!tpx_switch(g_tpx_down, "STRATA_Q36_TPX_DOWN16")) return false;
+    if (L.n_ff % 256 || L.n_embd % 16) { tpx_expert_trace("down", L, false); return false; }
+    tpx_expert_trace("down", L, true);
+#define TPX_DOWN(T) case T: return launch_tpx_down_type<T>(L, grid, s, grp_ptr, grp_start, n_groups, ent_dst, hq, out)
+    switch (L.d_type) {
+        TPX_DOWN(16); TPX_DOWN(18); TPX_DOWN(19); TPX_DOWN(22); TPX_DOWN(23);
+        TPX_DOWN(11); TPX_DOWN(12); TPX_DOWN(8);
+        default: return false;
+    }
+#undef TPX_DOWN
+}
+
+void tpx_gu_check(const NativeExpertLayout& L, dim3 grid, cudaStream_t s,
+                  const unsigned long long* grp_ptr, const int32_t* grp_start, const int32_t* n_groups,
+                  const int32_t* ent_tok, const block_q8_1* xq, float* gate, float* up,
+                  float* old_gate, float* down_out, size_t groups, size_t entries) {
+    if (!tpx_switch(-1, "STRATA_Q36_TPX_GU_CHECK")) return;
+    // The q8_1 region is only 36/128 of the bytes needed for an FP32
+    // gate/up reference.  The down output has cap_entries*n_embd floats and
+    // is unused until after SwiGLU; use it for old up, while h holds old gate.
+    if (L.n_embd < L.n_ff) return;
+    float* old_up = down_out;
+#define TPX_GU_REF(T) case T: launch_gu<T>(grid, s, grp_ptr, grp_start, n_groups, ent_tok, xq, L, old_gate, old_up); break
+    switch (L.gu_type) {
+        TPX_GU_REF(16); TPX_GU_REF(18); TPX_GU_REF(19); TPX_GU_REF(22);
+        TPX_GU_REF(23); TPX_GU_REF(11); TPX_GU_REF(12); TPX_GU_REF(8);
+        default: return;
+    }
+#undef TPX_GU_REF
+    tpx_gu_compare_restore<<<1, 256, 0, s>>>(gate, up, old_gate, old_up, grp_start, n_groups,
+                                             ent_tok, (int) groups, (int) entries, (int) L.n_ff, L.gu_type);
+}
+
 }  // namespace
 
 void iq_set_old_kernels(bool old) { g_old_kernels = old; }
@@ -6296,6 +6384,7 @@ __global__ void __launch_bounds__(256) native_gu_fused_kernel(const unsigned lon
     }
 }
 
+#include "../../qwen35/q36_tpx_gu_fused.cuh"
 
 #if defined(__HIPCC__)
 // STRATA_EXP_IQ2S=1 keeps mode 8's lane sums, float scaling, butterfly and q8_1 epilogue.
@@ -6580,6 +6669,12 @@ void native_expert_set_mode(int mode, int phase) {
     g_exp_phase = phase;
 }
 
+void native_expert_tpx_tune(int gu, int down) {
+    g_tpx_gu = gu;
+    g_tpx_down = down;
+}
+void native_expert_tpx_fused_t1_tune(int mode) { g_tpx_gu_fused_t1 = mode; }
+
 namespace {
 bool g_grouped_v1 = env_on("STRATA_GROUPED_V1");
 }  // namespace
@@ -6619,7 +6714,7 @@ bool native_expert_expdec_takes(const NativeExpertLayout& L, bool& gu, bool& dow
 void native_expert_grouped(const NativeExpertLayout& L, const unsigned long long* grp_ptr, const int32_t* grp_start,
                            const int32_t* n_groups, const int32_t* ent_dst, const int32_t* ent_tok, int64_t cap_groups,
                            int64_t cap_entries, const void* x_q8_1, void* scratch, float* out, void* stream,
-                           int64_t grid_groups) {
+                           int64_t grid_groups, bool tp_single_token) {
     if (cap_groups <= 0 || cap_entries <= 0) return;
     strata::dispatch::kernel(strata::dispatch::kExpert, 0, L.gu_type, (int) L.n_embd, (int) L.n_ff, L.d_type);   // BW-MEASURE: one grouped expert call
     if (L.n_ff % 32 != 0) { std::fprintf(stderr, "native_expert_grouped: n_ff %lld\n", (long long) L.n_ff); std::exit(1); }
@@ -6709,11 +6804,19 @@ void native_expert_grouped(const NativeExpertLayout& L, const unsigned long long
 #endif
 #endif
 #if STRATA_EXP_LAYOUTS
-    const bool fused_gu = !nib_layout(L) && em0 == 8 && ((kExpLds16 && L.gu_type == 16) || L.gu_type == 18 || L.gu_type == 21 || L.gu_type == 22 || L.gu_type == 23) &&
+    const bool tpx_gu_done = g_exp_phase != 2 && !nib_layout(L) && launch_tpx_gu(L, ggu, s, grp_ptr, grp_start, n_groups, ent_tok, X, gate, up);
+    const bool fused_gu = !tpx_gu_done && !nib_layout(L) && em0 == 8 && ((kExpLds16 && L.gu_type == 16) || L.gu_type == 18 || L.gu_type == 21 || L.gu_type == 22 || L.gu_type == 23) &&
                           L.n_ff % 32 == 0;
     if (fused_gu && g_exp_phase != 2) {
         const dim3 gl((unsigned) (L.n_ff / 32), (unsigned) cap_groups);
         const size_t sh = (size_t) LDS_NT * (size_t) (L.n_embd / 32) * sizeof(block_q8_1);
+        const bool tpx_t1 = tp_single_token && tpx_switch(g_tpx_gu_fused_t1, "STRATA_Q36_TPX_GU_FUSED_T1") &&
+                            cap_entries == cap_groups && (L.gu_type == 18 || L.gu_type == 23);
+        if (tpx_t1) {
+            if (L.gu_type == 18) tpx_gu_fused_t1_kernel<18><<<gl, 256, 0, s>>>(grp_ptr, grp_start, n_groups, ent_tok, X, L, hq);
+            else tpx_gu_fused_t1_kernel<23><<<gl, 256, 0, s>>>(grp_ptr, grp_start, n_groups, ent_tok, X, L, hq);
+            tpx_expert_trace("gu fused t1", L, true);
+        } else {
 #if defined(__HIPCC__)
         static const bool iq2s = [] { const char* v = std::getenv("STRATA_EXP_IQ2S"); return v && v[0] == '1'; }();
         // Small entry sets favor the original IQ3 kernel on gfx1030.  Capacity is an entry
@@ -6734,16 +6837,20 @@ void native_expert_grouped(const NativeExpertLayout& L, const unsigned long long
             case 23: native_gu_fused_kernel<23><<<gl, 256, sh, s>>>(grp_ptr, grp_start, n_groups, ent_tok, X, L, hq); break;
             default: native_gu_fused_kernel<22><<<gl, 256, sh, s>>>(grp_ptr, grp_start, n_groups, ent_tok, X, L, hq); break;
         }
+        }
         check("native_expert_grouped/gu fused");
     }
 #endif
     // 147-verify STRATA_GU_SWIGLU=1: gate/up + SwiGLU + q8_1 in one launch where the CUDA layout's 16-lane kernel would run
     bool gs_done = false;
 #if STRATA_EXP_LAYOUTS
-    const bool gs_layout = !fused_gu && em0 == 0;
+    const bool gs_layout = !fused_gu && !tpx_gu_done && em0 == 0;
 #else
-    const bool gs_layout = true;
+    const bool tpx_gu_done = g_exp_phase != 2 && launch_tpx_gu(L, ggu, s, grp_ptr, grp_start, n_groups, ent_tok, X, gate, up);
+    const bool gs_layout = !tpx_gu_done;
 #endif
+    if (tpx_gu_done) tpx_gu_check(L, ggu, s, grp_ptr, grp_start, n_groups, ent_tok, X,
+                                  gate, up, h, out, (size_t) cap_groups, (size_t) cap_entries);
     if (gs_layout && !nib_layout(L) && g_exp_phase == 0 && !v1 && gu_swiglu_on() && !(expdec_mode() && !g_old_kernels && expdec_gu_ok(L))) {
         switch (L.gu_type) {
 #define STRATA_GS(T) case T: gs_done = launch_gu_swiglu<T>(L, gy, s, grp_ptr, grp_start, n_groups, ent_tok, X, hq); break;
@@ -6762,9 +6869,9 @@ void native_expert_grouped(const NativeExpertLayout& L, const unsigned long long
         strata::dispatch::kernel(strata::dispatch::kExpert, gu_form, L.gu_type, (int) L.n_embd, (int) L.n_ff, L.d_type);
     }
 #if STRATA_EXP_LAYOUTS
-    if (g_exp_phase != 2 && !fused_gu && !gs_done) {
+    if (g_exp_phase != 2 && !fused_gu && !gs_done && !tpx_gu_done) {
 #else
-    if (g_exp_phase != 2 && !gs_done) {
+    if (g_exp_phase != 2 && !gs_done && !tpx_gu_done) {
 #endif
 #if STRATA_EXP_LAYOUTS
     const bool lds_gu = !nib_layout(L) && (em0 == 5 || em0 == 6 || em0 == 7 || em0 == 8) && ((kExpLds16 && L.gu_type == 16) || L.gu_type == 18 || L.gu_type == 21 || L.gu_type == 22 || L.gu_type == 23);
@@ -6812,30 +6919,48 @@ void native_expert_grouped(const NativeExpertLayout& L, const unsigned long long
 #if STRATA_EXP_LAYOUTS
     }
 #endif
-    check("native_expert_grouped/gu");
-    if (g_exp_phase == 3) return;   // the bench: gate/up only
-    const long long nh = (long long) cap_entries * L.n_ff;
-#if defined(STRATA_HIP_GFX906)
-    // gfx906: the separate SwiGLU and q8_1 passes stay the default (the A/B baseline); the RDNA one-pass
-    // kernel (bitwise the same) with STRATA_HIP_SWIGLU_FUSED=1
-    static const bool sw_fused = env_on("STRATA_HIP_SWIGLU_FUSED");
-    const bool sw_v1 = v1 || !sw_fused;
+    }  // end gate/up fallback; both GU paths still need SwiGLU and q8_1
+#if STRATA_EXP_LAYOUTS
+    if (!fused_gu && !gs_done) check("native_expert_grouped/gu");
 #else
-    const bool sw_v1 = v1;
+    if (!gs_done) check("native_expert_grouped/gu");
 #endif
-    // APR: Hadamard-folded down weights take the rotated h, so h exists as floats first (the separate passes)
-    if (sw_v1 || L.had_block > 0) {
-        swiglu_entries_kernel<<<(unsigned) ((nh + 255) / 256), 256, 0, s>>>(gate, up, h, nh);
-        if (L.had_block > 0)   // APR: the down weights are Hadamard-folded, so is their input (in place, every entry row)
-            hadamard_rows(h, h, cap_entries, L.n_ff, L.had_block, L.d_signs, s);
-        quantize_q8_1_kernel<<<(unsigned) ((nh + 255) / 256), 256, 0, s>>>(h, hq, nh);
-    } else {
-        swiglu_q8_1_entries_kernel<<<(unsigned) ((nh + 255) / 256), 256, 0, s>>>(gate, up, grp_start, n_groups,
-                                                                                (int) L.n_ff, hq);
-    }
-    check("native_expert_grouped/swiglu");
+#if STRATA_EXP_LAYOUTS
+    if (g_exp_phase == 3 && !fused_gu && !gs_done) return;   // the bench: gate/up only
+#else
+    if (g_exp_phase == 3 && !gs_done) return;   // the bench: gate/up only
+#endif
+#if STRATA_EXP_LAYOUTS
+    if (g_exp_phase != 2 && !fused_gu && !gs_done) {
+#else
+    if (g_exp_phase != 2 && !gs_done) {
+#endif
+        const long long nh = (long long) cap_entries * L.n_ff;
+#if defined(STRATA_HIP_GFX906)
+        // gfx906: the separate SwiGLU and q8_1 passes stay the default (the A/B baseline); the RDNA one-pass
+        // kernel (bitwise the same) with STRATA_HIP_SWIGLU_FUSED=1
+        static const bool sw_fused = env_on("STRATA_HIP_SWIGLU_FUSED");
+        const bool sw_v1 = v1 || !sw_fused;
+#else
+        const bool sw_v1 = v1;
+#endif
+        // APR: Hadamard-folded down weights take the rotated h, so h exists as floats first (the separate passes)
+        if (sw_v1 || L.had_block > 0) {
+            swiglu_entries_kernel<<<(unsigned) ((nh + 255) / 256), 256, 0, s>>>(gate, up, h, nh);
+            if (L.had_block > 0)   // APR: the down weights are Hadamard-folded, so is their input (in place, every entry row)
+                hadamard_rows(h, h, cap_entries, L.n_ff, L.had_block, L.d_signs, s);
+            quantize_q8_1_kernel<<<(unsigned) ((nh + 255) / 256), 256, 0, s>>>(h, hq, nh);
+        } else {
+            swiglu_q8_1_entries_kernel<<<(unsigned) ((nh + 255) / 256), 256, 0, s>>>(gate, up, grp_start, n_groups,
+                                                                                    (int) L.n_ff, hq);
+        }
+        check("native_expert_grouped/swiglu");
     }
     if (g_exp_phase == 1) return;
+    if (launch_tpx_down(L, dim3(1, (unsigned) gy), s, grp_ptr, grp_start, n_groups, ent_dst, hq, out)) {
+        check("native_expert_grouped/down (tpx)");
+        return;
+    }
 #if defined(__HIPCC__)
     static const bool exp_down = [] { const char* v = std::getenv("STRATA_EXP_DOWN"); return v && v[0] == '1'; }();
     if (exp_down && L.d_type == 42 && L.n_embd == 2560 && L.n_ff == 640 &&
@@ -6914,6 +7039,8 @@ void native_expert_grouped(const NativeExpertLayout& L, const unsigned long long
     }
     check("native_expert_grouped/down");
 }
+
+#include "../../qwen35/q36_experts.cuh"
 
 }  // namespace strata::kernels
 

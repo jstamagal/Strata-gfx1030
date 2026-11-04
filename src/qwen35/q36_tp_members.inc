@@ -1,0 +1,105 @@
+    // TP storage is separate from the existing layer-split DevSet and from session metadata (position/LRU/tokens).
+    bool tp = false;
+    const Model* tp_models[2] = {};
+    struct TpState {
+        std::vector<Sess> sessions;
+        std::vector<float*> conv, S, kc, vc, v_qkv, v_hc, v_alpha, v_beta;
+        float* hlast = nullptr;
+    } tp_state[2];
+    float *tp_host[2] = {}, *tp_mapped[2][2] = {}, *tp_logits[2] = {};
+    float *tp_row_host[2] = {}, *tp_row_mapped[2][2] = {};
+    q36tp_skew::Sample *tp_skew_host[2] = {}, *tp_skew_mapped[2] = {};
+    unsigned* tp_skew_counts[2] = {};
+    bool tp_skew = q36tp::enabled("STRATA_Q36_TP_SKEW");
+    int tp_skew_layer = 0;
+    void tp_report_skew();
+    unsigned *tp_flags_host[2] = {}, *tp_flags[2][2] = {}, *tp_token[2] = {};
+    cudaEvent_t tp_event[2] = {};
+    void tp_swap(int from, int to);
+    void tp_init(const Model& a, const Model& b, int context, int chunk, int sessions, bool pictures);
+    void tp_prepare_launch_stats(int requested_mtp);
+    void tp_enter(int T, bool mtp = false, const float* seeds = nullptr);
+    void tp_join(float* partial, int T);
+    void tp_join_norm(float* partial, const float* w, float* hout, int T, bool quantized,
+                      bool published = false, bool emit_q8 = true);
+    bool tp_row_defer_ack(int T, int n) const;
+    void tp_moe_end(int T, const int32_t* prow, const float* shared, const float* sgate,
+                    const float* wn, float* hout, int sgs);
+    void tp_forward(int T, int64_t p0, int heads, bool verify);
+    void tp_head(int T, int heads, bool mtp = false, bool draft = false, float* output = nullptr, int32_t* picks = nullptr);
+    void tp_forward_mtp(int T, int64_t p0, const float* seeds, bool draft);
+    float* tp_remote[2] = {};
+    cudaEvent_t tp_copy_ready[2] = {}, tp_copy_done[2] = {};
+    bool tp_copy_used = false, tp_graph = true;
+    bool tp_branches = q36tp::enabled("STRATA_Q36_TP_BRANCHES");
+    bool tp_branch_capture = false;
+    q36tp_branch::Recorder tp_branch_recorder;
+    q36tp_branch::Node tp_branch_mark() const {
+        return tp_branch_capture ? q36tp_branch::tail(st) : nullptr;
+    }
+    void tp_branch_group(std::initializer_list<q36tp_branch::Node> marks) {
+        if (tp_branch_capture) tp_branch_recorder.record(marks);
+    }
+    void tp_branch_staggered(q36tp_branch::Node before, q36tp_branch::Node qkv,
+                             q36tp_branch::Node z, q36tp_branch::Node conv) {
+        if (tp_branch_capture) tp_branch_recorder.record_staggered(before, qkv, z, conv);
+    }
+    void tp_copy_join(int T, bool moe);
+    void tp_layer_pair(size_t li, int T, int64_t p0, bool verify, bool mtp = false);
+    long long tp_graph_key(int T, bool verify, bool mtp, bool short_attn) const;
+    bool tp_graph_run(int T, int64_t p0, bool verify, bool mtp = false, const float* seeds = nullptr,
+                      bool capture_only = false);
+    bool tp_check = false;
+    bool tp_attn_rows = q36tp::enabled("STRATA_Q36_TP_ATTN_ROWS");
+    bool tp_attn_graph_rows = q36tp::enabled("STRATA_Q36_TP_ATTN_GRAPH_ROWS");
+    bool tp_join_row = q36tp::enabled("STRATA_Q36_TP_JOIN_ROW");
+    bool tp_join_wide = q36tp::enabled("STRATA_Q36_TP_JOIN_WIDE");
+    bool tp_join_split = q36tp::enabled("STRATA_Q36_TP_JOIN_SPLIT");
+    bool tp_join_q8_router = q36tp::enabled("STRATA_Q36_TP_JOIN_Q8_ROUTER");
+    bool tp_join_q8_check = q36tp::enabled("STRATA_Q36_TP_JOIN_Q8_CHECK");
+    void* tp_join_q8_ref[2] = {};
+    unsigned *tp_join_publish_done[2] = {}, *tp_join_sum_done[2] = {};
+    float* tp_join_lane_sums[2] = {};
+    bool tp_join_peer_first = q36tp::enabled("STRATA_Q36_TP_JOIN_PEER_FIRST");
+    bool tp_join_fast_submit = q36tp::enabled("STRATA_Q36_TP_JOIN_FAST_SUBMIT");
+    bool tp_join_moe_publish = q36tp::enabled("STRATA_Q36_TP_JOIN_MOE_PUBLISH");
+    bool tp_join_defer_ack = q36tp::enabled("STRATA_Q36_TP_JOIN_DEFER_ACK");
+    bool tp_partial_split = q36tp::enabled("STRATA_Q36_TP_PARTIAL_SPLIT");
+    bool tp_head_rows = q36tp::enabled("STRATA_Q36_TP_HEAD_ROWS");
+    bool tp_small_rows = q36tp::enabled("STRATA_Q36_TP_SMALL_ROWS");
+    bool tp_logits_prefetch = q36tp::enabled("STRATA_Q36_TP_LOGITS_PREFETCH");
+    bool tp_sampled_verify = false;
+    bool tp_head_q8 = q36tp::enabled("STRATA_Q36_TP_HEAD_Q8");
+    bool tp_moe_join = q36tp::enabled("STRATA_Q36_TP_MOE_JOIN");
+    bool tp_fuse2_conv_ab = q36tp::enabled("STRATA_Q36_TP_FUSE2_CONV_AB");
+    bool tp_fuse2_gdn_q8 = q36tp::enabled("STRATA_Q36_TP_FUSE2_GDN_Q8");
+    bool tp_fuse2_router = q36tp::enabled("STRATA_Q36_TP_FUSE2_ROUTER");
+    bool tp_router_fence = q36tp::enabled("STRATA_Q36_TP_ROUTER_FENCE");
+    bool tp_router_pair = q36tp::enabled("STRATA_Q36_TP_ROUTER_PAIR");
+    bool tp_router_4w = q36tp::enabled("STRATA_Q36_TP_ROUTER_4W");
+    bool tp_fuse2_join_norm = q36tp::enabled("STRATA_Q36_TP_FUSE2_JOIN_NORM");
+    bool tp_fuse2_moe_norm = q36tp::enabled("STRATA_Q36_TP_FUSE2_MOE_NORM");
+    bool tp_fuse3_gdn_all = q36tp::enabled("STRATA_Q36_TP_FUSE3_GDN_ALL");
+    bool tp_fuse3_shared = q36tp::enabled("STRATA_Q36_TP_FUSE3_SHARED");
+    float* tp_gdn_defer_hist[2] = {};
+    const float* tp_gdn_defer_qkv[2] = {};
+    int tp_gdn_defer_C[2] = {}, tp_gdn_defer_HK[2] = {};
+    float* tp_gdn_ref_alloc[2] = {};
+    float* tp_gdn_ref_hist[2] = {};
+    bool tp_launch_stats = q36tp::enabled("STRATA_Q36_TP_LAUNCH_STATS");
+    unsigned* tp_route_done[2] = {};
+    unsigned* tp_partial_done[2] = {};
+    bool tp_stats_capturing = false;
+    bool tp_stats_warmup = false;
+    bool tp_stats_baseline = false;
+    long long tp_layer_kernels[2][3][2] = {};
+    int tp_layer_seen[2][3] = {};
+    int tp_stats_conv_ab[2] = {}, tp_stats_router[2] = {};
+    int tp_stats_gdn_q8[2] = {};
+    int tp_stats_join_norm[2] = {}, tp_stats_moe_norm[2] = {};
+    int tp_stats_gdn_all[2] = {};
+    int tp_stats_shared[2] = {};
+    long long tp_graph_replays[3][kVerify + 1] = {};
+    long long tp_eager_calls[3][kVerify + 1] = {};
+    long long tp_checks = 0;
+    void tp_check_residual(int T, bool mtp);
