@@ -4,6 +4,7 @@
 #include <array>
 #include "strata/kernels/head_wide.hpp"
 #include "strata/kernels/native_mmvq.hpp"
+#include "strata/kernels/iq_kernels.hpp"
 #include "strata/kernels/sampler.hpp"
 #include "strata/kernels/verify_kernels.hpp"
 #include "strata/artifact/gguf_reader.hpp"
@@ -183,6 +184,8 @@ static int exercise(int type,std::vector<uint8_t> hw,int rows,bool bench,bool re
         std::printf("verify parity/bench uses captured post-norm inputs and their actual Q8_1 bytes\n");
     }
     ck(cudaMemcpy(x.p,hx.data(),hx.size()*4,cudaMemcpyHostToDevice),"upload x");
+    // A strongly aligned column exercises certified proxy pruning, not just its all-exact fallback.
+    if(!real)iq_dequant_f32(type,static_cast<const uint8_t*>(w.p),N,x.as<float>()+7*N,s);
     std::vector<float> a(size_t(rows)*MT),b(a.size());
     long cases=0,errors=0,tail=0;
     if(head_screen_supported(type,N,rows,1)) {
