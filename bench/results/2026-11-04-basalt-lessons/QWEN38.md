@@ -943,3 +943,30 @@ coordinator.
 - The harness copy `strata-ab/qwen-iq3s.json` stays on rt for the rest of today's queue, so windows stay comparable
   with today's ledger; refresh it at the next natural break.
 - Other configs still on rt (swift Q4_0 x5, instruct IQ3_XXS) are other packs: untested with this drafter, unchanged.
+
+## Window ZB, the rest (17:17-18:17; read 18:22)
+
+Main build-hip d4d10152, harness IQ3_S config (rt drafter), agent x2 per arm, 36K prompt x2 runs per load.
+
+| arm | what | agent p1 / p2 tok/s | text vs live | verdict |
+|---|---|---|---|---|
+| live | control | 148.8 / 148.9 | 6/6 | - |
+| sh0 | STRATA_SH_STREAM=0 | 130.3 / 130.2 | 6/6 | the live knob is worth +14%: keep |
+| nofuse | STRATA_QFUSE=0 + STRATA_NODE_FUSE=0 | 140.3 / 144.4 | 6/6 | the two live fusions are worth +3-6% (p1 had one 1441 ms gap): keep |
+| hcp | nofuse + STRATA_HC_PERSIST=1 | 147.3 / 147.3 | 0/6 | +2-5% over nofuse but text differs in every case, and below live: dead |
+| cmpl | `--resident-experts` | 148.8 / 148.2 | 6/6 | speed-neutral, and NO 46.84 GiB host arena (below) |
+| s2g | s2gptq-a drafter | 151.9 / 151.7 | 6/6 | adopted (section above) |
+
+36K prompt (run1 / run2 tok/s): ctl 2715.9 / 2734.9; swq 2721.9 / 2539.4 (one dip); cmw 2715.3 / 2738.3; cmpl
+2714.0 / 2730.8; HANDOFF_PIPE=2/4/8 2713.2 / 2736.0, 2716.8 / 2738.0, 2714.8 / 2738.3. Every prompt knob is flat:
+PREFILL_SWIGLU_QUANT, PREFILL_COMBINE_WRITE and HANDOFF_PIPE are dead on this config.
+
+- **`--resident-experts` drops the expert arena.** zb_live_1's log has `expert arena: cudaHostRegister PORTABLE ok`
+  (46.84 GiB registered userptr, THP always, not mlocked); zb_cmpl_1's has none of it, only `locked resident cache
+  complement ready: resident 0.00 GiB, pinned 0.00 GiB` plus 0.47 GiB of pinned exchange buffers. With all 24576
+  expert pairs in VRAM (12800 + 11776 slots) the arena is a RAM copy nothing reads at steady state; the prompt path's
+  streamed ring is unaffected (cmpl prompt = ctl). Side effect: `exchange rotation unavailable` (no-op at 100%
+  resident). This is the strongest stall-fix candidate: ~47 GB less RAM on a box running at ~2 GB available, and the
+  arena is exactly what KFD userptr eviction and restore walk. Window RXP (queued) checks memory, reclaim and gaps.
+- zb_prof (STRATA profile on, 115.0 tok/s, profiling overhead): steady windows 19.1-20.6 ms, avg T 2.29-2.80, 2.03-2.67
+  tokens/window; stage 0 GPU: VRAM hits 1.96-2.98 ms, q8+qkv gemv ~1.05, out-proj 0.84, z 0.68; stage 1 ~10% lighter.
