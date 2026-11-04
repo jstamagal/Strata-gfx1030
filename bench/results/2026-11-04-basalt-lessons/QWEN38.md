@@ -724,7 +724,7 @@ Per-chunk GPU timeline (4096 tokens, steady chunks, ~1250 ms; wall 1266-1297 ms)
 - **Candidates by size:** the gate/up GEMM (21%), GDN prompt recurrence + gdn (19%), QSA attention (13%), the HC
   reads (10%).
 
-**Correction (17:00): the GDN rollback-snapshot candidate is DEAD for the live engine.** ziz's snapshot writes
+**Correction (16:45): the GDN rollback-snapshot candidate is DEAD for the live engine.** ziz's snapshot writes
 (`gdn_core.cuh`, "~5-8%" in the swarm intake above) are in `src/split/`, the opt-in strata-split engine
 (`STRATA_BUILD_SPLIT`, OFF, not in build-hip). The coordinator endorsed it without checking which binary the file
 belongs to. The live verify path already replays kept rows from stored per-row inputs (`gdn_commit_layers`).
@@ -732,7 +732,7 @@ belongs to. The live verify path already replays kept rows from stored per-row i
 The live-path remainder is PlSnap: card 0's GDN state is copied D2D once per speculative window on a side stream,
 and restored on doomed windows. Removing it with ping-pong parity is a medium build, low rank (tuck, run 2).
 
-## Window EPF: early PLE flag against the stalls (16:52)
+## Window EPF: early PLE flag against the stalls (16:55)
 
 Raw: `strata-ab/windowepf.out` (to be copied as `qwen38-windowEPF/`). Earlyple build fae158d9 (main 9d0a5e5b0 +
 `STRATA_PL_EARLY_PLE_FLAG` / `STRATA_PL_LAUNCH_SLOW_MS`), live IQ3_S config, 4 agent + 4 edit passes per mode,
@@ -758,7 +758,7 @@ interleaved, `STRATA_PL_LAUNCH_SLOW_MS=50` on every arm. Text matches window STA
   ("a clean HSA poll => look at the queue count"), tuck run 2.
 - Not merged: the early flag stays on its branch (basalt38/pl-early-ple) as a logger.
 
-## Swarm intake, run 2 late chat (17:05)
+## Swarm intake, run 2 late chat (17:00)
 
 The run's final synthesis lead (gruff, gpt-6-astra): adopt s2gptq after ZB; the top fresh code candidate is the
 full-A rollback GDN skip; HANDOFF_PIPE is the cheapest new prompt probe. Taken and queued:
@@ -813,7 +813,7 @@ full-A rollback GDN skip; HANDOFF_PIPE is the cheapest new prompt probe. Taken a
 - Main-model head on card 1, isolated (kahuzi; mtpq bench `basalt-head/q6-final.log`): Q6_K 248320x2560 (521 MB),
   HEAD_WIDE T=1 1.007 ms (518 GB/s), T=8 1.31 ms. Scale only; it cannot be subtracted from overlapped stage intervals.
 
-## Window CHN: shorter forced chains for the guessed window (17:25)
+## Window CHN: shorter forced chains for the guessed window (17:07)
 
 Raw: `strata-ab/windowchn.out`, arms `wch_*`. Main build-hip, live IQ3_S config, `STRATA_PL_GUESS_T` (clamps the
 guessed window's forced chain), agent x2 + edit x1, pipeline traces + DECODE_TIMING. Text matches live in every arm.
@@ -846,7 +846,7 @@ guessed window's forced chain), agent x2 + edit x1, pipeline traces + DECODE_TIM
   p >= 0.4 / 0.5 / 0.7; edit 5.295 / 5.202 / 5.029. Longer accepted runs at a lower gate cost more verified rows
   (0.9-1.4 ms/row); window 18's engine arms decide.
 
-## Swarm run 2 final (gruff, 17:45; saved as docs/swarm/reports/gruff.md from KING's paste)
+## Swarm run 2 final (gruff, 17:13; saved as docs/swarm/reports/gruff.md from KING's paste)
 
 Its top three map onto the queue as follows:
 1. **Full-A rollback GDN skip** — built (`STRATA_PL_UNDO_KEEP_GDN`, bdb6954d0), window UKG queued. It skips both
@@ -860,3 +860,16 @@ Its top three map onto the queue as follows:
    live 3-row: ~12 ms for 2.1-2.75 tok), so any cost rule must use V620 per-class costs, not a per-row model.
 Dissents noted: COHERENT stays cut (CLR source; DOORBELL_STORE runs alone). Replay after a #267 respawn needs output
 and tool idempotency first (server-side MCP actions).
+
+## Window COH, DOORBELL_STORE arm (17:17)
+
+Raw: `strata-ab/windowcoh.out`, arms `wc_dbs_*`. Main build-hip, live config + `STRATA_DOORBELL_STORE=1`, 4 agent + 4
+edit passes, traces. The COHERENT arm was cut (CLR maps the memory coherent already). Text matches window STALL.
+
+| set | agent tok/s pooled | gaps >300 ms | edit tok/s pooled | gaps |
+|---|---|---|---|---|
+| dbs | 145.6 | 3 in 4 arms (999; 1818, 904) | 368.8 | 0 in 4 arms |
+| EPF e0 control (same config, earlyple binary, 16:55) | 141.7 | 6 in 4 arms | 334.5 | 4 in 4 arms |
+
+- Fewer gaps (3 in 8 arms vs a census of ~0.74 per arm, p ~0.13 by Poisson): suggestive, not significant. Not
+  adopted on this alone; it rides along if HWQ (running now) leaves the stalls.
