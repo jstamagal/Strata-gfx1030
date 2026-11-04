@@ -200,3 +200,35 @@ the card). Frozen essays: DFlash2 serial 60.9 / 61.1, pipelined 60.4 / 60.6, pip
 (same text as pipelined: replay path consistent), MTP pipelined 69.0 / 69.1. Agent workload: DFlash2 pipelined 101.8 vs
 MTP pipelined 118.4 tok/s (-14%). Live essays x4: 71.2 vs 78.6 (runs 2-4). 36K prompt (split 24, 2048 chunks):
 DFlash2 1395 / 1399 vs MTP 1338 / 1343 prompt tok/s (+4%; MTP's draft-KV prompt pass costs more). MTP stays.
+
+## Window 8: IQ3_S split x chunk, STRATA_IQ_GATHER, 4096 vs 8192 chunks at a 120K prompt
+
+Raw: `qwen38-window8/` (batch26-28, per-arm cfg.json). Same build-hip (11db64ca4). Prompt arms: the 36K or 118,329-token
+prompt twice per load with unique first lines; generation is live (adaptive placement), so its numbers are noisy.
+
+IQ3_S, 36K prompt, prompt tok/s (run1 / run2) and 300-token generation tok/s:
+
+| arm | prompt | gen |
+|---|---|---|
+| split 25, live auto (2048 chunks) | 2697.8 / 2707.4 | 96.3 / 105.8 |
+| split 25, --prefill 4096 | 2708.3 / 2719.0 | 101.1 / 98.3 |
+| split 24, --prefill 4096 | 2725.1 / 2743.1 | 99.3 / 97.2 |
+| split 26, --prefill 4096 | 2403.2 / 2647.6 | 93.5 / 93.7 |
+
+IQ3_S doesn't get UD4's chunk win: 4096 is +0.4% at 36K and split 24 +1.2%, inside the decode noise. Split 26 loses
+both. The IQ3_S config keeps split 25 and auto; window 11 checks 2048 vs 4096 at 120K.
+
+STRATA_IQ_GATHER=1, IQ3_S frozen decode: 98.5 / 98.6 vs 98.4 / 98.6 tok/s, same md5, same drafts (460 / 641).
+No effect: not adopted.
+
+118,329-token prompt, 100 tokens out:
+
+| arm | prompt tok/s | gen tok/s | expert cache slots card0 / card1 |
+|---|---|---|---|
+| UD4 26 + 4096 (live) | 1987.3 / 2037.7 | 82.5 / 84.1 | 8443 / 8046 |
+| UD4 26 + 8192 | 2219.3 / 2113.3 | 76.5 / 77.8 | 7531 / 7129 |
+| IQ3_S 26 + 4096 | 2744.0 / 2630.6 | 98.1 / 85.5 | 12862 / 11264 (card 1 all resident) |
+| IQ3_S 26 + 8192 | 2589.0 / 2528.8 | 83.9 / 89.2 | 11399 / 10507 |
+
+UD4 at 120K: 8192 reads +7.6% faster (54.7 vs 58.8 s) but costs ~910 cache slots per card and decodes 8% slower after it;
+4096 stays (a full 120K re-read is rare with the prompt cache, decode is every token). IQ3_S: 4096 beats 8192 on both.

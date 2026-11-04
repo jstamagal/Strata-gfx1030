@@ -1,0 +1,4 @@
+strata generate: --pipeline-windows 2: 272 MiB of CUDA0 kept out of the expert cache (the second verifier, the GDN snapshots)
+strata generate: expert cache auto: 27.57 GiB free, 700 MiB reserved (+0 MiB for the draft head, +256 MiB for what is allocated after the cache) -> 9502 slots
+strata generate: expert cache 12288 slots, 22.14 GiB of VRAM; policy is
+strata generate: layer split: CUDA1 runs layers 24-47, expert cache 11747 slots (23.60 GiB), 11747 of its 12288 profiled pairs; slot 0 verified

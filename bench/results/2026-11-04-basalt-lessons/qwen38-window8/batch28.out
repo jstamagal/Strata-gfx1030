@@ -1,0 +1,16 @@
+w8_u120k_p4k run1 prompt 118329 1987.3 tok/s 59.54 s; gen 100 82.5 tok/s drafts 46 / 58
+95c1f4c020f6
+w8_u120k_p4k run2 prompt 118329 2037.7 tok/s 58.07 s; gen 100 84.1 tok/s drafts 48 / 57
+ce5bf0068253
+w8_u120k_p8k run1 prompt 118329 2219.3 tok/s 53.32 s; gen 100 76.5 tok/s drafts 48 / 64
+2d29a8c744f4
+w8_u120k_p8k run2 prompt 118329 2113.3 tok/s 55.99 s; gen 100 77.8 tok/s drafts 46 / 59
+8cb2cddca5a3
+w8_i120k_p4k run1 prompt 118329 2744.0 tok/s 43.12 s; gen 100 98.1 tok/s drafts 50 / 59
+3f5c5f157bb7
+w8_i120k_p4k run2 prompt 118329 2630.6 tok/s 44.98 s; gen 100 85.5 tok/s drafts 43 / 60
+b1eb6aba1e64
+w8_i120k_p8k run1 prompt 118329 2589.0 tok/s 45.71 s; gen 100 83.9 tok/s drafts 42 / 55
+13b18492952a
+w8_i120k_p8k run2 prompt 118329 2528.8 tok/s 46.79 s; gen 100 89.2 tok/s drafts 45 / 56
+249518ba43b3

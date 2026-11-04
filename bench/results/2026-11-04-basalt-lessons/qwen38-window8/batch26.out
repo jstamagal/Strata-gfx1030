@@ -1,0 +1,16 @@
+w8_iq25 run1 prompt 36411 2697.8 tok/s 13.5 s; gen 300 96.3 tok/s drafts 127 / 203
+642fc8c96166
+w8_iq25 run2 prompt 36411 2707.4 tok/s 13.45 s; gen 300 105.8 tok/s drafts 139 / 197
+1d4706a6b837
+w8_iq25p4k run1 prompt 36411 2708.3 tok/s 13.44 s; gen 300 101.1 tok/s drafts 138 / 187
+465bd3d3c086
+w8_iq25p4k run2 prompt 36411 2719.0 tok/s 13.39 s; gen 300 98.3 tok/s drafts 135 / 200
+cd0ec75f9268
+w8_iq24p4k run1 prompt 36411 2725.1 tok/s 13.36 s; gen 300 99.3 tok/s drafts 140 / 188
+42514800b42b
+w8_iq24p4k run2 prompt 36411 2743.1 tok/s 13.27 s; gen 300 97.2 tok/s drafts 132 / 194
+9e7f4e3c8318
+w8_iq26p4k run1 prompt 36411 2403.2 tok/s 15.15 s; gen 300 93.5 tok/s drafts 125 / 177
+4e9d476aec71
+w8_iq26p4k run2 prompt 36411 2647.6 tok/s 13.75 s; gen 300 93.7 tok/s drafts 130 / 186
+2740633ae50b

@@ -1,0 +1,10 @@
+w8_i3_base run1 1106 tok 98.5 tok/s drafts 460 / 641
+w8_i3_base run2 1106 tok 98.6 tok/s drafts 460 / 641
+                 PROFILE, ranked by routing frequency, no eviction.
+396d660784f5
+396d660784f5
+w8_i3_gather run1 1106 tok 98.4 tok/s drafts 460 / 641
+w8_i3_gather run2 1106 tok 98.6 tok/s drafts 460 / 641
+                 PROFILE, ranked by routing frequency, no eviction.
+396d660784f5
+396d660784f5
