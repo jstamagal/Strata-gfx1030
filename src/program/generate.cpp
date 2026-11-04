@@ -8186,9 +8186,17 @@ int main(int argc, char** argv) {
     for (auto& stp : stages) {
         GpuStage& st = *stp;
         const auto& lay = strata::kernels::cpu::expert_layout();
-        // the drafter and the head are already allocated by now (they load above, before this), so what is left
-        // to hold back is the windows - and `free_b` has already lost the drafter.
-        const int64_t room = stage_room(st.dev, true, false);
+        // Legacy draft bindings fit stage_room's headroom; deduct only the additional proxy on this device.
+        int64_t pending_proxy = 0;
+        if (!o.mtp.empty() && st.head.loaded()) {
+            if (mtp.device() == st.dev) pending_proxy += (int64_t)mtp.bind_bytes(st.head.row_bytes(), n_vocab, true);
+            for (const auto& d : slot_mtp)
+                if (d->device() == st.dev) pending_proxy += (int64_t)d->bind_bytes(st.head.row_bytes(), n_vocab, true);
+        }
+        const int64_t room = std::max<int64_t>(0, stage_room(st.dev, true, false) - pending_proxy);
+        if (pending_proxy > 0)
+            std::fprintf(stderr, "strata generate: layer split, CUDA%d: %lld bytes reserved for pending proxy bindings before expert-cache sizing\n",
+                         st.dev, (long long)pending_proxy);
         const strata::core::OnDevice on(st.dev);
         {
             size_t fb = 0, tb = 0;

@@ -709,15 +709,15 @@ bool MtpDrafter::experts_reclaim(std::string& err) {
     return true;
 }
 
-uint64_t MtpDrafter::bind_bytes(uint64_t head_row_bytes, int64_t n_vocab) const {
-    uint64_t bytes = head_logits_ ? 0 : (uint64_t) max_t_ * (uint64_t) n_vocab * sizeof(float);
+uint64_t MtpDrafter::bind_bytes(uint64_t head_row_bytes, int64_t n_vocab, bool proxy_only) const {
+    uint64_t bytes = proxy_only || head_logits_ ? 0 : (uint64_t) max_t_ * (uint64_t) n_vocab * sizeof(float);
     if (dhead_ == nullptr && !full_head_env()) {
         if (FILE* f = std::fopen(vocab_file().c_str(), "rb")) {
             std::fseek(f, 0, SEEK_END);
             const long size = std::ftell(f);
             std::fclose(f);
             if (size >= 4 && size % 4 == 0) {
-                if (owns_draft_head_) bytes += (uint64_t)(size / 4) * head_row_bytes + (uint64_t)size;
+                if (owns_draft_head_ && !proxy_only) bytes += (uint64_t)(size / 4) * head_row_bytes + (uint64_t)size;
                 const int n_in = g_ ? (int)g_->n_embd : 0;
                 const int type = head_row_bytes == 2720 ? 8 : head_row_bytes == 2100 ? 14 : head_row_bytes == 1760 ? 13 : -1;
                 const size_t proxy = !q4_head_ && !strata::kernels::head_dump_enabled()
@@ -734,7 +734,7 @@ uint64_t MtpDrafter::bind_bytes(uint64_t head_row_bytes, int64_t n_vocab) const 
     }
     // coupled draft sampling (STRATA_SPEC_COUPLED=1 only): an upper bound - the id -> subset map, the penalty ring,
     // the split scratch (64 lists of 64 entries at most) and the parameters
-    if (coupled_draft_env() && cparams_ == nullptr)
+    if (!proxy_only && coupled_draft_env() && cparams_ == nullptr)
         bytes += (uint64_t) n_vocab * 4 + (uint64_t) (kCoupledHistCap + max_t_) * 4 + 64ull * 64ull * 8ull + 4096;
     return bytes;
 }
