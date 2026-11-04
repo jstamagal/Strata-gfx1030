@@ -803,3 +803,12 @@ full-A rollback GDN skip; HANDOFF_PIPE is the cheapest new prompt probe. Taken a
 - Longshots, not queued: exact small-alphabet IQ2_S decoder (pip; CPU-exhaustive parity on 32768 cases, no GPU
   number), progressive 3->4->exact head screens (kaje; 3-bit screens keep 42-113 of ~124 rows on CPU samples, misses
   the byte break-even), wider GDN final-state banks.
+- **`STRATA_SPEC_COST` does not reach the pipelined drafter** (bakari, run 2 final; coordinator-checked): the cost rule
+  is `mtp.set_chain_rule`, called only in the serial `MtpDrafter::draft`; `chain_launch`/`chain_poll` never call it.
+  Under `--pipeline-windows 2` the flag only sets the robust lookup policy and turns `STRATA_DRAFT_CUM` off. Audit
+  window 18's `w18_mtp3_cost` arm is annotated: a null there rejects nothing. A real pipelined cost rule would pick
+  the width from probabilities already on hand, with no per-step host wait.
+- `STRATA_VERIFY_PROFILE=0` still turns the profiler on (`getenv != nullptr`); control arms must unset it. ZB's speed
+  arms never set it.
+- Main-model head on card 1, isolated (kahuzi; mtpq bench `basalt-head/q6-final.log`): Q6_K 248320x2560 (521 MB),
+  HEAD_WIDE T=1 1.007 ms (518 GB/s), T=8 1.31 ms. Scale only; it cannot be subtracted from overlapped stage intervals.
