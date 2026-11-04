@@ -1000,3 +1000,9 @@ every 10 s for the whole arm, c = `--conversation-cache-mib 0`. Agent x3 + edit 
 GPU_MAX_HW_QUEUES 8, 6 and 5 each oversubscribed card 0's HWS runlist on the first probe (watchdog killed each run).
 4 (live) is the largest count that fits. Window HWQ3 (3 and 2 vs 4, agent x2, only because HWQ2 found nothing above 4)
 is appended after RXP. Inference to check: the vision process (strata-vision on GPU) also holds card-0 queues.
+- KFD sysfs during an AB2 arm (18:37): the engine holds 5 compute + 1 SDMA queues on EACH card at
+  GPU_MAX_HW_QUEUES=4, and the picture reader (strata-vision, started by the config's "vision" section, idle in every
+  benchmark) holds 3 compute + 1 SDMA on card 0. So card 0 runs 8 compute + 2 SDMA, and one more engine queue
+  oversubscribes. HWQ3 part B runs without the reader (config copy minus the "vision" section; the engine keeps
+  --vision, so the engine run is identical): 4 as control, then probes 6 and 5. If more queues help, the trade is the
+  reader on CPU / on demand / on a spare card (`"vision": {"cuda_device": N}` moves it).
