@@ -1,0 +1,28 @@
+wn2_cur_agent code_async_batcher              1200 tok  129.6 tok/s drafts 616/796 7647be1f36bf
+wn2_cur_agent code_rust_committed_ring        1200 tok  151.7 tok/s drafts 682/797 3677c43d7d27
+wn2_cur_agent code_typescript_tool_dispatch   1200 tok  157.9 tok/s drafts 696/831 f51ad60baaa2
+wn2_cur_agent json_multi_tool_result_merge    1200 tok  150.4 tok/s drafts 685/780 ac71e4d17450
+wn2_cur_agent json_parallel_tool_plan         1200 tok  186.4 tok/s drafts 742/791 a6925d4108b1
+wn2_cur_agent json_patch_tool_payload         1200 tok  131.0 tok/s drafts 609/765 62b89ab84b34
+wn2_cur_agent TOTAL 7200 tok 148.9 tok/s
+wn2_next_agent code_async_batcher              1200 tok  129.6 tok/s drafts 616/796 7647be1f36bf
+wn2_next_agent code_rust_committed_ring        1200 tok  151.7 tok/s drafts 682/797 3677c43d7d27
+wn2_next_agent code_typescript_tool_dispatch   1200 tok  158.0 tok/s drafts 696/831 f51ad60baaa2
+wn2_next_agent json_multi_tool_result_merge    1200 tok  150.4 tok/s drafts 685/780 ac71e4d17450
+wn2_next_agent json_parallel_tool_plan         1200 tok  186.4 tok/s drafts 742/791 a6925d4108b1
+wn2_next_agent json_patch_tool_payload         1200 tok  131.0 tok/s drafts 609/765 62b89ab84b34
+wn2_next_agent TOTAL 7200 tok 148.9 tok/s
+wn2_chain_agent code_async_batcher              1200 tok  129.5 tok/s drafts 616/796 7647be1f36bf
+wn2_chain_agent code_rust_committed_ring        1200 tok  151.7 tok/s drafts 682/797 3677c43d7d27
+wn2_chain_agent code_typescript_tool_dispatch   1200 tok  157.8 tok/s drafts 696/831 f51ad60baaa2
+wn2_chain_agent json_multi_tool_result_merge    1200 tok  150.4 tok/s drafts 685/780 ac71e4d17450
+wn2_chain_agent json_parallel_tool_plan         1200 tok  186.5 tok/s drafts 742/791 a6925d4108b1
+wn2_chain_agent json_patch_tool_payload         1200 tok  131.0 tok/s drafts 609/765 62b89ab84b34
+wn2_chain_agent TOTAL 7200 tok 148.9 tok/s
+wn2_cur_agent_b code_async_batcher              1200 tok  129.6 tok/s drafts 616/796 7647be1f36bf
+wn2_cur_agent_b code_rust_committed_ring        1200 tok  151.6 tok/s drafts 682/797 3677c43d7d27
+wn2_cur_agent_b code_typescript_tool_dispatch   1200 tok  157.4 tok/s drafts 696/834 f51ad60baaa2
+wn2_cur_agent_b json_multi_tool_result_merge    1200 tok  150.4 tok/s drafts 685/780 ac71e4d17450
+wn2_cur_agent_b json_parallel_tool_plan         1200 tok  186.5 tok/s drafts 742/791 a6925d4108b1
+wn2_cur_agent_b json_patch_tool_payload         1200 tok  131.0 tok/s drafts 609/765 62b89ab84b34
+wn2_cur_agent_b TOTAL 7200 tok 148.8 tok/s

@@ -417,3 +417,18 @@ Raw: `qwen38-windowL16B/`. The validator passed: text matches base and the equal
 Long windows now accept 93-100% of drafts (616/660, 884/885, 880/900) and the text is right, but a 16-row window
 costs about as much as two 8-row ones, so there's no gain. Per-stage trace analysis is with the building agent.
 **The dispatcher bug was real and is also on main** (single-GPU wide lookup, --batch 9..16, wide-MTP fallback).
+
+**Window NEXT, clean reruns** (batch39/40, no download or scan running). Correction: the -16% route-ahead result
+above was contamination (memory pressure from a paused download plus a root file scan), not route-ahead.
+
+| arm | agent tok/s | 36K prompt tok/s (run1 / run2) |
+|---|---|---|
+| cur | 148.9, second pass 148.8 | 2706 / 2721 |
+| next | 148.9 | 2708 / 2540 |
+| next + MTP_CHAIN_CAP=1 | 148.9 | — |
+| next + ROUTE_AHEAD=0,32 | — | 2697 / 2738, second pass 2707 / 2468 |
+
+Route-ahead is neutral on IQ3_S (every expert resident; run1s within 0.4%). Second runs swing 2468-2738 in every arm:
+harness noise, not an arm effect. The next binary equals cur on agent and prompt with identical text. **Merged
+into main as ceade1b6b**; build-hip is rebuilt in the next build slot (old binary kept as
+build-hip/strata.pre-ceade1b6b).

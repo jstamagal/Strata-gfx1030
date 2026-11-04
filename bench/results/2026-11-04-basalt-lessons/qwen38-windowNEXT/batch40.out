@@ -1,0 +1,16 @@
+wn2_cur_prompt run1 prompt 36411 2706.3 tok/s 13.45 s; gen 32 86.6 tok/s drafts 8 / 15
+f3cb2784992a
+wn2_cur_prompt run2 prompt 36411 2721.2 tok/s 13.38 s; gen 32 87.2 tok/s drafts 10 / 18
+be358117f543
+wn2_ahead_prompt run1 prompt 36411 2696.6 tok/s 13.5 s; gen 32 86.6 tok/s drafts 8 / 15
+f3cb2784992a
+wn2_ahead_prompt run2 prompt 36411 2738.4 tok/s 13.3 s; gen 32 87.2 tok/s drafts 10 / 18
+be358117f543
+wn2_next_prompt run1 prompt 36411 2708.1 tok/s 13.45 s; gen 32 82.9 tok/s drafts 8 / 15
+f3cb2784992a
+wn2_next_prompt run2 prompt 36411 2539.7 tok/s 14.34 s; gen 32 87.1 tok/s drafts 10 / 18
+be358117f543
+wn2_ahead_prompt_b run1 prompt 36411 2707.2 tok/s 13.45 s; gen 32 86.7 tok/s drafts 8 / 15
+f3cb2784992a
+wn2_ahead_prompt_b run2 prompt 36411 2468.4 tok/s 14.75 s; gen 32 87.2 tok/s drafts 10 / 18
+be358117f543
