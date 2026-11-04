@@ -78,9 +78,9 @@
 #include "strata/core/verify.hpp"
 #include "strata/core/mtp.hpp"
 #include "strata/core/gated_proposal.hpp"
+#include "strata/core/draft_cap.hpp"
 #if defined(STRATA_HAVE_DFLASH2)
 #include "strata/core/dflash2.hpp"
-#include "strata/core/draft_cap.hpp"
 #endif
 #include "strata/prefill/kva.hpp"
 #include "strata/prefill/kva_floor.hpp"
@@ -17907,6 +17907,15 @@ int main(int argc, char** argv) {
                 // STRATA_PL_GUESS_* say otherwise)
                 const int capA = pl_fresh_t > 0 ? std::min(pl_fresh_t, S_mtp) : S_mtp;
                 const int capB = pl_guess_t > 0 ? std::min(pl_guess_t, S_mtp) : S_mtp;
+                // STRATA_MTP_CHAIN_CAP=1: do not queue outputs neither window can use.
+                // Off retains the full narrow chain. On: A's capA-1 drafts, its
+                // bonus guess, then B's capB-1 drafts, within the chain's storage.
+                static const bool mtp_chain_cap = [] {
+                    const char* v = std::getenv("STRATA_MTP_CHAIN_CAP");
+                    return v != nullptr && std::atoi(v) != 0;
+                }();
+                const int fresh_chain_n = strata::core::mtp_fresh_chain_outputs(
+                    capA, capB, std::min(strata::kernels::kVerifyNarrowT - 1, mtp.max_t() - 1), mtp_chain_cap);
                 const double minpA = pl_fresh_min_p >= 0.0 ? pl_fresh_min_p : req_spec_min_p;
                 const double minpB = pl_guess_min_p >= 0.0 ? pl_guess_min_p : req_spec_min_p;
                 strata::core::DraftCumAdapt pl_cum = req_cum;
@@ -18226,7 +18235,9 @@ int main(int argc, char** argv) {
                                     A.tok[i] = mtp.chain_tok()[i - 1];
                                     A.prob[i - 1] = mtp.chain_prob()[i - 1];
                                 }
-                                pick_lookup(A, mtp.chain_tok());
+                                // capA=1 can decide A before output 0 is ready.
+                                // Lookup compares that first draft; never read a stale slot.
+                                if (k > 0) pick_lookup(A, mtp.chain_tok());
                                 A.ready = true;
                                 early_used = true;
                                 tre("CE", A.seq, A.T);
@@ -18481,7 +18492,7 @@ int main(int argc, char** argv) {
                                     return die(err);
                                 tre("CL", A.seq, 1);
                             } else {      // fresh (as below)
-                                chain_n = strata::kernels::kVerifyNarrowT - 1;
+                                chain_n = fresh_chain_n;
                                 if (!pl_chain_launch(A.T, outp.data(), A.p, a, nullptr, 0, chain_n, chain_n, err))
                                     return die(err);
                                 tre("CL", A.seq, 2);
@@ -18613,7 +18624,7 @@ int main(int argc, char** argv) {
                         if (!last) {
                             if (!e_launched) {
                                 mtp.set_source_R(V1(A).final_R(0));
-                                chain_n = strata::kernels::kVerifyNarrowT - 1;
+                                chain_n = fresh_chain_n;
                                 if (!pl_chain_launch(A.T, outp.data(), A.p, a, nullptr, 0, chain_n, chain_n, err))
                                     return die(err);
                                 tre("CL", A.seq, 2);
