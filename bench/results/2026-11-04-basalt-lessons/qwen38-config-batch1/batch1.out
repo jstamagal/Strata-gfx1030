@@ -1,0 +1,42 @@
+builds drained after 10 s; 78 GB available
+q_base run1 1038 tok 72.6 tok/s drafts 438 / 654
+q_base run2 1142 tok 75.4 tok/s drafts 483 / 674
+                 PROFILE, ranked by routing frequency, no eviction.
+fcdd3a09662e
+a624948b7dbb
+q_stage0 run1 1115 tok 66.5 tok/s drafts 477 / 695
+q_stage0 run2 1180 tok 66.3 tok/s drafts 491 / 719
+                 PROFILE, ranked by routing frequency, no eviction.
+df2f022f9671
+613c7314cc34
+q_kqsplit run1 1081 tok 74.2 tok/s drafts 468 / 651
+q_kqsplit run2 1094 tok 78.0 tok/s drafts 478 / 672
+                 PROFILE, ranked by routing frequency, no eviction.
+2043f7c5a8a8
+bce238b621b2
+q_v2k run1 1156 tok 74.1 tok/s drafts 483 / 721
+q_v2k run2 1080 tok 72.7 tok/s drafts 462 / 682
+                 PROFILE, ranked by routing frequency, no eviction.
+79383eff9941
+a465adc0e26d
+q_theta05 run1 1144 tok 74.5 tok/s drafts 488 / 705
+q_theta05 run2 1096 tok 75.5 tok/s drafts 457 / 661
+                 PROFILE, ranked by routing frequency, no eviction.
+6bef597e9184
+78cd199969c2
+q_mtpt4 run1 1037 tok 62.0 tok/s drafts 484 / 732
+q_mtpt4 run2 1098 tok 61.4 tok/s drafts 490 / 757
+                 PROFILE, ranked by routing frequency, no eviction.
+39ea4db04f58
+dfccb49d9517
+q_adapt4 run1 1073 tok 72.9 tok/s drafts 449 / 666
+q_adapt4 run2 1072 tok 75.9 tok/s drafts 447 / 665
+                 PROFILE, ranked by routing frequency, no eviction.
+b45ac0b61aaa
+4f08711f5e0b
+q_base2 run1 1083 tok 72.9 tok/s drafts 443 / 631
+q_base2 run2 1086 tok 76.6 tok/s drafts 470 / 671
+                 PROFILE, ranked by routing frequency, no eviction.
+b3b55b369b93
+e1ede148172b
+BATCH DONE
