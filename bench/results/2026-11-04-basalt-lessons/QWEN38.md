@@ -906,3 +906,25 @@ IQ3_S config, off/on via `STRATA_PL_UNDO_KEEP_GDN`, agent x3 + edit x2, traces +
   +0.1%, inside noise. Not merged; the branch stays as a record.
 - **Side finding, the big one:** 1 stall gap in these 10 arms (the census is ~0.74 per arm). See the stall-rate
   section below.
+
+## Stall rate tracks host load and request starts (17:50-18:05, from existing traces + a live kernel trace)
+
+- **By time of day** (all of today's traced arms, the 16-queue arm excluded): 0.24 gaps per arm 11:30-14:30 (quiet),
+  ~1.0 in 15:00-15:30 (swarm run 1 + the #267 pressure tests) and 16:30-17:13 (swarm run 2), 0.07 after the swarm
+  ended (17:14-17:48: UKG 1 in 10, COH tail and HWQ q4 0). The swarm ran ~23 agent processes on this box.
+- **By request position** (435 requests, 61 gaps): 26 gaps (43%) start within the first second of decode (windows
+  1-14). Early gaps by request number: 9 / 4 / 5 / 8 / 0 / 0 for requests 1-6 (agent suites have 6, edit 3). Requests
+  1-4 follow a conversation-cache park that allocates new memory (the cache holds 4; from the 5th park on it evicts
+  one and reuses its memory); requests 5-6 never had an early gap. Late gaps: 7/5/4/5/3/11.
+- One request shows the whole episode: we_e0_agent_3 parked request 2 in 488 ms (others 24-30 ms), read request
+  3's 297-token prompt in 878 ms (others 420-490 ms), then stalled 2424 ms 147 ms into decode.
+- **Live kernel trace** (strata-ab/evict.bt from 17:49): kcompactd0 calls `amdgpu_amdkfd_evict_userptr` (every queue
+  of the engine quiesced) in bursts of 7-8 within 0.4-0.7 s, restores 0-43 ms, while each new engine loads; none
+  seen during decode on the quiet box so far, and the one ZB gap (zb_nofuse_1, 1441 ms, request 4, 157 ms into
+  decode) had no userptr eviction within 0.5 s. The box: 2 GB available, strata RSS 82.9 GiB, Mlocked 44 MB, THP
+  always, compaction_proactiveness 20; kcompactd moved 2.5M pages in one 30 s tick during a load.
+- Working hypothesis (inference): the park's host allocations (ConversationBuffer segments, pinned staging, and a
+  VRAM stage that can be freed and re-allocated: cudaFree syncs the device) under RAM/VRAM pressure push TTM or the
+  MMU notifier into evicting the process; a full KFD restore re-validates every BO including the 46.84 GiB userptr
+  arena. Second probe `evict2.bt` (eviction fence + `amdgpu_amdkfd_gpuvm_restore_process_bos` duration) running from
+  18:04. Window EVP (forced compaction during decode) is first in insert 53.
