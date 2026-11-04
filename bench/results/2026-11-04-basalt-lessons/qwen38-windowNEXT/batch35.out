@@ -1,0 +1,84 @@
+CUR=/home/ronald_rump/Strata_donttouch/build-hip/strata NEXT=/home/ronald_rump/inbox/agents/claude/strata-q38-next/build/strata CFG=/home/ronald_rump/inbox/agents/claude/strata-ab/qwen-iq3s.json MODEL=qwen3.8-abl-iq3_s
+77c67c17d0a88f13afbfa964a29201b189807820cc239d4937073fc4c6e88c6f  /home/ronald_rump/Strata_donttouch/build-hip/strata
+d0211251fa35831d7e3602823b495f1019f2f40766326a0c103bfd951f2f29b9  /home/ronald_rump/inbox/agents/claude/strata-q38-next/build/strata
+814720e7185735928e8f793bae798b73d9026414
+wn_cur_agent code_async_batcher              1200 tok  108.6 tok/s drafts 616/796 7647be1f36bf
+wn_cur_agent code_rust_committed_ring        1200 tok   92.2 tok/s drafts 682/802 3677c43d7d27
+wn_cur_agent code_typescript_tool_dispatch   1200 tok  156.2 tok/s drafts 693/827 f51ad60baaa2
+wn_cur_agent json_multi_tool_result_merge    1200 tok  149.2 tok/s drafts 679/750 ac71e4d17450
+wn_cur_agent json_parallel_tool_plan         1200 tok  183.0 tok/s drafts 742/791 a6925d4108b1
+wn_cur_agent json_patch_tool_payload         1200 tok  128.6 tok/s drafts 609/765 62b89ab84b34
+wn_cur_agent TOTAL 7200 tok 129.3 tok/s
+HARNESS_STATUS wn_cur_agent 0
+wn_next_agent code_async_batcher              1200 tok  129.0 tok/s drafts 616/796 7647be1f36bf
+wn_next_agent code_rust_committed_ring        1200 tok  151.3 tok/s drafts 682/797 3677c43d7d27
+wn_next_agent code_typescript_tool_dispatch   1200 tok  156.9 tok/s drafts 696/831 f51ad60baaa2
+wn_next_agent json_multi_tool_result_merge    1200 tok  147.4 tok/s drafts 694/818 ac71e4d17450
+wn_next_agent json_parallel_tool_plan         1200 tok  181.8 tok/s drafts 742/803 a6925d4108b1
+wn_next_agent json_patch_tool_payload         1200 tok  130.1 tok/s drafts 609/765 62b89ab84b34
+wn_next_agent TOTAL 7200 tok 147.4 tok/s
+HARNESS_STATUS wn_next_agent 0
+wn_chain_agent code_async_batcher              1200 tok  129.4 tok/s drafts 616/796 7647be1f36bf
+wn_chain_agent code_rust_committed_ring        1200 tok  151.7 tok/s drafts 682/795 3677c43d7d27
+wn_chain_agent code_typescript_tool_dispatch   1200 tok  157.3 tok/s drafts 696/831 f51ad60baaa2
+wn_chain_agent json_multi_tool_result_merge    1200 tok  126.1 tok/s drafts 684/786 ac71e4d17450
+wn_chain_agent json_parallel_tool_plan         1200 tok  183.7 tok/s drafts 742/791 a6925d4108b1
+wn_chain_agent json_patch_tool_payload         1200 tok  130.2 tok/s drafts 609/765 62b89ab84b34
+wn_chain_agent TOTAL 7200 tok 143.8 tok/s
+HARNESS_STATUS wn_chain_agent 0
+wn_cur_prompt run1 prompt 36411 1994.5 tok/s 18.26 s; gen 32 85.2 tok/s drafts 8 / 15
+f3cb2784992a
+wn_cur_prompt run2 prompt 36411 2691.8 tok/s 13.53 s; gen 32 87.1 tok/s drafts 10 / 18
+be358117f543
+HARNESS_STATUS wn_cur_prompt 0
+wn_next_prompt run1 prompt 36411 2719.7 tok/s 13.39 s; gen 32 10.2 tok/s drafts 8 / 15
+f3cb2784992a
+wn_next_prompt run2 prompt 36411 2741.0 tok/s 13.28 s; gen 32 87.1 tok/s drafts 10 / 18
+be358117f543
+HARNESS_STATUS wn_next_prompt 0
+wn_ahead_prompt run1 prompt 36411 2188.2 tok/s 16.64 s; gen 32 86.7 tok/s drafts 8 / 15
+f3cb2784992a
+wn_ahead_prompt run2 prompt 36411 2303.0 tok/s 15.81 s; gen 32 87.2 tok/s drafts 10 / 18
+be358117f543
+HARNESS_STATUS wn_ahead_prompt 0
+wn_next_edit edit_json_config                1200 tok  329.2 tok/s drafts 1024/1135 4e5d39445d4b
+wn_next_edit edit_py_docstrings              1200 tok  391.6 tok/s drafts 1039/1059 c8a4b4501c9e
+wn_next_edit edit_py_rename                  1200 tok  394.2 tok/s drafts 1041/1071 ae962017b205
+wn_next_edit TOTAL 3600 tok 369.1 tok/s
+HARNESS_STATUS wn_next_edit 0
+wn_chain_edit edit_json_config                1200 tok  313.3 tok/s drafts 1024/1135 4e5d39445d4b
+wn_chain_edit edit_py_docstrings              1200 tok  376.6 tok/s drafts 1039/1059 c8a4b4501c9e
+wn_chain_edit edit_py_rename                  1200 tok  363.6 tok/s drafts 1041/1068 ae962017b205
+wn_chain_edit TOTAL 3600 tok 348.9 tok/s
+HARNESS_STATUS wn_chain_edit 0
+MD5 wn_cur_agent code_async_batcher 7647be1f36bf156f7724a2746f1783da
+MD5 wn_next_agent code_async_batcher 7647be1f36bf156f7724a2746f1783da
+MD5 wn_chain_agent code_async_batcher 7647be1f36bf156f7724a2746f1783da
+MD5 wn_cur_agent code_rust_committed_ring 3677c43d7d27ab464bb87be6ae2f6210
+MD5 wn_next_agent code_rust_committed_ring 3677c43d7d27ab464bb87be6ae2f6210
+MD5 wn_chain_agent code_rust_committed_ring 3677c43d7d27ab464bb87be6ae2f6210
+MD5 wn_cur_agent code_typescript_tool_dispatch f51ad60baaa26504aa07c8e820045f0d
+MD5 wn_next_agent code_typescript_tool_dispatch f51ad60baaa26504aa07c8e820045f0d
+MD5 wn_chain_agent code_typescript_tool_dispatch f51ad60baaa26504aa07c8e820045f0d
+MD5 wn_cur_agent json_parallel_tool_plan a6925d4108b1b5e4a771c0e35c5dbeb9
+MD5 wn_next_agent json_parallel_tool_plan a6925d4108b1b5e4a771c0e35c5dbeb9
+MD5 wn_chain_agent json_parallel_tool_plan a6925d4108b1b5e4a771c0e35c5dbeb9
+MD5 wn_cur_agent json_patch_tool_payload 62b89ab84b343f3a595c0a93bc845556
+MD5 wn_next_agent json_patch_tool_payload 62b89ab84b343f3a595c0a93bc845556
+MD5 wn_chain_agent json_patch_tool_payload 62b89ab84b343f3a595c0a93bc845556
+MD5 wn_cur_agent json_multi_tool_result_merge ac71e4d1745036db3e46a20865773851
+MD5 wn_next_agent json_multi_tool_result_merge ac71e4d1745036db3e46a20865773851
+MD5 wn_chain_agent json_multi_tool_result_merge ac71e4d1745036db3e46a20865773851
+MD5 wn_next_edit edit_py_rename ae962017b20503df20a5a58d98239097
+MD5 wn_chain_edit edit_py_rename ae962017b20503df20a5a58d98239097
+MD5 wn_next_edit edit_json_config 4e5d39445d4bb7a26ae854bd16feb62e
+MD5 wn_chain_edit edit_json_config 4e5d39445d4bb7a26ae854bd16feb62e
+MD5 wn_next_edit edit_py_docstrings c8a4b4501c9ef71584cfa88a3bdcd22e
+MD5 wn_chain_edit edit_py_docstrings c8a4b4501c9ef71584cfa88a3bdcd22e
+MD5 wn_cur_prompt 1 bf40a3c2c8a2b67c30cf2d166247756a
+MD5 wn_next_prompt 1 bf40a3c2c8a2b67c30cf2d166247756a
+MD5 wn_ahead_prompt 1 bf40a3c2c8a2b67c30cf2d166247756a
+MD5 wn_cur_prompt 2 44c080e3690618c9d194d829e3113c3f
+MD5 wn_next_prompt 2 44c080e3690618c9d194d829e3113c3f
+MD5 wn_ahead_prompt 2 44c080e3690618c9d194d829e3113c3f
+WINDOWNEXT VALIDATION PASSED: all full-text MD5s and requests match their controls

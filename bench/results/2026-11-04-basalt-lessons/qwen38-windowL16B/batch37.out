@@ -1,0 +1,95 @@
+4e9cc81478629ee215f01b749e9a9a63c6bc1be3f3f8f390334de4a2facc0c6f  /home/ronald_rump/inbox/agents/claude/strata-q38-splitlookup/build/strata
+wl16b_edit_base edit_json_config                1200 tok  329.3 tok/s drafts 1024/1135 4e5d39445d4b
+wl16b_edit_base edit_py_docstrings              1200 tok  398.4 tok/s drafts 1041/1058 c8a4b4501c9e
+wl16b_edit_base edit_py_rename                  1200 tok  394.5 tok/s drafts 1041/1071 ae962017b205
+wl16b_edit_base TOTAL 3600 tok 371.2 tok/s
+wl16b_edit_long edit_json_config                1200 tok  325.0 tok/s drafts 1065/1202 4e5d39445d4b
+wl16b_edit_long edit_py_docstrings              1200 tok  395.5 tok/s drafts 1095/1127 c8a4b4501c9e
+wl16b_edit_long edit_py_rename                  1200 tok  372.9 tok/s drafts 1091/1171 ae962017b205
+wl16b_edit_long TOTAL 3600 tok 362.0 tok/s
+wl16b_edit_wide_off edit_json_config                1200 tok  329.5 tok/s drafts 1024/1135 4e5d39445d4b
+wl16b_edit_wide_off edit_py_docstrings              1200 tok  398.6 tok/s drafts 1041/1058 c8a4b4501c9e
+wl16b_edit_wide_off edit_py_rename                  1200 tok  394.7 tok/s drafts 1041/1071 ae962017b205
+wl16b_edit_wide_off TOTAL 3600 tok 371.4 tok/s
+wl16b_agent_base code_async_batcher              1200 tok  127.5 tok/s drafts 614/776 a02061cc2f69
+wl16b_agent_base code_rust_committed_ring        1200 tok  149.9 tok/s drafts 679/804 e0dbd02ac885
+wl16b_agent_base code_typescript_tool_dispatch   1200 tok  130.2 tok/s drafts 681/785 e114b42223ce
+wl16b_agent_base json_multi_tool_result_merge    1200 tok  152.2 tok/s drafts 668/734 5a327fc3a8c7
+wl16b_agent_base json_parallel_tool_plan         1200 tok  182.9 tok/s drafts 735/787 a7ea152da1ab
+wl16b_agent_base json_patch_tool_payload         1200 tok  128.7 tok/s drafts 606/748 05588ea0f7d0
+wl16b_agent_base TOTAL 7200 tok 142.8 tok/s
+wl16b_agent_long code_async_batcher              1200 tok  127.4 tok/s drafts 614/776 a02061cc2f69
+wl16b_agent_long code_rust_committed_ring        1200 tok  149.7 tok/s drafts 680/802 e0dbd02ac885
+wl16b_agent_long code_typescript_tool_dispatch   1200 tok  149.1 tok/s drafts 681/789 e114b42223ce
+wl16b_agent_long json_multi_tool_result_merge    1200 tok  104.9 tok/s drafts 672/744 5a327fc3a8c7
+wl16b_agent_long json_parallel_tool_plan         1200 tok  180.4 tok/s drafts 734/779 a7ea152da1ab
+wl16b_agent_long json_patch_tool_payload         1200 tok  127.1 tok/s drafts 606/743 05588ea0f7d0
+wl16b_agent_long TOTAL 7200 tok 135.8 tok/s
+wl16b_agent_wide_off code_async_batcher              1200 tok  126.7 tok/s drafts 614/776 a02061cc2f69
+wl16b_agent_wide_off code_rust_committed_ring        1200 tok  148.9 tok/s drafts 679/804 e0dbd02ac885
+wl16b_agent_wide_off code_typescript_tool_dispatch   1200 tok  151.1 tok/s drafts 677/781 e114b42223ce
+wl16b_agent_wide_off json_multi_tool_result_merge    1200 tok  151.4 tok/s drafts 668/734 5a327fc3a8c7
+wl16b_agent_wide_off json_parallel_tool_plan         1200 tok  181.1 tok/s drafts 736/795 a7ea152da1ab
+wl16b_agent_wide_off json_patch_tool_payload         1200 tok  128.7 tok/s drafts 606/737 05588ea0f7d0
+wl16b_agent_wide_off TOTAL 7200 tok 145.9 tok/s
+MD5 wl16b_edit_base edit_py_rename ae962017b20503df20a5a58d98239097
+MD5 wl16b_edit_long edit_py_rename ae962017b20503df20a5a58d98239097
+MD5 wl16b_edit_wide_off edit_py_rename ae962017b20503df20a5a58d98239097
+MD5_COMPARE edit edit_py_rename long vs base: MATCH ae962017b20503df20a5a58d98239097 ae962017b20503df20a5a58d98239097
+MD5_COMPARE edit edit_py_rename long vs wide_off: MATCH ae962017b20503df20a5a58d98239097 ae962017b20503df20a5a58d98239097
+MD5_COMPARE edit edit_py_rename wide_off vs base: MATCH ae962017b20503df20a5a58d98239097 ae962017b20503df20a5a58d98239097
+MD5 wl16b_edit_base edit_json_config 4e5d39445d4bb7a26ae854bd16feb62e
+MD5 wl16b_edit_long edit_json_config 4e5d39445d4bb7a26ae854bd16feb62e
+MD5 wl16b_edit_wide_off edit_json_config 4e5d39445d4bb7a26ae854bd16feb62e
+MD5_COMPARE edit edit_json_config long vs base: MATCH 4e5d39445d4bb7a26ae854bd16feb62e 4e5d39445d4bb7a26ae854bd16feb62e
+MD5_COMPARE edit edit_json_config long vs wide_off: MATCH 4e5d39445d4bb7a26ae854bd16feb62e 4e5d39445d4bb7a26ae854bd16feb62e
+MD5_COMPARE edit edit_json_config wide_off vs base: MATCH 4e5d39445d4bb7a26ae854bd16feb62e 4e5d39445d4bb7a26ae854bd16feb62e
+MD5 wl16b_edit_base edit_py_docstrings c8a4b4501c9ef71584cfa88a3bdcd22e
+MD5 wl16b_edit_long edit_py_docstrings c8a4b4501c9ef71584cfa88a3bdcd22e
+MD5 wl16b_edit_wide_off edit_py_docstrings c8a4b4501c9ef71584cfa88a3bdcd22e
+MD5_COMPARE edit edit_py_docstrings long vs base: MATCH c8a4b4501c9ef71584cfa88a3bdcd22e c8a4b4501c9ef71584cfa88a3bdcd22e
+MD5_COMPARE edit edit_py_docstrings long vs wide_off: MATCH c8a4b4501c9ef71584cfa88a3bdcd22e c8a4b4501c9ef71584cfa88a3bdcd22e
+MD5_COMPARE edit edit_py_docstrings wide_off vs base: MATCH c8a4b4501c9ef71584cfa88a3bdcd22e c8a4b4501c9ef71584cfa88a3bdcd22e
+LONG_LOOKUP wl16b_edit_base 0 windows
+LONG_LOOKUP wl16b_edit_long 163 windows
+LONG_LOOKUP wl16b_edit_wide_off 0 windows
+MD5 wl16b_agent_base code_async_batcher a02061cc2f6961261dc4ec456e19251b
+MD5 wl16b_agent_long code_async_batcher a02061cc2f6961261dc4ec456e19251b
+MD5 wl16b_agent_wide_off code_async_batcher a02061cc2f6961261dc4ec456e19251b
+MD5_COMPARE agent code_async_batcher long vs base: MATCH a02061cc2f6961261dc4ec456e19251b a02061cc2f6961261dc4ec456e19251b
+MD5_COMPARE agent code_async_batcher long vs wide_off: MATCH a02061cc2f6961261dc4ec456e19251b a02061cc2f6961261dc4ec456e19251b
+MD5_COMPARE agent code_async_batcher wide_off vs base: MATCH a02061cc2f6961261dc4ec456e19251b a02061cc2f6961261dc4ec456e19251b
+MD5 wl16b_agent_base code_rust_committed_ring e0dbd02ac885ffbd2a14a6cdf6e6899b
+MD5 wl16b_agent_long code_rust_committed_ring e0dbd02ac885ffbd2a14a6cdf6e6899b
+MD5 wl16b_agent_wide_off code_rust_committed_ring e0dbd02ac885ffbd2a14a6cdf6e6899b
+MD5_COMPARE agent code_rust_committed_ring long vs base: MATCH e0dbd02ac885ffbd2a14a6cdf6e6899b e0dbd02ac885ffbd2a14a6cdf6e6899b
+MD5_COMPARE agent code_rust_committed_ring long vs wide_off: MATCH e0dbd02ac885ffbd2a14a6cdf6e6899b e0dbd02ac885ffbd2a14a6cdf6e6899b
+MD5_COMPARE agent code_rust_committed_ring wide_off vs base: MATCH e0dbd02ac885ffbd2a14a6cdf6e6899b e0dbd02ac885ffbd2a14a6cdf6e6899b
+MD5 wl16b_agent_base code_typescript_tool_dispatch e114b42223ce0989aedaf67dee2268bf
+MD5 wl16b_agent_long code_typescript_tool_dispatch e114b42223ce0989aedaf67dee2268bf
+MD5 wl16b_agent_wide_off code_typescript_tool_dispatch e114b42223ce0989aedaf67dee2268bf
+MD5_COMPARE agent code_typescript_tool_dispatch long vs base: MATCH e114b42223ce0989aedaf67dee2268bf e114b42223ce0989aedaf67dee2268bf
+MD5_COMPARE agent code_typescript_tool_dispatch long vs wide_off: MATCH e114b42223ce0989aedaf67dee2268bf e114b42223ce0989aedaf67dee2268bf
+MD5_COMPARE agent code_typescript_tool_dispatch wide_off vs base: MATCH e114b42223ce0989aedaf67dee2268bf e114b42223ce0989aedaf67dee2268bf
+MD5 wl16b_agent_base json_parallel_tool_plan a7ea152da1abf8d1bcf43a2b312d52f1
+MD5 wl16b_agent_long json_parallel_tool_plan a7ea152da1abf8d1bcf43a2b312d52f1
+MD5 wl16b_agent_wide_off json_parallel_tool_plan a7ea152da1abf8d1bcf43a2b312d52f1
+MD5_COMPARE agent json_parallel_tool_plan long vs base: MATCH a7ea152da1abf8d1bcf43a2b312d52f1 a7ea152da1abf8d1bcf43a2b312d52f1
+MD5_COMPARE agent json_parallel_tool_plan long vs wide_off: MATCH a7ea152da1abf8d1bcf43a2b312d52f1 a7ea152da1abf8d1bcf43a2b312d52f1
+MD5_COMPARE agent json_parallel_tool_plan wide_off vs base: MATCH a7ea152da1abf8d1bcf43a2b312d52f1 a7ea152da1abf8d1bcf43a2b312d52f1
+MD5 wl16b_agent_base json_patch_tool_payload 05588ea0f7d0362867f92f77214601b8
+MD5 wl16b_agent_long json_patch_tool_payload 05588ea0f7d0362867f92f77214601b8
+MD5 wl16b_agent_wide_off json_patch_tool_payload 05588ea0f7d0362867f92f77214601b8
+MD5_COMPARE agent json_patch_tool_payload long vs base: MATCH 05588ea0f7d0362867f92f77214601b8 05588ea0f7d0362867f92f77214601b8
+MD5_COMPARE agent json_patch_tool_payload long vs wide_off: MATCH 05588ea0f7d0362867f92f77214601b8 05588ea0f7d0362867f92f77214601b8
+MD5_COMPARE agent json_patch_tool_payload wide_off vs base: MATCH 05588ea0f7d0362867f92f77214601b8 05588ea0f7d0362867f92f77214601b8
+MD5 wl16b_agent_base json_multi_tool_result_merge 5a327fc3a8c78f3cd2f6e30991c2593c
+MD5 wl16b_agent_long json_multi_tool_result_merge 5a327fc3a8c78f3cd2f6e30991c2593c
+MD5 wl16b_agent_wide_off json_multi_tool_result_merge 5a327fc3a8c78f3cd2f6e30991c2593c
+MD5_COMPARE agent json_multi_tool_result_merge long vs base: MATCH 5a327fc3a8c78f3cd2f6e30991c2593c 5a327fc3a8c78f3cd2f6e30991c2593c
+MD5_COMPARE agent json_multi_tool_result_merge long vs wide_off: MATCH 5a327fc3a8c78f3cd2f6e30991c2593c 5a327fc3a8c78f3cd2f6e30991c2593c
+MD5_COMPARE agent json_multi_tool_result_merge wide_off vs base: MATCH 5a327fc3a8c78f3cd2f6e30991c2593c 5a327fc3a8c78f3cd2f6e30991c2593c
+LONG_LOOKUP wl16b_agent_base 0 windows
+LONG_LOOKUP wl16b_agent_long 0 windows
+LONG_LOOKUP wl16b_agent_wide_off 0 windows
+WINDOWL16B VALIDATION PASSED: full text/MD5 matches base and equal-geometry control; edit long activated

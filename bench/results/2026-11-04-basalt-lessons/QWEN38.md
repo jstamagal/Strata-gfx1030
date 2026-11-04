@@ -387,3 +387,33 @@ in other arms). The alternative, --kv-resident 61440 with slots 0, only gets car
 zero-doorbell graph, no gain. **ADOPTED** in the IQ3_S config (`STRATA_KV_PF_SLOTS=1`); harness copies synced. The
 cost is about 3% on a 120K cold prompt. Not applied to Q4_0/UD4: they can't reach full residency, which is where the
 gain comes from.
+
+## Window NEXT: integration binary (tp-prompt + rdna2-mmq merges, Q6 proxy auto, MMVQ dispatcher fix), IQ3_S
+
+Raw: `qwen38-windowNEXT/`. basalt38/next at 814720e71 (sha256 d0211251…). The validator passed: all full-text MD5s
+match across cur/next/chain arms. KV_PF_SLOTS=1 in every arm.
+
+| arm | agent tok/s | 36K prompt tok/s | edits tok/s |
+|---|---|---|---|
+| cur (today's build-hip) | 129.3 (contaminated: BF16 download + scans) | 1994 (contaminated) / 2692 | — |
+| next | 147.4 | 2720 / 2741 | 369.1 |
+| next + STRATA_PF_ROUTE_AHEAD=0,32 | — | 2188 / 2303 (**-16%**) | — |
+| next + STRATA_MTP_CHAIN_CAP=1 (5 chain outputs, not 7) | 143.8 (5 of 6 cases within 0.3%; json_multi 126 vs 147) | — | 348.9 (**-5.5%**) |
+
+Route-ahead loses on IQ3_S: with every expert resident there is nothing to prefetch. It stays a UD4/Q4_0 candidate
+(its +6.4% came on UD4 26+4096). The chain cap is rejected. The next binary matches cur's text and speed; clean cur
+arms are queued (batch39/40).
+
+## Window L16B: 16-row split lookup with the MMVQ dispatcher fix (27d713fbc), IQ3_S
+
+Raw: `qwen38-windowL16B/`. The validator passed: text matches base and the equal-geometry control.
+
+| arm | edits tok/s | agent tok/s | long windows |
+|---|---|---|---|
+| base (8 rows) | 371.2 | 142.8 | 0 |
+| --lookup-max-t 16, gate on | 362.0 (-2.5%) | 135.8 (one-case swings both ways; 4 of 6 cases equal) | 163 on edits, 0 on agent |
+| --lookup-max-t 16, gate off | 371.4 | 145.9 | 0 |
+
+Long windows now accept 93-100% of drafts (616/660, 884/885, 880/900) and the text is right, but a 16-row window
+costs about as much as two 8-row ones, so there's no gain. Per-stage trace analysis is with the building agent.
+**The dispatcher bug was real and is also on main** (single-GPU wide lookup, --batch 9..16, wide-MTP fallback).
