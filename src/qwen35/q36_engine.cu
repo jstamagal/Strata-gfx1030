@@ -79,7 +79,7 @@
 
 #include "q36_tp_branches.cuh"
 #include "q36_tp_launch_stats.cuh"
-#include "q36_attn.cuh"
+#include "q36_attn_rows.cuh"
 
 namespace {
 
@@ -1835,7 +1835,16 @@ struct Engine {
 
     /// One device's own buffers (the active device's members): activations, the prompt's GEMM / MMQ / attention
     /// scratch, the argmax and routing tables, the input words, the vision tables.
+    std::vector<bool> attn_rows_device;
     void alloc_dev() {
+        attn_rows_device.resize((size_t) n_dev, false);
+#if defined(__HIPCC__)
+        hipDeviceProp_t ap;
+        CK(hipGetDeviceProperties(&ap, cur_dev));
+        const char* ar = std::getenv("STRATA_Q36_ATTN_ROWS");
+        attn_rows_device[(size_t) cur_dev] = (!ar || ar[0] != '0') && ap.warpSize == 32 &&
+            std::strncmp(ap.gcnArchName, "gfx1030", 7) == 0 && (ap.gcnArchName[7] == '\0' || ap.gcnArchName[7] == ':');
+#endif
         const auto& g = m->g;
         const size_t T = (size_t) tmax, N = (size_t) g.n_embd, Kp = (size_t) m->top_k, FF = (size_t) g.n_ff;
         const size_t C = (size_t) g.ssm_conv_channels;
@@ -2648,6 +2657,16 @@ struct Engine {
                     // --kv-resident: the same kernels reading each cell from its staging window, ring or host row
                     auto part = [&](auto stream_on) {
                         constexpr bool S = decltype(stream_on)::value;
+#if defined(__HIPCC__)
+                        if constexpr (!S) {
+                            if (attn_rows_device[(size_t) cur_dev] && !gqa_off &&
+                                attn_rows_eligible(HD, H, HKV, rs, S, rows_mode)) {
+                                k_attn_part_rows<<<dim3(std::min(nc, 64), nt * H / 4), kThreads, 0, st>>>(
+                                    q, kl, vl, dpos, t0, H, HKV, ctx, a_scale, n_chunk, pacc, pm, pl, nt);
+                                return;
+                            }
+                        }
+#endif
                         if (tp && (tp_attn_rows || tp_attn_graph_rows) && p0 + t0 + nt <= kChunkCells * 4)
                             k_attn_part<S><<<dim3(graph_mode ? std::min(n_chunk, 4) : nc, nt * H), kChunkCells, 0, st>>>(
                                 q, kl, vl, dpos, t0, H, HKV, ctx, a_scale, n_chunk, pacc, pm, pl, rs, stream);

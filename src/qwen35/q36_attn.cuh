@@ -1,5 +1,8 @@
 #pragma once
 
+#include <cuda_fp16.h>
+#include <cuda_runtime.h>
+#include <cmath>
 #include <cstdint>
 
 namespace q36attn {
