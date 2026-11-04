@@ -845,3 +845,18 @@ guessed window's forced chain), agent x2 + edit x1, pipeline traces + DECODE_TIM
 - Offline gate curve for window 18 (live drafter, full vocab): gated E[L] agent B 3.570 / 3.421 / 2.956 at
   p >= 0.4 / 0.5 / 0.7; edit 5.295 / 5.202 / 5.029. Longer accepted runs at a lower gate cost more verified rows
   (0.9-1.4 ms/row); window 18's engine arms decide.
+
+## Swarm run 2 final (gruff, 17:45; saved as docs/swarm/reports/gruff.md from KING's paste)
+
+Its top three map onto the queue as follows:
+1. **Full-A rollback GDN skip** — built (`STRATA_PL_UNDO_KEEP_GDN`, bdb6954d0), window UKG queued. It skips both
+   the restore and the GDN replay (count word 0), as the final requires. Parity: with undo_keep == A.T the kept state
+   is the output of the same commit kernel on the same rows from the same starting state as the replay, so it is
+   identical by construction wherever B wrote nothing; text match over ~50K tokens of agent+edit greedy decoding
+   (hundreds of kept rollbacks) tests that end to end. Forced-miss/EOS/cancel cases are covered by the same identity.
+2. **HANDOFF_PIPE** — ZB prompt arms now 2, 4 and 8. A 118K follow-up only if one wins.
+3. **Cost-aware width selection reaching the pipelined MTP** — code road, not queued. CHN adds a constraint: a
+   guessed window's fixed ~8 ms makes wider windows cheaper per token (1-row guessed windows: 8.9 ms for 1.0 tok;
+   live 3-row: ~12 ms for 2.1-2.75 tok), so any cost rule must use V620 per-class costs, not a per-row model.
+Dissents noted: COHERENT stays cut (CLR source; DOORBELL_STORE runs alone). Replay after a #267 respawn needs output
+and tool idempotency first (server-side MCP actions).
