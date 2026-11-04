@@ -970,3 +970,33 @@ PREFILL_SWIGLU_QUANT, PREFILL_COMBINE_WRITE and HANDOFF_PIPE are dead on this co
   arena is exactly what KFD userptr eviction and restore walk. Window RXP (queued) checks memory, reclaim and gaps.
 - zb_prof (STRATA profile on, 115.0 tok/s, profiling overhead): steady windows 19.1-20.6 ms, avg T 2.29-2.80, 2.03-2.67
   tokens/window; stage 0 GPU: VRAM hits 1.96-2.98 ms, q8+qkv gemv ~1.05, out-proj 0.84, z 0.68; stage 1 ~10% lighter.
+
+## Window EVP: forced compaction makes stalls, but mostly not through userptr eviction (done 18:34)
+
+Main build-hip d4d10152, harness IQ3_S config, traces on. Sets: q quiet, p = `echo 1 > /proc/sys/vm/compact_memory`
+every 10 s for the whole arm, c = `--conversation-cache-mib 0`. Agent x3 + edit x2 per set, interleaved.
+
+| set | agent tok/s | agent gaps > 300 ms | edit tok/s | edit gaps |
+|---|---|---|---|---|
+| q | 148.9 | 0 | 345.1 | 1 (1346 ms, ev_q_edit_1 request 3) |
+| p | 146.4 (-1.7%) | 5 (400, 508, 425 / 386 / 486 ms; sum 2205) | 368.5 | 0 |
+| c | 148.9 | 0 | 368.2 | 0 |
+
+- Forced compaction causes stalls: 5 gaps in 3 agent arms vs 0 quiet. They are shorter (386-508 ms) than the
+  natural 1-4 s gaps.
+- Only 1 of the 5 sits next to a KFD userptr eviction (18:20:06.424, in the `tee` writing compact_memory, 2 ms after
+  the gap started). The other 4 have no eviction or restore within -0.5/+0.1 s. The second probe (evict2.bt: the
+  eviction fence, process suspend, full BO restore) logged NOTHING in 40 min, loads and teardowns included: that path
+  never fires here. So compaction stalls the pipeline mostly some other way (inference: page migration of memory the
+  host threads or the GPU touch: migration entries block the faulting thread; the decode host threads were seen in
+  direct compaction/reclaim, compact.bt).
+- The conversation cache off (c) changes nothing on a quiet box (both 0 gaps); its edit runs match p's speed.
+- The quiet edit gap (1346 ms, request 3 of ev_q_edit_1) had no eviction nearby either.
+- Quiet agent arms had 0 gaps, so a quiet-only fix test proves nothing: window RXP was changed to run live and
+  `--resident-experts` both quiet and under compact_memory every 10 s (16 arms).
+
+## Window HWQ2: 4 hardware queues is the ceiling (18:34-18:36)
+
+GPU_MAX_HW_QUEUES 8, 6 and 5 each oversubscribed card 0's HWS runlist on the first probe (watchdog killed each run).
+4 (live) is the largest count that fits. Window HWQ3 (3 and 2 vs 4, agent x2, only because HWQ2 found nothing above 4)
+is appended after RXP. Inference to check: the vision process (strata-vision on GPU) also holds card-0 queues.
