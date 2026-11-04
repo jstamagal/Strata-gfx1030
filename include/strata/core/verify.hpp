@@ -771,6 +771,10 @@ private:
     uint8_t* arg_scratch_ = nullptr;   ///< argmax_rows' partials and counters
     // STRATA_HEAD_WIDE=1 (kernels/head_wide.hpp): the head, the greedy pick and the non-finite flag in two launches
     void* head_wide_scratch_ = nullptr;        ///< the workgroups' picks (its own allocation; null: off)
+    void* head_screen_scratch_ = nullptr;
+    int32_t *h_head_keep_ = nullptr, *m_head_keep_ = nullptr;
+    mutable bool screened_logits_ = false;
+    bool exact_head_logits() const;
     uint32_t* route_done_ = nullptr;           ///< STRATA_ROUTE_PLAN=2: the fused router launch's row counter (device)
     // STRATA_HEAD_SAMPLE=1 (sample_tokens_staged): a sampled request's draws as nodes of the window's graph
     void* sp_scratch_ = nullptr;               ///< the split sampler's block lists (its own allocation; null: off)

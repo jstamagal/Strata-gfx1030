@@ -66,6 +66,8 @@
 #include "strata/kernels/rope.hpp"
 #include "strata/kernels/s2_expert_grouped.hpp"
 #include "strata/kernels/head_wide.hpp"
+#include "strata/kernels/head_screen.hpp"
+#include "strata/kernels/head_dump.hpp"
 #include "strata/kernels/route_plan.hpp"
 #include "strata/kernels/sampler.hpp"
 #include "strata/core/progress.hpp"
@@ -771,6 +773,8 @@ Verifier::~Verifier() {
     if (arena_) cudaFree(arena_);
     if (route_done_) cudaFree(route_done_);
     if (head_wide_scratch_) cudaFree(head_wide_scratch_);
+    if (head_screen_scratch_) cudaFree(head_screen_scratch_);
+    if (h_head_keep_) cudaFreeHost(h_head_keep_);
     if (sp_scratch_) cudaFree(sp_scratch_);
     if (sp_dev_) cudaFree(sp_dev_);
     if (hcount_d_) cudaFree(hcount_d_);
@@ -1133,6 +1137,14 @@ bool Verifier::init(const WeightTable& wt, const ModelGeometry& g, SessionState&
     // STRATA_HEAD_WIDE=1 / STRATA_HEAD_SAMPLE=1 (opt-in, the last stage only): their own small allocations, so the
     // arena above is the same bytes with them off.  A failed allocation leaves the switch off for this verifier.
     if (le_ == g.n_layers && head_ != nullptr && head_->loaded()) {
+        if (head_->screen_copy()) {
+            if (cudaMalloc(&head_screen_scratch_, strata::kernels::head_screen_scratch_bytes()) != cudaSuccess ||
+                !mapped(64, (void**)&h_head_keep_, (void**)&m_head_keep_)) {
+                (void)cudaGetLastError();
+                if (head_screen_scratch_) cudaFree(head_screen_scratch_);
+                head_screen_scratch_ = nullptr;
+            } else *h_head_keep_ = 0;
+        }
         if (strata::kernels::head_wide_enabled() &&
             strata::kernels::head_wide_supported(head_->type(), (int) N, (int) n_vocab_, 1)) {
             if (cudaMalloc(&head_wide_scratch_, strata::kernels::head_wide_scratch_bytes()) != cudaSuccess) {
@@ -2748,7 +2760,10 @@ bool Verifier::record_window(int T, cudaStream_t cs, std::string& err) {
         // STRATA_HEAD_WIDE=1: the head's logits (native_mmvq's bits), the greedy pick and the non-finite flags in two
         // launches (kernels/head_wide.hpp); one column chunk only (a window up to kFusedGrMaxT rows), not for a
         // recorded batch window wider than the kernel's columns
-        const bool head_wide_on = T <= kFusedGrMaxT && head_wide_scratch_ != nullptr && head_ != nullptr && head_->loaded() &&
+        const bool head_screen_on = !batch_rec_ && T <= kFusedGrMaxT && head_screen_scratch_ != nullptr &&
+            head_ != nullptr && head_->screen_copy() != nullptr &&
+            strata::kernels::head_screen_supported(head_->type(), (int)N, (int)n_vocab_, T);
+        const bool head_wide_on = !head_screen_on && T <= kFusedGrMaxT && head_wide_scratch_ != nullptr && head_ != nullptr && head_->loaded() &&
                                   strata::kernels::head_wide_supported(head_->type(), (int) N, (int) n_vocab_, T);
       for (int h0 = 0; h0 < T; h0 += kFusedGrMaxT) {
         const int HT = std::min(T - h0, kFusedGrMaxT);   // this chunk's columns: h0 .. h0 + HT
@@ -2826,7 +2841,16 @@ bool Verifier::record_window(int T, cudaStream_t cs, std::string& err) {
                 }
             }
         }
-        if (head_wide_on) {   // (T <= kFusedGrMaxT: this is the window's one chunk, h0 = 0)
+        if (head_screen_on) {
+            try {
+                if (!q8_head) native_quantize_q8_1(head_mixed_, xq_, (int)N, T, cs);
+                strata::kernels::head_screen(head_->type(), head_->screen_copy(), head_->weights(), xq_, head_logits_,
+                                            (int)n_vocab_, T, m_head_keep_, head_screen_scratch_, cs);
+            } catch (const std::exception& e) {
+                err = std::string("verify head screen: ") + e.what();
+                return false;
+            }
+        } else if (head_wide_on) {   // (T <= kFusedGrMaxT: this is the window's one chunk, h0 = 0)
             try {
                 if (!q8_head) native_quantize_q8_1(head_mixed_, xq_, (int) N, T, cs);
                 strata::kernels::head_wide(head_->weights(), xq_, head_logits_, (int) N, (int) n_vocab_, T,
@@ -2851,6 +2875,10 @@ bool Verifier::record_window(int T, cudaStream_t cs, std::string& err) {
                 return false;
             }
         }
+        if (head_ != nullptr && head_->loaded())
+            strata::kernels::head_dump_record(0, head_->type(), (int)n_vocab_, T, HT, h0, -1,
+                head_mixed_ + (size_t)h0*N, xq_, head_logits_ + (size_t)h0*n_vocab_, nullptr,
+                pos_ + (size_t)h0*g.n_head, (int)g.n_head, 0, cs);
       }   // the head's column chunks
         // Greedy, the default, is recorded here as before (no extra launch or sync per window). A request that
         // samples or penalizes is sampled again host-side after the replay (run()) with its own parameters and a
@@ -3305,6 +3333,12 @@ void Verifier::stage_inputs(int T, const int32_t* tokens, int64_t pos0) {
         for (int64_t h = 0; h < g.n_head; ++h) h_pos_[t * g.n_head + h] = pos_t;
         for (int64_t h = 0; h < g.n_head_kv; ++h) pk[t * g.n_head_kv + h] = pos_t;
         for (int64_t h = 0; h < g.idx_q_heads; ++h) pi[t * g.idx_q_heads + h] = pos_t;
+    }
+    if (h_head_keep_ != nullptr) {
+        const bool full = (spec_q_ != nullptr && spec_nq_ > 0) || strata::kernels::head_dump_enabled() ||
+                          std::getenv("STRATA_LOGITS_DUMP") || std::getenv("STRATA_DBG_NAN");
+        *h_head_keep_ = strata::kernels::head_screen_keep(sampling_, head_sampling_, full);
+        screened_logits_ = *h_head_keep_ > 0 && T <= kFusedGrMaxT;
     }
     if (h_sp_ != nullptr) {
         // STRATA_HEAD_SAMPLE=1: this window's sampling parameters for the graph's sampler nodes; `greedy` for a
@@ -3901,6 +3935,7 @@ bool Verifier::run(int T, const int32_t* tokens, int64_t pos0, PoolMultiFn pool,
     for (int t = 0; t < T; ++t) out[t] = ((volatile int32_t*) h_out_)[t];
     if (tap_file_ != nullptr && !batch_rec_) tap_write(T, tokens, pos0);
     note_nonfinite(T, nullptr);
+    strata::kernels::head_dump_flush();
     // STRATA_LOGITS_DUMP=<path> (debug tap, off by default): the window's logits as the sampler saw them, written
     // AFTER the window (the stream is synchronised above and the graph capture is over, so a plain copy is legal -
     // the same place STRATA_DBG_NAN copies from).  One record is
@@ -4058,6 +4093,7 @@ bool Verifier::window_logprobs(const int32_t* targets, int T, int64_t pos0, int3
         err = "window_logprobs: no head logits for this window";
         return false;
     }
+    if (!exact_head_logits()) { err = "window_logprobs: exact head reconstruction failed"; return false; }
     // run() synchronized cs_ before returning, so the head of this window is complete
     std::vector<float> h((size_t) T * (size_t) n_vocab_);
     if (cudaMemcpy(h.data(), head_logits_, h.size() * sizeof(float), cudaMemcpyDeviceToHost) != cudaSuccess) {
@@ -5177,6 +5213,7 @@ bool Verifier::sample_rows(int S, std::string& err) {
 
 bool Verifier::batch_launch(int base, int S, const int32_t* tokens, const int64_t* pos, std::string& err) {
     const OnDevice on_device(device_);
+    screened_logits_ = false;
     if (b_running_) { err = "verify: batch_launch while this stage is busy"; return false; }
     int rows[strata::kernels::kVerifyMaxT] = {};
     for (int t = 0; t < S && t < strata::kernels::kVerifyMaxT; ++t) rows[t] = base + t;
@@ -5368,12 +5405,26 @@ void Verifier::note_nonfinite(int T, const int64_t* pos_b) {
     if (nf_row_ >= 0) nf_pos_ = pos_b != nullptr ? pos_b[nf_row_] : last_pos0_ + nf_row_;
 }
 
+bool Verifier::exact_head_logits() const {
+    if (!screened_logits_) return true;
+    const OnDevice on_device(device_);
+    if (!head_ || !head_->loaded() || last_t_ <= 0) return false;
+    std::string err;
+    for (int t = 0; t < last_t_; ++t)
+        if (!head_->run(head_mixed_ + (size_t)t * g_->n_embd,
+                        head_logits_ + (size_t)t * n_vocab_, cs_, err)) return false;
+    if (cudaStreamSynchronize(cs_) != cudaSuccess) return false;
+    screened_logits_ = false;
+    return true;
+}
+
 bool Verifier::copy_logits(int t, float* host) const {
 #if defined(STRATA_GPU_METAL)
     return strata::metal_engine::window_copy_logits(metal_, t, host);
 #endif
     if (next_ != nullptr) return next_->copy_logits(t, host);   // a layer split: the head is on the last stage
-    if (head_logits_ == nullptr || host == nullptr || t < 0 || n_vocab_ <= 0) return false;
+    const OnDevice on_device(device_);
+    if (head_logits_ == nullptr || host == nullptr || t < 0 || n_vocab_ <= 0 || !exact_head_logits()) return false;
     return cudaMemcpy(host, head_logits_ + (size_t) t * (size_t) n_vocab_, (size_t) n_vocab_ * sizeof(float),
                       cudaMemcpyDeviceToHost) == cudaSuccess;
 }
@@ -5725,6 +5776,7 @@ bool Verifier::pl_finish(int32_t* out, std::string& err) {
     if (out != nullptr)
         for (int t = 0; t < T; ++t) out[t] = ((volatile int32_t*) h_out_)[t];
     note_nonfinite(T, nullptr);
+    strata::kernels::head_dump_flush();
     progress_beat();
     return true;
 }

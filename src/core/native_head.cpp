@@ -3,6 +3,8 @@
 #include "strata/artifact/gguf_reader.hpp"
 #include "strata/kernels/iq_kernels.hpp"
 #include "strata/kernels/native_mmvq.hpp"
+#include "strata/kernels/head_screen.hpp"
+#include "strata/kernels/head_dump.hpp"
 #include "strata/platform/memory.hpp"
 
 #include <cuda_runtime.h>
@@ -11,6 +13,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <exception>
+#include <stdexcept>
 
 namespace strata::core {
 
@@ -19,9 +22,13 @@ NativeHead::~NativeHead() {
 }
 
 void NativeHead::unload() {
+    strata::kernels::head_dump_flush();
     if (weights_) strata::kernels::native_q6_k_unpack(weights_);
     if (weights_) strata::kernels::native_q8_0_sm60_release(weights_);
     if (scratch_) cudaFree(scratch_);
+    if (screen_copy_) cudaFree(screen_copy_);
+    screen_copy_ = nullptr;
+    screen_bytes_ = 0;
     if (host_) cudaFreeHost(host_);   // the mapped-host fallback (weights_ is its device alias)
     else if (weights_) cudaFree(weights_);
     scratch_ = nullptr;
@@ -103,6 +110,28 @@ bool NativeHead::load(const std::vector<std::string>& shards, int64_t n_in, int6
         n_in_ = (int) n_in;
         n_out_ = (int) n_out;
         type_ = (int) tensor->type;
+        strata::kernels::head_dump_prepare(n_in_);
+        if (!host_ && !strata::kernels::native_q6_k_packed_enabled() &&
+            strata::kernels::head_screen_enabled(type_) &&
+            strata::kernels::head_screen_supported(type_, n_in_, n_out_, 1)) {
+            const size_t sb = strata::kernels::head_screen_copy_bytes(type_, n_out_);
+            if (cudaMalloc(&screen_copy_, sb) == cudaSuccess) {
+                try {
+                    strata::kernels::head_screen_pack(type_, weights_, n_out_, screen_copy_, nullptr);
+                    const auto e = cudaDeviceSynchronize();
+                    if (e != cudaSuccess) throw std::runtime_error(cudaGetErrorString(e));
+                    screen_bytes_ = sb;
+                    std::fprintf(stderr, "strata head: certified %s screen copy (%llu MiB); exact GGUF rows retained\n",
+                                 type_ == 8 ? "Q8_0" : "Q6_K", (unsigned long long)(sb >> 20));
+                } catch (const std::exception& e) {
+                    cudaFree(screen_copy_); screen_copy_ = nullptr;
+                    std::fprintf(stderr, "strata head: screen copy failed (%s); exact head retained\n", e.what());
+                }
+            } else {
+                (void)cudaGetLastError(); screen_copy_ = nullptr;
+                std::fprintf(stderr, "strata head: screen copy did not fit; exact head retained\n");
+            }
+        }
         if (type_ == 14 && strata::kernels::native_q6_k_packed_enabled())   // STRATA_Q6_PACKED=1
             strata::kernels::native_q6_k_pack(weights_, n_in_, n_out_, "output head");
         if (type_ == 8)   // STRATA_Q8_SM60=1 (a no-op otherwise); the MTP draft head reads the same matrix

@@ -498,6 +498,9 @@ if(STRATA_ENABLE_CUDA OR STRATA_ENABLE_HIP)
                           src/kernels/cuda/bf16_gemv.cu
                           src/kernels/cuda/native_mmvq.cu
                           src/kernels/cuda/head_wide.cu
+                          src/kernels/cuda/head_screen.cu
+                          src/kernels/cuda/head_proxy.cu
+                          src/kernels/cuda/head_dump.cu
                           src/kernels/cuda/route_plan.cu
                           src/kernels/cuda/native_bf16.cu
                           src/kernels/cuda/native_gr_norm.cu
@@ -1176,6 +1179,18 @@ if(STRATA_ENABLE_CUDA OR STRATA_ENABLE_HIP)
     set_tests_properties(hip_head_parity_tsum PROPERTIES ENVIRONMENT "STRATA_TSUM=1")
     set_tests_properties(hip_head_parity hip_head_parity_tsum PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 600)
     list(APPEND _strata_hip_tests hip_head_parity)
+    set_source_files_properties(tests/hip/head_screen.cpp PROPERTIES LANGUAGE HIP)
+    add_executable(hip_head_screen_parity tests/hip/head_screen.cpp)
+    target_link_libraries(hip_head_screen_parity PRIVATE strata_kernels strata_hip_runtime)
+    add_test(NAME hip_head_screen_parity COMMAND hip_head_screen_parity)
+    add_test(NAME hip_head_screen_parity_tsum COMMAND hip_head_screen_parity)
+    add_test(NAME hip_head_screen_proxy_bound COMMAND hip_head_screen_parity)
+    add_test(NAME hip_head_dump COMMAND hip_head_screen_parity --dump-test ${CMAKE_CURRENT_BINARY_DIR}/head-dump-test.shd)
+    set_tests_properties(hip_head_screen_parity_tsum PROPERTIES ENVIRONMENT "STRATA_TSUM=1")
+    set_tests_properties(hip_head_screen_proxy_bound PROPERTIES ENVIRONMENT "STRATA_HEAD_Q6_BITS=2;STRATA_TSUM=1")
+    set_tests_properties(hip_head_screen_parity hip_head_screen_parity_tsum hip_head_screen_proxy_bound hip_head_dump
+                        PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 600)
+    list(APPEND _strata_hip_tests hip_head_screen_parity)
     # STRATA_ROUTE_PLAN: the routing top-10 and the all-resident plan in one launch against the two kernels, bit for
     # bit (ids, weights, the plan's bytes); --bench times 48 layers of the router chain in a captured graph
     add_executable(hip_route_plan_parity tests/hip/route_plan_parity.cpp)

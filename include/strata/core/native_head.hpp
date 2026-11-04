@@ -26,7 +26,8 @@ public:
     bool to_host(std::string& err);
     bool on_host() const { return host_ != nullptr; }
     bool run(const float* mixed, float* logits, void* stream, std::string& err) const;
-    uint64_t weight_bytes() const { return bytes_; }
+    uint64_t weight_bytes() const { return bytes_ + screen_bytes_; }
+    const void* screen_copy() const { return screen_copy_; }
     bool loaded() const { return weights_ != nullptr; }
     /// Plan v0.3 P6: the GGUF blocks, for the verify window's multi-column head.
     const void* weights() const { return weights_; }
@@ -40,6 +41,8 @@ private:
     void* weights_ = nullptr;
     void* host_ = nullptr;   // the pinned host buffer weights_ aliases when the head did not fit in VRAM
     void* scratch_ = nullptr;
+    void* screen_copy_ = nullptr;
+    uint64_t screen_bytes_ = 0;
     uint64_t bytes_ = 0;
     int n_in_ = 0, n_out_ = 0;
     int type_ = -1;
