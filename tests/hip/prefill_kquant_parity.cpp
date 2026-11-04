@@ -212,7 +212,10 @@ bool check(const Case& c) {
 
     // the activations as the device quantizer stored them: 144-byte blocks {16 bytes of scales / sums; 128 codes},
     // block (k / 128, row) at index (k / 128) * total + row.  Q4_K / Q5_K: {f16 d, f16 sum} per 32; Q6_K: f32 d per 32.
-    const bool ds4 = type != GGML_TYPE_Q6_K;
+    // Q6_K normally has D4 and can use the fused D4 producer; the opt-in DK
+    // layout cannot. Query the actual compiled/running layout, not just getenv.
+    const bool q8k = !mmq::swiglu_quant_ok(GGML_TYPE_Q6_K);
+    const bool ds4 = !q8k && type != GGML_TYPE_Q6_K;
     std::vector<int8_t> qa((size_t) total * cols);
     std::vector<double> da((size_t) total * (cols / 32)), sa((size_t) total * (cols / 32), 0.0);
     long qbad = 0;
@@ -223,7 +226,14 @@ bool check(const Case& c) {
             std::memcpy(qa.data() + (size_t) r * cols + b * 128, blk + 16, 128);
             for (int gq = 0; gq < 4; ++gq) {
                 double d, sum = 0;
-                if (ds4) { d = f16(blk + 4 * gq); sum = f16(blk + 4 * gq + 2); }
+                if (q8k) {
+                    float f; int16_t bs;
+                    std::memcpy(&f, blk, 4); std::memcpy(&bs, blk+4+2*gq, 2);
+                    d = f; sum = d*bs;
+                    int want = 0;
+                    for (int k = 0; k < 32; ++k) want += (int8_t) blk[16+gq*32+k];
+                    if (bs != want) ++qbad;
+                } else if (ds4) { d = f16(blk + 4 * gq); sum = f16(blk + 4 * gq + 2); }
                 else { float f; std::memcpy(&f, blk + 4 * gq, 4); d = f; }
                 const size_t gi = (size_t) r * (cols / 32) + b * 4 + gq;
                 da[gi] = d; sa[gi] = sum;
@@ -373,6 +383,8 @@ int main(int argc, char** argv) {
             all &= check({t, 2560, 768, {37, 0, 70, 32, 1, 129}, seed++, false});  // in place of down
             all &= check({t, 2560, 768, {0, 320, 64, 3, 0, 200, 8}, seed++, false});
             all &= check({t, 2560, 2560, {203}, seed++, false});                   // a dense projection
+            for (int j : {80, 96, 112, 128})
+                all &= check({t, 128, 512, {j}, seed++, true});                   // owner's wider J tiles
         }
         const std::vector<int> even(16, 320);
         const std::vector<int> uneven = {1100, 0, 37, 640, 0, 0, 500, 12, 900, 0, 64, 700, 5, 0, 1000, 162};   // 5120 rows too

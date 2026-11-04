@@ -21,8 +21,25 @@
 #include <cstring>
 #include <type_traits>
 
+#if defined(STRATA_MMQ_Q8K_BUILT)
+void strata_quantize_mmq_iq_q8k_cuda(const float*, const int32_t*, void*, int64_t, int64_t, int64_t, int, bool, cudaStream_t);
+#endif
+
 namespace strata::prefill::mmq {
 namespace {
+bool iq_q8k_on(int type) {
+#if defined(STRATA_MMQ_Q8K_BUILT)
+    static const bool on = [] { const char* e = std::getenv("STRATA_PF_IQ_Q8K"); return e && e[0] == '1'; }();
+    static const bool iq2 = [] { const char* e = std::getenv("STRATA_PF_IQ2S"); return e && e[0] == '1'; }();
+    static const bool iq3 = [] { const char* e = std::getenv("STRATA_PF_IQ3"); return e && e[0] == '1'; }();
+    return on && q4::gfx103x() && ((iq2 && type == GGML_TYPE_IQ2_S) ||
+        (iq3 && (type == GGML_TYPE_IQ3_XXS || type == GGML_TYPE_IQ3_S)));
+#else
+    (void) type;
+    return false;
+#endif
+}
+
 // The Gyro trellis types (ids 144-146) are outside the type table of an upstream ggml (indexed by the id): their block
 // geometry is known here (128 weights; 34 / 26 / 30 bytes), everything else asks ggml.
 inline bool is_tq(int t) { return t >= 144 && t <= 149; }   // 144-146 TQ/TQK, 147-149 the pair trellis (Gyro-L)
@@ -268,8 +285,39 @@ __device__ __forceinline__ int q51_ld32(const void* p) {
     return v;
 }
 
+#ifdef STRATA_RDNA2_DOT_Z
+[[maybe_unused]] static constexpr bool strata_prompt_dot_z_build = true;
+#else
+[[maybe_unused]] static constexpr bool strata_prompt_dot_z_build = false;
+#endif
+
+__device__ __forceinline__ int strata_prompt_dp4a(int a, int b, int c) {
+#if defined(STRATA_RDNA2_DOT_Z) && defined(__HIP_DEVICE_COMPILE__) && \
+    (defined(__gfx1030__) || defined(__gfx1031__) || defined(__gfx1032__))
+    if (__builtin_constant_p(c) && c == 0) {
+        asm("v_dot4_i32_i8 %0, %1, %2, 0" : "=v"(c) : "v"(a), "v"(b));
+        return c;
+    }
+#endif
+    return ggml_cuda_dp4a(a, b, c);
+}
+
+template <int VDR>
+__device__ __forceinline__ float q51_native_dot(const int* v, const int* u, half2 dm, half2 ds) {
+    int sum = 0;
+#pragma unroll
+    for (int k = 0; k < VDR; ++k) sum = strata_prompt_dp4a(v[k], u[k], sum);
+#ifdef FAST_FP16_AVAILABLE
+    const float2 p = __half22float2(__hmul2(dm, ds));
+    return sum*p.x + p.y/(QI8_1/VDR);
+#else
+    const float2 a = __half22float2(dm), b = __half22float2(ds);
+    return sum*(a.x*b.x) + (a.y*b.y)/(QI8_1/VDR);
+#endif
+}
+
+template <int TJ>
 __global__ void __launch_bounds__(256) q51_sload_kernel(ArgsQ51 a) {
-    constexpr int TJ = 32;
     constexpr int CW = sizeof(block_q8_1_mmq) / sizeof(int);   // 36
     const int t = threadIdx.x;
     const int e = blockIdx.z;
@@ -320,7 +368,7 @@ __global__ void __launch_bounds__(256) q51_sload_kernel(ArgsQ51 a) {
                     for (int k = 0; k < 8; ++k) u[k] = aj[4 + b * 8 + k];
                     half2 ds;
                     __builtin_memcpy(&ds, aj + b, 4);
-                    acc[jj] += vec_dot_q8_1_q8_1_impl<QR5_1 * VDR_Q5_1_Q8_1_MMQ>(&w[b * 8], u, dm[b], ds);
+                    acc[jj] += q51_native_dot<QR5_1 * VDR_Q5_1_Q8_1_MMQ>(&w[b * 8], u, dm[b], ds);
                 }
             }
         }
@@ -354,7 +402,7 @@ __device__ __forceinline__ int iq_grid_sign(unsigned grid, unsigned signs) {
 // activation address is uniform across the workgroup, allowing scalar loads.
 // TJ: activation rows (tokens) a block takes; each row's sum runs over c and b in the same order whatever TJ is, so
 // every TJ gives the same bits (STRATA_PF_IQ_TJ picks it; 16 is the default)
-template <int TJ>
+template <int TJ, bool Q8K = false>
 __global__ void __launch_bounds__(256) iq2s_sload_kernel(ArgsQ51 a) {
     constexpr int NT = 256, CW = sizeof(block_q8_1_mmq) / sizeof(int);
     const int e = blockIdx.z;
@@ -369,13 +417,19 @@ __global__ void __launch_bounds__(256) iq2s_sload_kernel(ArgsQ51 a) {
         const int off = (c % 2) * 4;
         int w[32];
         float d[8];
+        int sc[8];
 #pragma unroll
         for (int b = 0; b < 4; ++b) {
             const int qh = bx->qh[off + b];
             const float db = bx->d;
             const int ls = bx->scales[off + b];
-            d[2*b] = ((ls & 15)*db + db/2)/4;
-            d[2*b+1] = ((ls >> 4)*db + db/2)/4;
+            if constexpr (Q8K) {
+                sc[2*b] = 2*(ls & 15)+1;
+                sc[2*b+1] = 2*(ls >> 4)+1;
+            } else {
+                d[2*b] = ((ls & 15)*db + db/2)/4;
+                d[2*b+1] = ((ls >> 4)*db + db/2)/4;
+            }
 #pragma unroll
             for (int l = 0; l < 4; ++l) {
                 const int idx = 4*(off+b) + l;
@@ -389,6 +443,17 @@ __global__ void __launch_bounds__(256) iq2s_sload_kernel(ArgsQ51 a) {
 #pragma unroll
         for (int jj = 0; jj < TJ; ++jj, aj += CW) {
             if (jj < nj) {
+                if constexpr (Q8K) {
+                    int sum = 0;
+#pragma unroll
+                    for (int b = 0; b < 8; ++b) {
+                        int dot = 0;
+#pragma unroll
+                        for (int k = 0; k < 4; ++k) dot = strata_prompt_dp4a(w[4*b+k], aj[4+4*b+k], dot);
+                        sum += __mul24(sc[b], dot);
+                    }
+                    acc[jj] += (__half2float(bx->d)/8)*__int_as_float(aj[0])*sum;
+                } else {
 #pragma unroll
                 for (int b = 0; b < 4; ++b) {
                     int u[8];
@@ -397,6 +462,7 @@ __global__ void __launch_bounds__(256) iq2s_sload_kernel(ArgsQ51 a) {
                     float dy;
                     __builtin_memcpy(&dy, aj+b, 4);
                     acc[jj] += vec_dot_q8_0_16_q8_1_impl<8>(w+8*b, u, d+2*b, dy);
+                }
                 }
             }
         }
@@ -408,7 +474,7 @@ __global__ void __launch_bounds__(256) iq2s_sload_kernel(ArgsQ51 a) {
 
 // IQ3 uses one weight scale per 32 values. Keep MMQ's integer dots and
 // floating expression, with the same positive-grid packed sign operation.
-template<bool XXS, int TJ>
+template<bool XXS, int TJ, bool Q8K = false>
 __global__ void __launch_bounds__(256) iq3_sload_kernel(ArgsQ51 a) {
     constexpr int CW = sizeof(block_q8_1_mmq) / sizeof(int);
     const int e = blockIdx.z;
@@ -423,13 +489,15 @@ __global__ void __launch_bounds__(256) iq3_sload_kernel(ArgsQ51 a) {
         const Block* bx = wr+c/2;
         int w[32];
         float d[4];
+        int sc[4];
 #pragma unroll
         for (int b = 0; b < 4; ++b) {
             const int k = (c%2)*4+b;
             const float db = bx->d;
             if constexpr (XXS) {
                 const unsigned aux = (unsigned) q51_ld32(bx->qs+64+4*k);
-                d[b] = ((aux>>28)*db+db/2)/2;
+                if constexpr (Q8K) sc[b] = 2*(aux>>28)+1;
+                else d[b] = ((aux>>28)*db+db/2)/2;
 #pragma unroll
                 for (int l = 0; l < 4; ++l) {
                     const unsigned seven = (aux>>(7*l))&127;
@@ -439,7 +507,8 @@ __global__ void __launch_bounds__(256) iq3_sload_kernel(ArgsQ51 a) {
                 }
             } else {
                 const int qh = bx->qh[k];
-                d[b] = (1+2*((bx->scales[k/2]>>((k%2)*4))&15))*db;
+                if constexpr (Q8K) sc[b] = 1+2*((bx->scales[k/2]>>((k%2)*4))&15);
+                else d[b] = (1+2*((bx->scales[k/2]>>((k%2)*4))&15))*db;
 #pragma unroll
                 for (int l = 0; l < 4; ++l) {
                     const int signs = bx->signs[4*k+l];
@@ -454,6 +523,17 @@ __global__ void __launch_bounds__(256) iq3_sload_kernel(ArgsQ51 a) {
 #pragma unroll
         for (int jj = 0; jj < TJ; ++jj, aj += CW) {
             if (jj < nj) {
+                if constexpr (Q8K) {
+                    int sum = 0;
+#pragma unroll
+                    for (int b = 0; b < 4; ++b) {
+                        int dot = 0;
+#pragma unroll
+                        for (int k = 0; k < 8; ++k) dot = strata_prompt_dp4a(w[8*b+k], aj[4+8*b+k], dot);
+                        sum += __mul24(sc[b], dot);
+                    }
+                    acc[jj] += (__half2float(bx->d)*(XXS ? 0.25f : 1.0f))*__int_as_float(aj[0])*sum;
+                } else {
 #pragma unroll
                 for (int b = 0; b < 4; ++b) {
                     int u[8];
@@ -463,12 +543,28 @@ __global__ void __launch_bounds__(256) iq3_sload_kernel(ArgsQ51 a) {
                     __builtin_memcpy(&dy, aj+b, 4);
                     acc[jj] += vec_dot_q8_0_q8_1_impl<float,8>(w+8*b, u, d[b], dy);
                 }
+                }
             }
         }
     }
 #pragma unroll
     for (int jj = 0; jj < TJ; ++jj)
         if (i < a.w_rows && jj < nj) a.dst[(int64_t) a.ids[j0+jj]*a.ld_dst+i] = acc[jj];
+}
+
+template <int TJ, bool Q8K>
+void iq_tile_launch(const ArgsQ51& a, const Product& p, cudaStream_t s) {
+    const dim3 g((p.w_rows+255)/256, (p.max_rows+TJ-1)/TJ, p.n);
+    if (p.type == GGML_TYPE_IQ2_S) iq2s_sload_kernel<TJ, Q8K><<<g, 256, 0, s>>>(a);
+    else if (p.type == GGML_TYPE_IQ3_XXS) iq3_sload_kernel<true, TJ, Q8K><<<g, 256, 0, s>>>(a);
+    else iq3_sload_kernel<false, TJ, Q8K><<<g, 256, 0, s>>>(a);
+}
+template <int TJ>
+void iq_tile_dispatch(const ArgsQ51& a, const Product& p, cudaStream_t s) {
+#if defined(STRATA_MMQ_Q8K_BUILT)
+    if (iq_q8k_on(p.type)) { iq_tile_launch<TJ, true>(a, p, s); return; }
+#endif
+    iq_tile_launch<TJ, false>(a, p, s);
 }
 
 bool iq_tile_fits(const Product& p) {
@@ -507,16 +603,13 @@ void iq_tile_run(const Product& p, cudaStream_t s) {
     static const int tj = [] {
         const char* v = std::getenv("STRATA_PF_IQ_TJ");
         const int t = v ? std::atoi(v) : 16;
-        return t == 8 || t == 12 || t == 20 || t == 24 || t == 32 ? t : 16;
+        return t == 8 || t == 12 || t == 20 || t == 24 || t == 32 || t == 40 || t == 48 || t == 64 ? t : 16;
     }();
-#define STRATA_IQ_TILE_GO(TJ_)                                                                   \
-    {                                                                                            \
-        const dim3 g((p.w_rows + 255) / 256, (p.max_rows + TJ_ - 1) / TJ_, p.n);                 \
-        if (p.type == GGML_TYPE_IQ2_S) iq2s_sload_kernel<TJ_><<<g, 256, 0, s>>>(a);              \
-        else if (p.type == GGML_TYPE_IQ3_XXS) iq3_sload_kernel<true, TJ_><<<g, 256, 0, s>>>(a);  \
-        else iq3_sload_kernel<false, TJ_><<<g, 256, 0, s>>>(a);                                  \
-    }
-    if (tj == 32) STRATA_IQ_TILE_GO(32)
+#define STRATA_IQ_TILE_GO(TJ_) { iq_tile_dispatch<TJ_>(a, p, s); }
+    if (tj == 64) STRATA_IQ_TILE_GO(64)
+    else if (tj == 48) STRATA_IQ_TILE_GO(48)
+    else if (tj == 40) STRATA_IQ_TILE_GO(40)
+    else if (tj == 32) STRATA_IQ_TILE_GO(32)
     else if (tj == 24) STRATA_IQ_TILE_GO(24)
     else if (tj == 20) STRATA_IQ_TILE_GO(20)
     else if (tj == 12) STRATA_IQ_TILE_GO(12)
@@ -541,8 +634,8 @@ void q51_run(const Product& p, cudaStream_t s) {
     static bool said = false;
     if (!said) {
         said = true;
-        std::fprintf(stderr, "strata: prompt kernels: Q5_1 down experts on the 256 x 32 tiles (STRATA_PF_Q51=1: MMQ's "
-                             "output bits)\n");
+        std::fprintf(stderr, "strata: prompt kernels: Q5_1 down experts on native tiles (STRATA_PF_Q51=1, "
+                             "STRATA_PF_Q51_TJ selects token rows; same MMQ output bits)\n");
     }
     ArgsQ51 a{};
     for (int e = 0; e < p.n; ++e) a.w[e] = p.each ? (const char*) p.w0[e] : (const char*) p.w + (size_t) e * p.expert_bytes;
@@ -554,8 +647,18 @@ void q51_run(const Product& p, cudaStream_t s) {
     a.ncols_y = p.total_rows;
     a.w_rows = (int) p.w_rows;
     a.w_cols = (int) p.w_cols;
-    const dim3 g((unsigned) ((p.w_rows + 255) / 256), (unsigned) ((p.max_rows + 31) / 32), (unsigned) p.n);
-    q51_sload_kernel<<<g, 256, 0, s>>>(a);
+    static const int tj = [] {
+        const char* e = std::getenv("STRATA_PF_Q51_TJ");
+        const int j = e ? std::atoi(e) : 32;
+        return j == 16 || j == 40 || j == 48 || j == 64 || j == 80 || j == 96 || j == 112 || j == 128 ? j : 32;
+    }();
+    const dim3 g((unsigned) ((p.w_rows + 255) / 256), (unsigned) ((p.max_rows + tj - 1) / tj), (unsigned) p.n);
+#define STRATA_Q51_GO(J) case J: q51_sload_kernel<J><<<g, 256, 0, s>>>(a); break
+    switch (tj) {
+        STRATA_Q51_GO(16); STRATA_Q51_GO(32); STRATA_Q51_GO(40); STRATA_Q51_GO(48); STRATA_Q51_GO(64);
+        STRATA_Q51_GO(80); STRATA_Q51_GO(96); STRATA_Q51_GO(112); STRATA_Q51_GO(128);
+    }
+#undef STRATA_Q51_GO
     ck(cudaGetLastError(), "product (q5_1)");
 }
 #endif
@@ -800,6 +903,13 @@ void quantize(const float* x, const int32_t* ids, void* xq, int t, int64_t cols,
     }
 #endif
     (void) yscale;
+#if defined(STRATA_MMQ_Q8K_BUILT)
+    if (iq_q8k_on(t)) {
+        strata_quantize_mmq_iq_q8k_cuda(x, ids, xq, cols, ld, rows, 0, false, (cudaStream_t) stream);
+        ck(cudaGetLastError(), "quantize (native IQ Q8_K)");
+        return;
+    }
+#endif
     quantize_mmq_q8_1_cuda(x, ids, xq, (ggml_type) t, cols, ld, rows * ld, rows * ld, pad512(cols), rows, 1, 1,
                            (cudaStream_t) stream);
     ck(cudaGetLastError(), "quantize");
@@ -818,6 +928,13 @@ void quantize_scatter(const float* x, const int32_t* slot, const int32_t* src, v
     // q8_1 rows, and there is no scatter for those.  The gather, or that kernel would read the wrong layout.
     if (q4::covers(t)) {
         quantize(x, src, xq, t, cols, ld, tokens * k_used, stream);
+        return;
+    }
+#endif
+#if defined(STRATA_MMQ_Q8K_BUILT)
+    if (iq_q8k_on(t)) {
+        strata_quantize_mmq_iq_q8k_cuda(x, slot, xq, cols, ld, tokens, k_used, true, (cudaStream_t) stream);
+        ck(cudaGetLastError(), "quantize_scatter (native IQ Q8_K)");
         return;
     }
 #endif
@@ -853,6 +970,10 @@ void Context::run(const Product& p, void* stream) {
     if (iq_tile_fits(p)) {
         iq_tile_run(p, (cudaStream_t) stream);
         return;
+    }
+    if (iq_q8k_on(p.type)) {
+        std::fprintf(stderr, "prefill IQ Q8_K: native tile contract not satisfied (whole 256-value rows, contiguous gate/up, at most 16 experts)\n");
+        std::exit(1); // never interpret DK bytes as the vendor MMQ's D4 layout
     }
     if (q51_fits(p.type, p.w_cols)) {      // STRATA_PF_Q51=1: Q5_1 down likewise
         q51_run(p, (cudaStream_t) stream);
@@ -1150,7 +1271,12 @@ bool swiglu_quant_ok(int t) {
     if (q4::covers(t)) return false;
 #endif
     // the q8_1 D4 rows quantize() writes for a down product's H (K 640)
+    if (iq_q8k_on(t)) return false;
+#if defined(STRATA_MMQ_Q8K_BUILT)
+    return supported(t) && !fp4_activations(t) && mmq_get_q8_1_ds_layout((ggml_type) t, ggml_cuda_info().devices[ggml_cuda_get_device()].cc) == MMQ_Q8_1_DS_LAYOUT_D4;
+#else
     return supported(t) && !fp4_activations(t) && mmq_get_q8_1_ds_layout((ggml_type) t) == MMQ_Q8_1_DS_LAYOUT_D4;
+#endif
 }
 
 void swiglu_quant(const float* gu, void* hq, int64_t rows, bool interleaved, void* stream) {
