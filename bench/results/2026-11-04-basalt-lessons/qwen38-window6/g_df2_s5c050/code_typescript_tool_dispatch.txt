@@ -1,0 +1,164 @@
+```typescript
+import { strict as assert } from 'node:assert';
+
+export interface JsonRpcRequest {
+  jsonrpc: '2.0';
+  method: string;
+  params?: unknown;
+  id?: string | number | null;
+}
+
+export interface JsonRpcResponse {
+  jsonrpc: '2.0';
+  result?: unknown;
+  error?: {
+    code: number;
+    message: string;
+    data?: unknown;
+  };
+  id: string | number | null;
+}
+
+type MethodHandler = (params: unknown, signal: AbortSignal) => Promise<unknown>;
+
+interface ValidRequestInfo {
+  index: number;
+  isNotification: boolean;
+  method: string;
+  params: unknown;
+  id: string | number | null;
+}
+
+interface InvalidRequestInfo {
+  index: number;
+  error: { code: number; message: string };
+  id: string | number | null;
+}
+
+function isValidId(id: unknown): id is string | number | null {
+  if (id === null) return true;
+  if (typeof id === 'string') return true;
+  if (typeof id === 'number') return Number.isFinite(id);
+  return false;
+}
+
+function parseRequest(item: unknown, index: number): ValidRequestInfo | InvalidRequestInfo {
+  // Check if it's an object
+  if (item === null || typeof item !== 'object' || Array.isArray(item)) {
+    return {
+      index,
+      error: { code: -32600, message: 'Invalid Request' },
+      id: null,
+    };
+  }
+
+  const obj = item as Record<string, unknown>;
+
+  // Check jsonrpc field
+  if (obj.jsonrpc !== '2.0') {
+    return {
+      index,
+      error: { code: -32600, message: 'Invalid Request' },
+      id: null,
+    };
+  }
+
+  // Check method field
+  if (typeof obj.method !== 'string') {
+    return {
+      index,
+      error: { code: -32600, message: 'Invalid Request' },
+      id: null,
+    };
+  }
+
+  // Check id field if present
+  let id: string | number | null = null;
+  const hasId = 'id' in obj;
+  if (hasId) {
+    if (!isValidId(obj.id)) {
+      return {
+        index,
+        error: { code: -32600, message: 'Invalid Request' },
+        id: null,
+      };
+    }
+    id = obj.id as string | number | null;
+  }
+
+  const isNotification = !hasId;
+
+  return {
+    index,
+    isNotification,
+    method: obj.method,
+    params: obj.params,
+    id,
+  };
+}
+
+export async function dispatch(
+  input: unknown,
+  methods: Record<string, MethodHandler>,
+  concurrency: number,
+  signal: AbortSignal,
+): Promise<JsonRpcResponse[]> {
+  // Validate concurrency
+  if (!Number.isFinite(concurrency)) {
+    throw new Error('Concurrency must be a finite number');
+  }
+
+  const effectiveConcurrency = Math.max(1, Math.floor(concurrency));
+
+  // Handle empty array
+  if (Array.isArray(input) && input.length === 0) {
+    return [
+      {
+        jsonrpc: '2.0',
+        error: { code: -32600, message: 'Invalid Request' },
+        id: null,
+      },
+    ];
+  }
+
+  // Normalize input to array
+  let items: unknown[];
+  if (Array.isArray(input)) {
+    items = input;
+  } else {
+    items = [input];
+  }
+
+  const parsedRequests: (ValidRequestInfo | InvalidRequestInfo)[] = [];
+  for (let i = 0; i < items.length; i++) {
+    parsedRequests.push(parseRequest(items[i], i));
+  }
+
+  // Prepare results array with null placeholders for notifications and invalid requests that don't produce responses
+  const results: (JsonRpcResponse | null)[] = new Array(parsedRequests.length).fill(null);
+
+  // Process invalid requests immediately
+  for (const req of parsedRequests) {
+    if ('error' in req) {
+      // Invalid request always produces a response with id null per spec interpretation here,
+      // but the prompt says "Invalid requests yield -32600 with null id".
+      results[req.index] = {
+        jsonrpc: '2.0',
+        error: req.error,
+        id: req.id,
+      };
+    }
+  }
+
+  // Collect valid requests that need execution (not notifications)
+  const executableRequests: ValidRequestInfo[] = [];
+  for (const req of parsedRequests) {
+    if (!('error' in req)) {
+      if (!req.isNotification) {
+        executableRequests.push(req);
+      } else {
+        // Notification: invoke but emit no response.
+        // We still need to invoke it, but we don't care about the result for output.
+        // However, we must handle errors silently.
+        // To maintain order and concurrency limits properly with notifications mixed in,
+        // we

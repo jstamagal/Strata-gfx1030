@@ -1,0 +1,35 @@
+g_mtp_pw code_async_batcher               966 tok  101.0 tok/s drafts 518/621 854b1d662f24
+g_mtp_pw code_rust_committed_ring        1200 tok  126.3 tok/s drafts 722/809 f87b296c7e20
+g_mtp_pw code_typescript_tool_dispatch   1200 tok  128.3 tok/s drafts 734/865 4756a72fedab
+g_mtp_pw json_multi_tool_result_merge    1200 tok  113.5 tok/s drafts 694/833 bc143776cad8
+g_mtp_pw json_parallel_tool_plan         1200 tok  148.0 tok/s drafts 837/987 cf4c3a4bf103
+g_mtp_pw json_patch_tool_payload         1200 tok  102.3 tok/s drafts 647/838 c814a3a5a16e
+g_mtp_pw TOTAL 6966 tok 118.4 tok/s
+g_df2_s6c035 code_async_batcher              1200 tok   96.9 tok/s drafts 861/1288 eab4f48d4500
+g_df2_s6c035 code_rust_committed_ring        1200 tok   90.6 tok/s drafts 814/1319 2a9e7d120246
+g_df2_s6c035 code_typescript_tool_dispatch   1200 tok  112.3 tok/s drafts 907/1213 f14f749d8618
+g_df2_s6c035 json_multi_tool_result_merge    1200 tok   99.5 tok/s drafts 858/1150 d24f553b5f53
+g_df2_s6c035 json_parallel_tool_plan         1200 tok  120.9 tok/s drafts 936/1075 47ea4349ae8c
+g_df2_s6c035 json_patch_tool_payload         1200 tok   86.7 tok/s drafts 791/1347 0aff2ff6c19c
+g_df2_s6c035 TOTAL 7200 tok 99.8 tok/s
+g_df2_s5c050 code_async_batcher              1089 tok   86.7 tok/s drafts 697/991 502b4cb4c3cd
+g_df2_s5c050 code_rust_committed_ring        1200 tok   89.4 tok/s drafts 764/1013 73bb8933358a
+g_df2_s5c050 code_typescript_tool_dispatch   1200 tok  106.4 tok/s drafts 863/1069 6f798e93690e
+g_df2_s5c050 json_multi_tool_result_merge    1200 tok   97.7 tok/s drafts 826/1012 eb7bef09d1fe
+g_df2_s5c050 json_parallel_tool_plan         1200 tok  115.4 tok/s drafts 901/978 0b98ffe4a4f7
+g_df2_s5c050 json_patch_tool_payload         1200 tok   86.7 tok/s drafts 752/1058 ac902dac7f7e
+g_df2_s5c050 TOTAL 7089 tok 96.1 tok/s
+g_df2_s4c050 code_async_batcher              1032 tok   83.9 tok/s drafts 631/852 c556d2038275
+g_df2_s4c050 code_rust_committed_ring        1200 tok   91.2 tok/s drafts 774/976 0725bb3bd1db
+g_df2_s4c050 code_typescript_tool_dispatch   1200 tok   98.6 tok/s drafts 812/980 4652d14e9347
+g_df2_s4c050 json_multi_tool_result_merge    1200 tok   91.5 tok/s drafts 782/943 5b0984fc37b1
+g_df2_s4c050 json_parallel_tool_plan         1200 tok  104.5 tok/s drafts 843/905 303b4940ab8a
+g_df2_s4c050 json_patch_tool_payload         1200 tok   95.5 tok/s drafts 801/967 22c29c74557b
+g_df2_s4c050 TOTAL 7032 tok 94.0 tok/s
+g_mtp_nopw code_async_batcher              1200 tok   85.7 tok/s drafts 717/863 5f6ac4a9903b
+g_mtp_nopw code_rust_committed_ring        1200 tok   87.0 tok/s drafts 706/820 772311ac6d00
+g_mtp_nopw code_typescript_tool_dispatch   1200 tok   93.0 tok/s drafts 747/839 d6e7c59d9d23
+g_mtp_nopw json_multi_tool_result_merge    1200 tok   83.5 tok/s drafts 694/839 e1fa44c94a99
+g_mtp_nopw json_parallel_tool_plan         1200 tok  104.7 tok/s drafts 840/913 8d6cc3d607db
+g_mtp_nopw json_patch_tool_payload         1200 tok   77.1 tok/s drafts 609/727 c10229052f36
+g_mtp_nopw TOTAL 7200 tok 87.7 tok/s

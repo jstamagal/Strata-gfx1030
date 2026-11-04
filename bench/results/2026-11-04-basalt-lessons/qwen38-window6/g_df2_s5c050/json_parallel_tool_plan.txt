@@ -1,0 +1,117 @@
+{
+  "tool_calls": [
+    {
+      "id": "call_001",
+      "type": "function",
+      "function": {
+        "name": "read_file",
+        "arguments": "{\"path\": \"src/server/scheduler.py\", \"start_line\": 1, \"max_lines\": 160}"
+      }
+    },
+    {
+      "id": "call_002",
+      "type": "function",
+      "function": {
+        "name": "read_file",
+        "arguments": "{\"path\": \"src/server/session.py\", \"start_line\": 1, \"max_lines\": 160}"
+      }
+    },
+    {
+      "id": "call_003",
+      "type": "function",
+      "function": {
+        "name": "read_file",
+        "arguments": "{\"path\": \"src/decode/speculate.py\", \"start_line\": 1, \"max_lines\": 160}"
+      }
+    },
+    {
+      "id": "call_004",
+      "type": "function",
+      "function": {
+        "name": "read_file",
+        "arguments": "{\"path\": \"src/decode/verify.py\", \"start_line\": 1, \"max_lines\": 160}"
+      }
+    },
+    {
+      "id": "call_005",
+      "type": "function",
+      "function": {
+        "name": "read_file",
+        "arguments": "{\"path\": \"src/kv/ring.py\", \"start_line\": 1, \"max_lines\": 160}"
+      }
+    },
+    {
+      "id": "call_006",
+      "type": "function",
+      "function": {
+        "name": "read_file",
+        "arguments": "{\"path\": \"tests/test_cancel.py\", \"start_line\": 1, \"max_lines\": 160}"
+      }
+    },
+    {
+      "id": "call_007",
+      "type": "function",
+      "function": {
+        "name": "search_code",
+        "arguments": "{\"query\": \"cancel|abort|stop\", \"paths\": [\"src/server\", \"src/decode\"], \"regex\": true}"
+      }
+    },
+    {
+      "id": "call_008",
+      "type": "function",
+      "function": {
+        "name": "search_code",
+        "arguments": "{\"query\": \"commit|rollback|truncate\", \"paths\": [\"src/server\", \"src/decode\"], \"regex\": true}"
+      }
+    },
+    {
+      "id": "call_009",
+      "type": "function",
+      "function": {
+        "name": "search_code",
+        "arguments": "{\"query\": \"epoch|generation|cursor\", \"paths\": [\"src/server\", \"src/decode\"], \"regex\": true}"
+      }
+    },
+    {
+      "id": "call_010",
+      "type": "function",
+      "function": {
+        "name": "run_tests",
+        "arguments": "{\"targets\": [\"tests/test_cancel.py\"], \"environment\": {\"PYTHONHASHSEED\": \"0\"}}"
+      }
+    },
+    {
+      "id": "call_011",
+      "type": "function",
+      "function": {
+        "name": "run_tests",
+        "arguments": "{\"targets\": [\"tests/test_speculation.py\", \"tests/test_ring.py\"], \"environment\": {\"SPEC_FORCE_REJECT\": \"1\", \"PYTHONHASHSEED\": \"0\"}}"
+      }
+    },
+    {
+      "id": "call_012",
+      "type": "function",
+      "function": {
+        "name": "run_tests",
+        "arguments": "{\"targets\": [\"tests/test_prompt_cache.py\"], \"environment\": {\"CACHE_VALIDATE\": \"1\"}}"
+      }
+    }
+  ],
+  "verification": [
+    {
+      "call_id": "call_001",
+      "hypothesis": "The scheduler's cancellation handler fails to release locks or clear pending speculative tasks.",
+      "expected_evidence": "Code in `cancel_request` or similar that misses cleanup of task queues or session state.",
+      "next_if_missing": "Inspect `session.py` for how it interacts with the scheduler during cancellation."
+    },
+    {
+      "call_id": "call_002",
+      "hypothesis": "Session state is not properly reset or marked as invalid upon cancellation, leading to stale data usage.",
+      "expected_evidence": "Missing calls to `reset()` or `invalidate()` in the session's cancel path.",
+      "next_if_missing": "Check `speculate.py` for how it reads session state."
+    },
+    {
+      "call_id": "call_003",
+      "hypothesis": "Speculative decoding continues to write to KV cache even after a cancellation signal is received.",
+      "expected_evidence": "Lack of checks for `is_cancelled` or similar flags within the speculation loop.",
+      "next_if_missing": "Examine `

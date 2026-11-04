@@ -1,0 +1,132 @@
+```python
+import asyncio
+from typing import Callable, Awaitable, List
+
+
+class Batcher:
+    def __init__(self, infer: Callable[[List[List[int]]], Awaitable[List[float]]], max_batch: int = 8, wait_ms: float = 2):
+        self._infer = infer
+        self._max_batch = max_batch
+        self._wait_ms = wait_ms
+        self._queue: asyncio.Queue = asyncio.Queue()
+        self._worker_task: asyncio.Task | None = None
+        self._closed = False
+
+    async def submit(self, tokens: list[int]) -> list[float]:
+        if self._closed:
+            raise RuntimeError("Batcher is closed")
+        
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future = loop.create_future()
+        item = (tokens, future, loop.time())
+        
+        await self._queue.put(item)
+        
+        # Start worker if not running
+        if self._worker_task is None or self._worker_task.done():
+            self._worker_task = asyncio.create_task(self._worker())
+            
+        return await future
+
+    async def close(self):
+        if self._closed:
+            return
+        self._closed = True
+        
+        # Put a sentinel to wake up the worker if it's waiting on get()
+        # But we need to drain existing items first. 
+        # The strategy: set closed flag, then wait for queue to empty and worker to finish processing remaining batches.
+        
+        # Wait until all queued items are processed.
+        # We can't just join the queue because new items might be added? No, submit raises if closed.
+        # So we wait for the queue to be empty and the worker to exit its loop naturally or via sentinel.
+        
+        # Let's use a sentinel approach: put None to signal end of stream after draining?
+        # Actually, simpler: wait for queue.join() then cancel worker? 
+        # But worker might be waiting on get(). If we join(), it waits until all tasks are done.
+        # The worker processes items and marks them done. So queue.join() will wait until all submitted items are processed.
+        
+        await self._queue.join()
+        
+        if self._worker_task and not self._worker_task.done():
+            self._worker_task.cancel()
+            try:
+                await self._worker_task
+            except asyncio.CancelledError:
+                pass
+
+    async def _worker(self):
+        while True:
+            batch_items = []
+            
+            # Get first item
+            try:
+                item = await self._queue.get()
+            except asyncio.CancelledError:
+                break
+                
+            if item is None:
+                self._queue.task_done()
+                break
+                
+            batch_items.append(item)
+            oldest_time = item[2]
+            
+            # Collect more items until max_batch or timeout
+            while len(batch_items) < self._max_batch:
+                try:
+                    # Calculate remaining time to wait for the oldest item in current batch
+                    elapsed_ms = (asyncio.get_running_loop().time() - oldest_time) * 1000
+                    remaining_ms = self._wait_ms - elapsed_ms
+                    
+                    if remaining_ms <= 0:
+                        break
+                        
+                    try:
+                        next_item = await asyncio.wait_for(self._queue.get(), timeout=remaining_ms / 1000.0)
+                        batch_items.append(next_item)
+                    except asyncio.TimeoutError:
+                        break
+                except asyncio.CancelledError:
+                    # If cancelled while waiting for more items, process what we have? 
+                    # Or discard? The requirement says "close drains accepted work".
+                    # If worker is cancelled externally (e.g. by close logic if not careful), we should probably stop.
+                    # But our close logic uses join() then cancel. So this shouldn't happen during normal drain.
+                    break
+
+            # Process batch
+            await self._process_batch(batch_items)
+            
+            for _ in range(len(batch_items)):
+                self._queue.task_done()
+
+    async def _process_batch(self, batch_items: list[tuple[list[int], asyncio.Future, float]]):
+        # Filter out cancelled futures before calling infer
+        live_items = []
+        for tokens, future, _ in batch_items:
+            if not future.cancelled():
+                live_items.append((tokens, future))
+        
+        if not live_items:
+            return
+            
+        requests = [tokens for tokens, _ in live_items]
+        
+        try:
+            results = await self._infer(requests)
+            
+            # Check result count
+            if len(results) != len(requests):
+                raise ValueError(f"Infer returned {len(results)} results for {len(requests)} requests")
+                
+            # Distribute results
+            for (tokens, future), result in zip(live_items, results):
+                if not future.cancelled():
+                    future.set_result([result])
+                    
+        except Exception as e:
+            for tokens, future in live_items:
+                if not future.cancelled():
+                    future.set_exception(e)
+
+```

@@ -1,0 +1,160 @@
+```python
+import asyncio
+from typing import Callable, Awaitable, List
+
+
+class Batcher:
+    def __init__(self, infer: Callable[[List[List[int]]], Awaitable[List[float]]], max_batch: int = 8, wait_ms: float = 2):
+        self._infer = infer
+        self._max_batch = max_batch
+        self._wait_ms = wait_ms
+        self._queue: asyncio.Queue = asyncio.Queue()
+        self._worker_task: asyncio.Task | None = None
+        self._closed = False
+
+    async def submit(self, tokens: list[int]) -> list[float]:
+        if self._closed:
+            raise RuntimeError("Batcher is closed")
+        
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future = loop.create_future()
+        item = (tokens, future, loop.time())
+        
+        await self._queue.put(item)
+        
+        # Start worker if not running
+        if self._worker_task is None or self._worker_task.done():
+            self._worker_task = asyncio.create_task(self._worker())
+            
+        return await future
+
+    async def close(self):
+        if self._closed:
+            return
+        self._closed = True
+        
+        # Put a sentinel to wake up the worker if it's waiting on get()
+        # But we need to drain existing items first. 
+        # The worker loop should check _closed and queue emptiness.
+        
+        # If worker is running, wait for it to finish draining
+        if self._worker_task is not None:
+            try:
+                await self._worker_task
+            except Exception:
+                pass
+
+    async def _worker(self):
+        loop = asyncio.get_running_loop()
+        
+        while True:
+            # Check if we should exit: closed and queue empty
+            if self._closed and self._queue.empty():
+                break
+                
+            batch_items: list[tuple[list[int], asyncio.Future, float]] = []
+            
+            try:
+                # Get the first item
+                item = await self._queue.get()
+                tokens, future, timestamp = item
+                
+                # If this request was cancelled before we picked it up, skip it
+                if future.cancelled():
+                    continue
+                    
+                batch_items.append(item)
+                
+                # Determine deadline for this batch
+                deadline = loop.time() + (self._wait_ms / 1000.0)
+                
+                # Collect more items until max_batch or deadline
+                while len(batch_items) < self._max_batch:
+                    remaining_time = deadline - loop.time()
+                    if remaining_time <= 0:
+                        break
+                    
+                    try:
+                        next_item = await asyncio.wait_for(self._queue.get(), timeout=remaining_time)
+                        n_tokens, n_future, n_timestamp = next_item
+                        
+                        # Skip cancelled requests
+                        if n_future.cancelled():
+                            continue
+                            
+                        batch_items.append(next_item)
+                        
+                    except asyncio.TimeoutError:
+                        break
+                
+                # Process the batch
+                if not batch_items:
+                    continue
+                    
+                # Extract tokens for inference
+                batch_tokens = [item[0] for item in batch_items]
+                
+                try:
+                    results = await self._infer(batch_tokens)
+                    
+                    # Validate result count
+                    if len(results) != len(batch_items):
+                        raise ValueError(f"Infer returned {len(results)} results, expected {len(batch_items)}")
+                        
+                    # Distribute results
+                    for i, (tokens, future, _) in enumerate(batch_items):
+                        if not future.cancelled():
+                            future.set_result([results[i]])
+                            
+                except Exception as e:
+                    # Propagate error to all live requests in this batch
+                    for tokens, future, _ in batch_items:
+                        if not future.cancelled():
+                            future.set_exception(e)
+                            
+            except asyncio.CancelledError:
+                # Worker itself was cancelled (e.g., during close or shutdown)
+                # Propagate cancellation to any pending futures in current batch? 
+                # The spec says "cancellation after infer starts must not cancel the other requests".
+                # This refers to individual request cancellation. 
+                # If the worker task is cancelled, we should probably clean up.
+                # However, close() awaits the worker task, so if it's cancelled externally, 
+                # we might need to handle pending items.
+                # For now, let's assume normal operation where close drains.
+                raise
+
+    async def _worker(self):
+        loop = asyncio.get_running_loop()
+        
+        while True:
+            # Check if we should exit: closed and queue empty
+            if self._closed and self._queue.empty():
+                break
+                
+            batch_items: list[tuple[list[int], asyncio.Future, float]] = []
+            
+            try:
+                # Get the first item
+                item = await self._queue.get()
+                tokens, future, timestamp = item
+                
+                # If this request was cancelled before we picked it up, skip it
+                if future.cancelled():
+                    continue
+                    
+                batch_items.append(item)
+                
+                # Determine deadline for this batch
+                deadline = loop.time() + (self._wait_ms / 1000.0)
+                
+                # Collect more items until max_batch or deadline
+                while len(batch_items) < self._max_batch:
+                    remaining_time = deadline - loop.time()
+                    if remaining_time <= 0:
+                        break
+                    
+                    try:
+                        next_item = await asyncio.wait_for(self._queue.get(), timeout=remaining_time)
+                        n_tokens, n_future, n_timestamp = next_item
+                        
+                        # Skip

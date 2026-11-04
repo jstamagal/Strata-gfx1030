@@ -159,3 +159,44 @@ Configs changed: UD-Q4_K_XL split 24 -> 26 and prefill 4096 (2014 vs 1335 this m
   (+2.8%), md5 396d660784f5 both. Auto-enable only covers Q8_0 heads, so IQ3_S and Q4_0 configs now set it.
 - Corrected reservation fix (d545c8753, proxy bytes only): card 1 8444 -> 8417 slots (-27), frozen text changes
   (placement), 68.4 / 68.4 tok/s. Merged to main as d8c196e42.
+
+## Exact prompt-kernel switches vs whole-prompt speed (window 5b)
+
+Frozen placement, 36K prompt + 300 tokens, 2 runs. UD-Q4_K_XL split 26 + 4096 chunks; IQ3_S split 25 + 4096 chunks.
+Executables from `basalt38/rdna2-mmq` (control = all new switches off).
+
+| switch | kernel alone | prompt tok/s | text |
+|---|---|---|---|
+| UD control | - | 2006 / 1997 | - |
+| `STRATA_PF_Q51_TJ=16` (Q5_1 down tile) | 34-44% faster | 2008 / 2015 (+0.5%) | identical |
+| `STRATA_MMQ_Q8K=1` | 3-5% faster | 2005 / 2012 | changed |
+| IQ3_S control | - | 2712 / 2722 | - |
+| IQ4_NL `v_perm` decoder honoured at TJ20 (was silently TJ32-only) | ~14% faster | 2723 / 2736 | identical |
+| scheduler-visible zero-head clamp (IQ2_S) | ~4% faster | 2721 / 2737 | identical |
+| `STRATA_PF_IQ_Q8K=1` | 0-3% faster | 2710 / 2722 | changed |
+
+A 36K prompt here is bound by streaming non-resident experts over PCIe (cards ~45% busy), so faster expert kernels
+move it by at most ~0.5%. (First-token logit dumps for the non-exact arms were not written: `STRATA_DUMP_FIRST_LOGITS`
+only fires in the serial window loop, not with pipeline windows.)
+
+## Window 6
+
+- Next-layer routed-expert prefetch (`STRATA_PF_ROUTE_AHEAD`, `basalt38/tp-prompt`), split 26, frozen, identical
+  text in every pair: 2048 chunks 1583 / 1529 -> 1769 / 1776 (+14%); 4096 chunks 2006 / 1927 -> 2068 / 2071 (`0,16`,
+  +5%) -> 2086 / 2096 (`0,32`, +6.4%).
+- Layer-major prefill with later-stage residuals in VRAM vs host: 1698 / 1704 vs 1696 / 1702 (no difference, and
+  below the 4096-chunk control).
+- Native expert zero-head chain starts (decode, frozen UD split 24): 67.0 / 67.1 -> 67.1 / 67.1, identical. Neutral.
+- IQ3_S `--mtp-q4 head` (Q4_0 draft subset, generic kernel): 96.8 vs Q6_K wide 95.8 vs 2-bit proxy 98.5 tok/s, all
+  identical text. Proxy kept.
+- Agent workload (six code / tool-JSON prompts, 1,200 tokens max, greedy; UD split 24 live adaptive; DFlash2 build with
+  the gfx1030 GEMM table and the proxy): MTP + pipeline windows 118.4 tok/s; DFlash2 serial 99.8 (spec 6, conf .35),
+  96.1 (5, .50), 94.0 (4, .50); MTP serial 87.7. On agent work pipeline windows are worth +35% to MTP (+8% on prose).
+
+## Pipelined DFlash2 (window 7)
+
+`STRATA_DF2_PIPELINE=1` surplus-block producer (drafter on card 1, 2.6-4.1 ms per block while the verifier shares
+the card). Frozen essays: DFlash2 serial 60.9 / 61.1, pipelined 60.4 / 60.6, pipelined with forced misses 59.9 / 60.1
+(same text as pipelined: replay path consistent), MTP pipelined 69.0 / 69.1. Agent workload: DFlash2 pipelined 101.8 vs
+MTP pipelined 118.4 tok/s (-14%). Live essays x4: 71.2 vs 78.6 (runs 2-4). 36K prompt (split 24, 2048 chunks):
+DFlash2 1395 / 1399 vs MTP 1338 / 1343 prompt tok/s (+4%; MTP's draft-KV prompt pass costs more). MTP stays.

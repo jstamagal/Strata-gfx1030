@@ -1,0 +1,8 @@
+p_df2_pw run1 prompt 36411 1395.3 tok/s 26.09 s; gen 300 69.2 tok/s drafts 163 / 348
+7565787e60c2
+p_df2_pw run2 prompt 36411 1398.6 tok/s 26.03 s; gen 300 67.0 tok/s drafts 153 / 345
+62d060677193
+p_mtp_pw run1 prompt 36411 1337.8 tok/s 27.22 s; gen 300 82.5 tok/s drafts 143 / 183
+8eca97dcdf24
+p_mtp_pw run2 prompt 36411 1343.0 tok/s 27.11 s; gen 300 85.2 tok/s drafts 146 / 194
+a5ab21ba7b98

@@ -1,0 +1,90 @@
+{
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "high",
+      "evidence_ids": ["search_02", "trace_05"],
+      "observed_facts": [
+        "src/decode/draft.py advances its cursor by the whole proposed batch.",
+        "Request R17: proposed_rows=6, accepted_drafts=1, draft_cursor=4102, target_cursor=4098."
+      ],
+      "hypothesis": "The draft cursor advances based on proposed rows rather than accepted drafts, causing the draft stream to desynchronize from the target stream when acceptance rate is less than 100%.",
+      "confidence": 0.95,
+      "falsification_test": "Run a test where proposed_rows=1 and accepted_drafts=1; verify if draft_cursor advances by exactly 1."
+    },
+    {
+      "id": "F2",
+      "severity": "critical",
+      "evidence_ids": ["search_01", "test_04"],
+      "observed_facts": [
+        "src/server/session.py reset_state is called on slot release.",
+        "test_reject_prefix failed 3/10."
+      ],
+      "hypothesis": "Resetting state on slot release clears the prompt cache or prefix history prematurely, causing valid prefixes to be rejected in subsequent requests sharing the same slot.",
+      "confidence": 0.85,
+      "falsification_test": "Execute a sequence of two requests on the same slot where the second request shares a prefix with the first; verify if the prefix is accepted."
+    },
+    {
+      "id": "F3",
+      "severity": "high",
+      "evidence_ids": ["search_02", "trace_05"],
+      "observed_facts": [
+        "src/decode/draft.py advances its cursor by the whole proposed batch.",
+        "Request R18: proposed_rows=4, accepted_drafts=0, draft_cursor=4106, target_cursor=4099."
+      ],
+      "hypothesis": "When zero drafts are accepted, the draft cursor still advances by the full proposed batch size (4), creating a 7-token gap between draft and target cursors.",
+      "confidence": 0.98,
+      "falsification_test": "Run a request with proposed_rows=10 and accepted_drafts=0; check if draft_cursor increases by 10 while target_cursor remains unchanged."
+    },
+    {
+      "id": "F4",
+      "severity": "medium",
+      "evidence_ids": ["search_01", "trace_05"],
+      "observed_facts": [
+        "src/server/session.py reset_state is called on slot release.",
+        "Request R18 has cancellation=true."
+      ],
+      "hypothesis": "Cancellation triggers a slot release which invokes reset_state, potentially destroying state required for prompt-cache resume if the session is reused immediately.",
+      "confidence": 0.75,
+      "falsification_test": "Cancel a request and immediately issue a new request with the same prefix; verify if the cache hit rate drops to zero."
+    },
+    {
+      "id": "F5",
+      "severity": "high",
+      "evidence_ids": ["read_03", "test_04"],
+      "observed_facts": [
+        "src/kv/ring.py indexes slots by position modulo 2064.",
+        "test_resume_after_wrap failed 2/10."
+      ],
+      "hypothesis": "The modulo indexing in the ring buffer causes collisions or incorrect slot retrieval when the cursor wraps around the 2064 boundary, breaking resume functionality.",
+      "confidence": 0.80,
+      "falsification_test": "Force a cursor value of exactly 2064 and 2065; verify if the correct KV slots are retrieved without collision."
+    },
+    {
+      "id": "F6",
+      "severity": "medium",
+      "evidence_ids": ["read_03", "trace_05"],
+      "observed_facts": [
+        "src/kv/ring.py checks a uint64 epoch tag.",
+        "Request R17 target_cursor=4098, draft_cursor=4102."
+      ],
+      "hypothesis": "The epoch tag check may fail or allow stale data access if the cursor wraps multiple times within a single epoch or if the epoch increment logic is decoupled from the ring wrap.",
+      "confidence": 0.65,
+      "falsification_test": "Simulate two full wraps of the ring buffer (cursor > 4128) and verify that old slots are correctly invalidated by the epoch tag."
+    }
+  ],
+  "next_tool_calls": [
+    {
+      "id": "TC1",
+      "name": "read_file",
+      "arguments": {
+        "path": "src/decode/draft.py"
+      },
+      "depends_on": []
+    },
+    {
+      "id": "TC2",
+      "name": "search_code",
+      "arguments": {
+        "pattern": "reset_state",
+        "path": "src/server

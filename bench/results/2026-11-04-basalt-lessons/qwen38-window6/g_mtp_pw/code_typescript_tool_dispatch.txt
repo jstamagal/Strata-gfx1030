@@ -1,0 +1,153 @@
+```typescript
+import { strict as assert } from 'node:assert';
+
+export interface JsonRpcRequest {
+  jsonrpc: '2.0';
+  method: string;
+  params?: unknown;
+  id?: string | number | null;
+}
+
+export interface JsonRpcResponse {
+  jsonrpc: '2.0';
+  result?: unknown;
+  error?: {
+    code: number;
+    message: string;
+    data?: unknown;
+  };
+  id: string | number | null;
+}
+
+type MethodHandler = (params: unknown, signal: AbortSignal) => Promise<unknown>;
+
+interface ValidRequestInfo {
+  isValid: boolean;
+  isNotification: boolean;
+  id: string | number | null;
+  method?: string;
+  params?: unknown;
+  error?: { code: number; message: string };
+}
+
+function validateRequest(item: unknown): ValidRequestInfo {
+  if (typeof item !== 'object' || item === null || Array.isArray(item)) {
+    return { isValid: false, isNotification: true, id: null, error: { code: -32600, message: 'Invalid Request' } };
+  }
+
+  const obj = item as Record<string, unknown>;
+
+  if (obj.jsonrpc !== '2.0') {
+    return { isValid: false, isNotification: true, id: null, error: { code: -32600, message: 'Invalid Request' } };
+  }
+
+  const hasId = 'id' in obj;
+  let id: string | number | null = null;
+  if (hasId) {
+    const rawId = obj.id;
+    if (rawId === null || typeof rawId === 'string' || (typeof rawId === 'number' && Number.isFinite(rawId))) {
+      id = rawId as string | number | null;
+    } else {
+      return { isValid: false, isNotification: true, id: null, error: { code: -32600, message: 'Invalid Request' } };
+    }
+  }
+
+  const method = obj.method;
+  if (typeof method !== 'string') {
+    return { isValid: false, isNotification: !hasId, id, error: { code: -32600, message: 'Invalid Request' } };
+  }
+
+  const params = obj.params;
+
+  return {
+    isValid: true,
+    isNotification: !hasId,
+    id,
+    method,
+    params,
+  };
+}
+
+export async function dispatch(
+  input: unknown,
+  methods: Record<string, MethodHandler>,
+  concurrency: number,
+  signal: AbortSignal
+): Promise<JsonRpcResponse[]> {
+  if (!Number.isFinite(concurrency)) {
+    throw new Error('Concurrency must be a finite number');
+  }
+
+  const effectiveConcurrency = Math.max(1, Math.floor(concurrency));
+
+  if (signal.aborted) {
+    return [];
+  }
+
+  let items: unknown[];
+  if (Array.isArray(input)) {
+    if (input.length === 0) {
+      return [{ jsonrpc: '2.0', error: { code: -32600, message: 'Invalid Request' }, id: null }];
+    }
+    items = input;
+  } else {
+    items = [input];
+  }
+
+  const results: (JsonRpcResponse | undefined)[] = new Array(items.length).fill(undefined);
+  let activeCount = 0;
+  let nextIndex = 0;
+  let completedCount = 0;
+  const totalItems = items.length;
+
+  return new Promise<JsonRpcResponse[]>((resolve, reject) => {
+    const checkDone = () => {
+      if (completedCount === totalItems) {
+        resolve(results.filter((r): r is JsonRpcResponse => r !== undefined));
+      }
+    };
+
+    const onAbort = () => {
+      // Cancel all pending and running tasks
+      for (let i = 0; i < results.length; i++) {
+        if (results[i] === undefined) {
+          const info = validateRequest(items[i]);
+          if (!info.isNotification) {
+            results[i] = {
+              jsonrpc: '2.0',
+              error: { code: -32800, message: 'Cancelled' },
+              id: info.id,
+            };
+          }
+        }
+      }
+      completedCount = totalItems;
+      resolve(results.filter((r): r is JsonRpcResponse => r !== undefined));
+    };
+
+    signal.addEventListener('abort', onAbort, { once: true });
+
+    const processNext = () => {
+      if (signal.aborted) return;
+
+      while (activeCount < effectiveConcurrency && nextIndex < totalItems) {
+        const idx = nextIndex++;
+        const item = items[idx];
+        const info = validateRequest(item);
+
+        activeCount++;
+
+        const handleCompletion = (response: JsonRpcResponse | undefined) => {
+          results[idx] = response;
+          activeCount--;
+          completedCount++;
+          checkDone();
+          if (!signal.aborted) {
+            processNext();
+          }
+        };
+
+        if (!info.isValid) {
+          if (info.isNotification) {
+            handleCompletion(undefined);
+          } else {

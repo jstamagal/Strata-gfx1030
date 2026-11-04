@@ -1,0 +1,110 @@
+```rust
+use std::fmt;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum RingError {
+    ZeroCapacity,
+    InvalidCommitCount,
+    StaleEpoch,
+    RewindExposesOverwrittenRows,
+}
+
+impl fmt::Display for RingError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            RingError::ZeroCapacity => write!(f, "capacity must be non-zero"),
+            RingError::InvalidCommitCount => write!(f, "invalid commit count"),
+            RingError::StaleEpoch => write!(f, "snapshot epoch does not match current epoch"),
+            RingError::RewindExposesOverwrittenRows => {
+                write!(f, "rewind would expose overwritten rows")
+            }
+        }
+    }
+}
+
+impl std::error::Error for RingError {}
+
+#[derive(Debug, Clone, Copy)]
+pub struct TokenRow {
+    pub position: u64,
+    pub token: u32,
+    pub key: [f32; 4],
+    pub value: [f32; 4],
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Snapshot {
+    pub epoch: u64,
+    pub next: u64,
+}
+
+#[derive(Debug)]
+pub struct Ring {
+    capacity: usize,
+    rows: Vec<Option<TokenRow>>,
+    epoch: u64,
+    next: u64,
+    staged_count: usize,
+}
+
+impl Ring {
+    pub fn new(capacity: usize) -> Result<Self, RingError> {
+        if capacity == 0 {
+            return Err(RingError::ZeroCapacity);
+        }
+        Ok(Self {
+            capacity,
+            rows: vec![None; capacity],
+            epoch: 0,
+            next: 0,
+            staged_count: 0,
+        })
+    }
+
+    pub fn stage(&mut self, rows: &[TokenRow]) -> Result<(), RingError> {
+        if rows.is_empty() {
+            return Ok(());
+        }
+
+        let start = self.next;
+        let end = start + rows.len() as u64;
+
+        // Check that the staged batch does not overwrite committed rows.
+        // Committed rows are those with absolute position < next (in current epoch).
+        // We need to ensure that for each row in `rows`, its slot is either:
+        // 1. Not yet written in this epoch (i.e., never written since last reset), or
+        // 2. Was staged but not committed (so it's safe to overwrite with new staging).
+        
+        // Actually, the spec says "must not alter committed rows".
+        // Committed rows are those that have been committed. 
+        // A row at absolute position p is committed if p < next AND epoch matches.
+        // But we also need to consider wraparound. The ring buffer stores rows by index = position % capacity.
+        // If a slot contains a row from a previous epoch, it's effectively empty for the current epoch.
+        
+        // Let's think about what "committed" means here. 
+        // `next` is the next absolute position to be committed. All positions < next are committed.
+        // When we stage, we write into slots starting at `next % capacity`.
+        // We must not overwrite any slot that currently holds a committed row from the current epoch.
+        
+        // A slot i holds a committed row if:
+        // - rows[i] is Some(row)
+        // - row.position < self.next (committed in current epoch)
+        // - The row was written in the current epoch. Since we only write during stage/commit, and commit advances next, 
+        //   any row with position < next that is present in the buffer must have been committed in this epoch or a previous one.
+        //   If it's from a previous epoch, its position would be >= some old next, but after reset, epoch changes.
+        //   Actually, we don't clear rows on reset. So a row from epoch 0 might still be in the buffer when epoch is 1.
+        //   But get() checks epoch match. For staging, we care about not overwriting *currently committed* data.
+        
+        // The key insight: A slot is "safe to overwrite" if it does not contain a row that is currently considered committed.
+        // A row is committed if its absolute position < self.next AND it belongs to the current epoch.
+        // However, we don't store epoch in TokenRow. We rely on the fact that if a row was written in a previous epoch, 
+        // and we've reset, then those rows are stale. But they might still be in the buffer.
+        
+        // Let's refine: The ring buffer is used for speculative decoding. 
+        // `next` tracks the next position to commit. Positions < next are committed.
+        // When staging, we write at positions [next, next + len).
+        // We must not overwrite any slot that currently holds a row with absolute position < next (committed) AND from the current epoch.
+        
+        // How do we know if a row in the buffer is from the current epoch? 
+        // We don't store epoch in TokenRow. But we can infer: if a row's position >= some threshold related to wraparound...
+        // Actually, simpler approach: track which slots have been written in the current epoch and committed

@@ -1,0 +1,144 @@
+```typescript
+import { strict as assert } from 'node:assert';
+
+export interface JsonRpcRequest {
+  jsonrpc: '2.0';
+  method: string;
+  params?: unknown;
+  id?: string | number | null;
+}
+
+export interface JsonRpcResponse {
+  jsonrpc: '2.0';
+  result?: unknown;
+  error?: {
+    code: number;
+    message: string;
+    data?: unknown;
+  };
+  id: string | number | null;
+}
+
+type MethodHandler = (params: unknown, signal: AbortSignal) => Promise<unknown>;
+
+interface ValidRequestInfo {
+  isValid: boolean;
+  isNotification: boolean;
+  id: string | number | null | undefined;
+  method?: string;
+  params?: unknown;
+}
+
+function validateRequest(item: unknown): ValidRequestInfo {
+  if (typeof item !== 'object' || item === null || Array.isArray(item)) {
+    return { isValid: false, isNotification: false, id: undefined };
+  }
+
+  const obj = item as Record<string, unknown>;
+
+  // Check jsonrpc field
+  if (obj.jsonrpc !== '2.0') {
+    return { isValid: false, isNotification: false, id: undefined };
+  }
+
+  // Check method field
+  if (typeof obj.method !== 'string') {
+    return { isValid: false, isNotification: false, id: undefined };
+  }
+
+  const method = obj.method;
+  const params = obj.params;
+
+  // Check id field
+  let id: string | number | null | undefined;
+  if ('id' in obj) {
+    const rawId = obj.id;
+    if (rawId === null || typeof rawId === 'string') {
+      id = rawId;
+    } else if (typeof rawId === 'number') {
+      if (!Number.isFinite(rawId)) {
+        return { isValid: false, isNotification: false, id: undefined };
+      }
+      id = rawId;
+    } else {
+      // Invalid id type
+      return { isValid: false, isNotification: false, id: undefined };
+    }
+  } else {
+    // Missing id means notification
+    id = undefined;
+  }
+
+  const isNotification = id === undefined;
+
+  return {
+    isValid: true,
+    isNotification,
+    id,
+    method,
+    params,
+  };
+}
+
+function createErrorResponse(code: number, message: string, id: string | number | null): JsonRpcResponse {
+  return {
+    jsonrpc: '2.0',
+    error: { code, message },
+    id,
+  };
+}
+
+function createSuccessResponse(result: unknown, id: string | number | null): JsonRpcResponse {
+  return {
+    jsonrpc: '2.0',
+    result,
+    id,
+  };
+}
+
+export async function dispatch(
+  input: unknown,
+  methods: Record<string, MethodHandler>,
+  concurrency: number,
+  signal: AbortSignal,
+): Promise<JsonRpcResponse[]> {
+  // Validate concurrency
+  if (!Number.isFinite(concurrency)) {
+    throw new Error('Concurrency must be a finite number');
+  }
+
+  const effectiveConcurrency = Math.max(1, Math.floor(concurrency));
+
+  // Handle empty array input
+  if (Array.isArray(input) && input.length === 0) {
+    return [createErrorResponse(-32600, 'Invalid Request', null)];
+  }
+
+  // Normalize input to an array of items
+  let items: unknown[];
+  if (Array.isArray(input)) {
+    items = [...input]; // Do not mutate original
+  } else {
+    items = [input];
+  }
+
+  const responses: (JsonRpcResponse | null)[] = new Array(items.length).fill(null);
+  const tasks: (() => Promise<void>)[] = [];
+
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    const info = validateRequest(item);
+
+    if (!info.isValid) {
+      // Invalid request: emit -32600 with null id, unless it's a notification-like invalid? 
+      // Spec says: "Invalid requests yield -32600 with null id"
+      // But if it was intended as a notification (no id), should we still respond?
+      // The spec says "Missing id means notification: invoke it but emit no response."
+      // However, if the request is *invalid*, it's not a valid notification either.
+      // Standard JSON-RPC 2.0 batch behavior: invalid requests in a batch get an error response with null id.
+      // But wait: "Notifications remain silent on every error." This applies to *valid* notifications.
+      // An invalid request is not a valid notification. So we should emit an error for invalid requests even if they lack an id?
+      // Let's re-read carefully: "A request has jsonrpc exactly '2.0', a string method, optional params, and optional id... Missing id means notification".
+      // If the structure is invalid (e.g., missing method), it's not a valid request nor a valid notification.
+      // The prompt says: "Invalid requests yield -32600 with null id". It doesn't say "unless notification".
+      // And "

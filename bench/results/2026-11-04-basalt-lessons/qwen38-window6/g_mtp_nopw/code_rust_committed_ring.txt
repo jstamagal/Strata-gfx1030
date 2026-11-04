@@ -1,0 +1,148 @@
+```rust
+use std::fmt;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum RingError {
+    ZeroCapacity,
+    InvalidCommitCount,
+    StaleEpoch,
+    RewindExposesOverwritten,
+}
+
+impl fmt::Display for RingError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            RingError::ZeroCapacity => write!(f, "capacity must be non-zero"),
+            RingError::InvalidCommitCount => write!(f, "invalid commit count"),
+            RingError::StaleEpoch => write!(f, "stale epoch"),
+            RingError::RewindExposesOverwritten => write!(f, "rewind exposes overwritten rows"),
+        }
+    }
+}
+
+impl std::error::Error for RingError {}
+
+#[derive(Debug, Clone, Copy)]
+pub struct TokenRow {
+    pub position: u64,
+    pub token: u32,
+    pub key: [f32; 4],
+    pub value: [f32; 4],
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Snapshot {
+    pub epoch: u64,
+    pub next: u64,
+}
+
+#[derive(Debug)]
+struct Slot {
+    row: Option<TokenRow>,
+    epoch: u64,
+}
+
+impl Slot {
+    fn new() -> Self {
+        Slot {
+            row: None,
+            epoch: 0,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Ring {
+    capacity: usize,
+    slots: Vec<Slot>,
+    next: u64,
+    epoch: u64,
+    staged_start: Option<u64>,
+    staged_count: usize,
+}
+
+impl Ring {
+    pub fn new(capacity: usize) -> Result<Self, RingError> {
+        if capacity == 0 {
+            return Err(RingError::ZeroCapacity);
+        }
+        let slots = (0..capacity).map(|_| Slot::new()).collect();
+        Ok(Ring {
+            capacity,
+            slots,
+            next: 0,
+            epoch: 0,
+            staged_start: None,
+            staged_count: 0,
+        })
+    }
+
+    pub fn stage(&mut self, rows: &[TokenRow]) -> Result<(), RingError> {
+        if rows.is_empty() {
+            return Ok(());
+        }
+
+        let start = self.next;
+        let count = rows.len();
+
+        // Validate that the batch is contiguous and starts at next
+        for (i, row) in rows.iter().enumerate() {
+            if row.position != start + i as u64 {
+                return Err(RingError::InvalidCommitCount);
+            }
+        }
+
+        // Check if staging would overwrite committed rows
+        // Committed rows are those with position < next and epoch == self.epoch
+        // We need to ensure that none of the positions in [start, start+count) 
+        // correspond to a slot that currently holds a committed row from the current epoch.
+        
+        for i in 0..count {
+            let pos = start + i as u64;
+            let idx = (pos % self.capacity as u64) as usize;
+            let slot = &self.slots[idx];
+            
+            // If this slot currently holds a committed row from the current epoch,
+            // we cannot stage over it.
+            if slot.epoch == self.epoch && slot.row.is_some() {
+                // Check if this position is actually committed (position < next)
+                // Since we are staging at 'next', positions >= next are not yet committed.
+                // However, due to wraparound, a slot might hold an old row from a previous cycle
+                // that has the same epoch but was overwritten? No, epoch only changes on reset.
+                
+                // Actually, if slot.epoch == self.epoch and slot.row.is_some(), 
+                // it means this position was previously written in this epoch.
+                // If pos < next, it's committed. We must not overwrite committed rows.
+                if pos < self.next {
+                    return Err(RingError::InvalidCommitCount);
+                }
+            }
+        }
+
+        // Write staged rows into slots
+        for (i, row) in rows.iter().enumerate() {
+            let pos = start + i as u64;
+            let idx = (pos % self.capacity as u64) as usize;
+            self.slots[idx].row = Some(*row);
+            self.slots[idx].epoch = self.epoch;
+        }
+
+        self.staged_start = Some(start);
+        self.staged_count = count;
+
+        Ok(())
+    }
+
+    pub fn commit(&mut self, count: usize) -> Result<(), RingError> {
+        if let Some(start) = self.staged_start {
+            if count > self.staged_count {
+                return Err(RingError::InvalidCommitCount);
+            }
+            
+            // Advance next by count
+            self.next += count as u64;
+            
+            // Discard the rest of the staged batch (do nothing, they remain in slots 
+            // but are not considered committed. They will be overwritten on future stages 
+            // or ignored by get if epoch/position mismatch logic handles it.)
+            // Actually, we just need to clear the staging state.

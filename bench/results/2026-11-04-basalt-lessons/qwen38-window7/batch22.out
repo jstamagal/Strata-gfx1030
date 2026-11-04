@@ -1,0 +1,20 @@
+f_df2_nopw run1 1053 tok 60.9 tok/s drafts 543 / 1206
+f_df2_nopw run2 1053 tok 61.1 tok/s drafts 543 / 1206
+                 PROFILE, ranked by routing frequency, no eviction.
+d9824cbd91e8
+d9824cbd91e8
+f_df2_pw run1 1049 tok 60.4 tok/s drafts 542 / 1216
+f_df2_pw run2 1049 tok 60.6 tok/s drafts 542 / 1216
+                 PROFILE, ranked by routing frequency, no eviction.
+3c6106423e69
+3c6106423e69
+f_df2_pw_miss run1 1049 tok 59.9 tok/s drafts 543 / 1227
+f_df2_pw_miss run2 1049 tok 60.1 tok/s drafts 543 / 1227
+                 PROFILE, ranked by routing frequency, no eviction.
+3c6106423e69
+3c6106423e69
+f_mtp_pw run1 999 tok 69.0 tok/s drafts 427 / 601
+f_mtp_pw run2 999 tok 69.1 tok/s drafts 427 / 601
+                 PROFILE, ranked by routing frequency, no eviction.
+e371cf43b7e9
+e371cf43b7e9

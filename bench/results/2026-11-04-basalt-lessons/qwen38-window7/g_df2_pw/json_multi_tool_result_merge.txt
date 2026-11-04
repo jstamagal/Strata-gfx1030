@@ -1,0 +1,98 @@
+{
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "high",
+      "evidence_ids": ["search_02", "trace_05"],
+      "observed_facts": [
+        "src/decode/draft.py advances its cursor by the whole proposed batch.",
+        "Request R17: proposed_rows=6, accepted_drafts=1, draft_cursor=4102, target_cursor=4098."
+      ],
+      "hypothesis": "The draft cursor advances based on proposed rows rather than accepted drafts, causing the draft stream to desynchronize from the target stream when acceptance rate is less than 100%.",
+      "confidence": 0.95,
+      "falsification_test": "Run a test where proposed_rows=1 and accepted_drafts=1; verify if draft_cursor advances by exactly 1."
+    },
+    {
+      "id": "F2",
+      "severity": "critical",
+      "evidence_ids": ["search_02", "test_04"],
+      "observed_facts": [
+        "src/decode/verify.py commits keep rows.",
+        "test_reject_prefix failed 3/10."
+      ],
+      "hypothesis": "The verification logic fails to correctly discard or rollback unaccepted prefix rows, leading to state corruption when a prefix is rejected.",
+      "confidence": 0.85,
+      "falsification_test": "Execute test_reject_prefix with logging enabled in verify.py to inspect the row buffer state immediately after rejection."
+    },
+    {
+      "id": "F3",
+      "severity": "medium",
+      "evidence_ids": ["trace_05"],
+      "observed_facts": [
+        "Request R18: cancellation=true, draft_cursor=4106, target_cursor=4099.",
+        "Request R17 (no cancellation): draft_cursor=4102, target_cursor=4098."
+      ],
+      "hypothesis": "Cancellation does not halt the draft cursor advancement immediately, allowing the draft stream to run ahead of the target stream even after a cancel signal.",
+      "confidence": 0.75,
+      "falsification_test": "Inject a cancellation signal mid-batch and assert that draft_cursor stops advancing at the exact moment of cancellation."
+    },
+    {
+      "id": "F4",
+      "severity": "high",
+      "evidence_ids": ["search_01", "test_04"],
+      "observed_facts": [
+        "src/server/session.py reset_state is called on slot release.",
+        "test_resume_after_wrap failed 2/10."
+      ],
+      "hypothesis": "Resetting state on slot release clears necessary context or epoch tags required for resuming a session after the ring buffer wraps around.",
+      "confidence": 0.8,
+      "falsification_test": "Manually trigger a wrap-around event and verify if reset_state is called prematurely before the resume operation completes."
+    },
+    {
+      "id": "F5",
+      "severity": "medium",
+      "evidence_ids": ["read_03"],
+      "observed_facts": [
+        "src/kv/ring.py indexes slots by position modulo 2064.",
+        "src/kv/ring.py checks a uint64 epoch tag."
+      ],
+      "hypothesis": "The fixed modulo index (2064) combined with epoch tags may cause collisions or stale data reads if the epoch tag is not incremented correctly during wrap-around scenarios.",
+      "confidence": 0.6,
+      "falsification_test": "Write a unit test that fills the ring buffer to capacity, wraps around, and attempts to read from an index where the epoch tag matches but the data is stale."
+    },
+    {
+      "id": "F6",
+      "severity": "low",
+      "evidence_ids": ["trace_05"],
+      "observed_facts": [
+        "Request R17: consumed_inputs=2, accepted_drafts=1.",
+        "Request R18: consumed_inputs=1, accepted_drafts=0."
+      ],
+      "hypothesis": "There is a mismatch between consumed inputs and accepted drafts that suggests the prompt cache is not being updated correctly for rejected tokens, potentially leading to cache misses on resume.",
+      "confidence": 0.5,
+      "falsification_test": "Compare the hash of the prompt cache before and after processing R18; verify if the cache reflects only the accepted state."
+    }
+  ],
+  "next_tool_calls": [
+    {
+      "id": "TC1",
+      "name": "read_file",
+      "arguments": {
+        "path": "src/decode/draft.py"
+      },
+      "depends_on": []
+    },
+    {
+      "id": "TC2",
+      "name": "read_file",
+      "arguments": {
+        "path": "src/decode/verify.py"
+      },
+      "depends_on": []
+    },
+    {
+      "id": "TC3",
+      "name": "search_code",
+      "arguments": {
+        "pattern": "reset_state",
+        "path": "

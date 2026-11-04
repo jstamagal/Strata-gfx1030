@@ -1,0 +1,58 @@
+k5_ctl run1 prompt 36411 2005.9 tok/s 18.15 s; gen 300 78.1 tok/s drafts 138 / 185
+cfe90afca99c
+k5_ctl run2 prompt 36411 1996.7 tok/s 18.24 s; gen 300 82.3 tok/s drafts 143 / 181
+8eca97dcdf24
+k5_tj16 run1 prompt 36411 2007.6 tok/s 18.14 s; gen 300 78.2 tok/s drafts 138 / 185
+cfe90afca99c
+k5_tj16 run2 prompt 36411 2014.6 tok/s 18.07 s; gen 300 82.3 tok/s drafts 143 / 181
+8eca97dcdf24
+k5_q8k run1 prompt 36411 2004.6 tok/s 18.16 s; gen 300 74.7 tok/s drafts 133 / 192
+c9a7e4e5b237
+k5_q8k run2 prompt 36411 2011.8 tok/s 18.1 s; gen 300 80.1 tok/s drafts 133 / 173
+4a3fb049b9d8
+i5_ctl run1 prompt 36411 2712.3 tok/s 13.42 s; gen 300 98.5 tok/s drafts 138 / 184
+465bd3d3c086
+i5_ctl run2 prompt 36411 2721.6 tok/s 13.38 s; gen 300 95.3 tok/s drafts 131 / 190
+36ddb4f24b19
+i5_nlperm run1 prompt 36411 2722.7 tok/s 13.37 s; gen 300 98.6 tok/s drafts 138 / 184
+465bd3d3c086
+i5_nlperm run2 prompt 36411 2736.2 tok/s 13.31 s; gen 300 95.3 tok/s drafts 131 / 190
+36ddb4f24b19
+i5_clamp run1 prompt 36411 2721.2 tok/s 13.38 s; gen 300 98.7 tok/s drafts 138 / 184
+465bd3d3c086
+i5_clamp run2 prompt 36411 2736.5 tok/s 13.31 s; gen 300 95.3 tok/s drafts 131 / 190
+36ddb4f24b19
+i5_iqq8k run1 prompt 36411 2709.6 tok/s 13.44 s; gen 300 94.5 tok/s drafts 137 / 197
+e701f0b0a17c
+i5_iqq8k run2 prompt 36411 2721.9 tok/s 13.38 s; gen 300 95.4 tok/s drafts 133 / 195
+1d4706a6b837
+== k5_ctl vs k5_tj16
+         ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/pathlib/__init__.py", line 771, in open
+    return io.open(self, mode, buffering, encoding, errors, newline)
+           ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/basalt-prof/logits/k5_ctl.0'
+== k5_ctl vs k5_q8k
+         ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/pathlib/__init__.py", line 771, in open
+    return io.open(self, mode, buffering, encoding, errors, newline)
+           ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/basalt-prof/logits/k5_ctl.0'
+== i5_ctl vs i5_nlperm
+         ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/pathlib/__init__.py", line 771, in open
+    return io.open(self, mode, buffering, encoding, errors, newline)
+           ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/basalt-prof/logits/i5_ctl.0'
+== i5_ctl vs i5_clamp
+         ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/pathlib/__init__.py", line 771, in open
+    return io.open(self, mode, buffering, encoding, errors, newline)
+           ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/basalt-prof/logits/i5_ctl.0'
+== i5_ctl vs i5_iqq8k
+         ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/pathlib/__init__.py", line 771, in open
+    return io.open(self, mode, buffering, encoding, errors, newline)
+           ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/basalt-prof/logits/i5_ctl.0'

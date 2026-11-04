@@ -1,0 +1,25 @@
+g_df2_pw code_async_batcher              1154 tok   91.9 tok/s drafts 747/1311 62118d7eff38
+g_df2_pw code_rust_committed_ring        1200 tok  108.5 tok/s drafts 826/1252 2b6621f47ca6
+g_df2_pw code_typescript_tool_dispatch   1200 tok  102.3 tok/s drafts 807/1290 8968dcc61f47
+g_df2_pw json_multi_tool_result_merge    1200 tok  105.1 tok/s drafts 810/1191 888dd2dc611c
+g_df2_pw json_parallel_tool_plan         1200 tok  131.8 tok/s drafts 851/1051 5f581a76545e
+g_df2_pw json_patch_tool_payload         1200 tok   83.3 tok/s drafts 728/1359 08afeaaf4371
+g_df2_pw TOTAL 7154 tok 101.8 tok/s
+e_df2_pw run1 964 tok 69.7 tok/s drafts 498 / 1057
+e_df2_pw run2 1065 tok 71.9 tok/s drafts 545 / 1171
+e_df2_pw run3 1089 tok 70.4 tok/s drafts 541 / 1200
+e_df2_pw run4 1056 tok 71.3 tok/s drafts 538 / 1176
+                 PROFILE, ranked by routing frequency, no eviction.
+1e41544e059a
+2b3d627cc059
+827455975d72
+a8267442fafa
+e_mtp_pw run1 1135 tok 76.2 tok/s drafts 467 / 664
+e_mtp_pw run2 1090 tok 78.7 tok/s drafts 457 / 670
+e_mtp_pw run3 1070 tok 79.8 tok/s drafts 449 / 651
+e_mtp_pw run4 1139 tok 77.2 tok/s drafts 459 / 700
+                 PROFILE, ranked by routing frequency, no eviction.
+be4d4aa35c19
+36d0375a1c5d
+1330da577444
+59d6e894b25c

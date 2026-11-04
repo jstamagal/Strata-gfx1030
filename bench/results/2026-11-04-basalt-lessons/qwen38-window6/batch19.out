@@ -1,0 +1,28 @@
+t_pf2048-control run1 prompt 36411 1583.0 tok/s 23.0 s; gen 300 84.3 tok/s drafts 142 / 181
+a5ab21ba7b98
+t_pf2048-control run2 prompt 36411 1528.5 tok/s 23.82 s; gen 300 80.4 tok/s drafts 135 / 179
+92666f706946
+t_pf2048-ahead16 run1 prompt 36411 1769.2 tok/s 20.58 s; gen 300 84.3 tok/s drafts 142 / 181
+a5ab21ba7b98
+t_pf2048-ahead16 run2 prompt 36411 1776.0 tok/s 20.5 s; gen 300 80.4 tok/s drafts 135 / 179
+92666f706946
+t_pf4096-control run1 prompt 36411 2005.7 tok/s 18.15 s; gen 300 80.8 tok/s drafts 138 / 187
+cfe90afca99c
+t_pf4096-control run2 prompt 36411 1927.0 tok/s 18.9 s; gen 300 84.9 tok/s drafts 143 / 181
+8eca97dcdf24
+t_pf4096-ahead16 run1 prompt 36411 2067.8 tok/s 17.61 s; gen 300 80.7 tok/s drafts 138 / 187
+cfe90afca99c
+t_pf4096-ahead16 run2 prompt 36411 2071.1 tok/s 17.58 s; gen 300 84.9 tok/s drafts 143 / 181
+8eca97dcdf24
+t_pf4096-ahead32 run1 prompt 36411 2086.0 tok/s 17.45 s; gen 300 80.5 tok/s drafts 138 / 187
+cfe90afca99c
+t_pf4096-ahead32 run2 prompt 36411 2095.9 tok/s 17.37 s; gen 300 84.8 tok/s drafts 143 / 181
+8eca97dcdf24
+t_lm4096-host-later run1 prompt 36411 1697.6 tok/s 21.45 s; gen 300 84.4 tok/s drafts 142 / 181
+a5ab21ba7b98
+t_lm4096-host-later run2 prompt 36411 1704.0 tok/s 21.37 s; gen 300 80.5 tok/s drafts 135 / 179
+92666f706946
+t_lm4096-vram-later run1 prompt 36411 1695.8 tok/s 21.47 s; gen 300 84.4 tok/s drafts 142 / 181
+a5ab21ba7b98
+t_lm4096-vram-later run2 prompt 36411 1702.1 tok/s 21.39 s; gen 300 80.4 tok/s drafts 135 / 179
+92666f706946

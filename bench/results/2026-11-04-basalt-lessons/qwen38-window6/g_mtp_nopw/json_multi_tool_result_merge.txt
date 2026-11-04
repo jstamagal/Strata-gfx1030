@@ -1,0 +1,86 @@
+{
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "high",
+      "evidence_ids": ["search_02", "trace_05"],
+      "observed_facts": [
+        "src/decode/draft.py advances its cursor by the whole proposed batch.",
+        "Request R17: proposed_rows=6, accepted_drafts=1, draft_cursor advanced to 4102 (from 4098).",
+        "Request R18: proposed_rows=4, accepted_drafts=0, draft_cursor advanced to 4106 (from 4099)."
+      ],
+      "hypothesis": "The draft cursor advances by the full proposal size regardless of acceptance count, causing a divergence between the logical token position and the physical KV cache write pointer.",
+      "confidence": 0.95,
+      "falsification_test": "Inspect src/decode/draft.py to verify if `cursor += len(proposed_batch)` is hardcoded or conditional on `accepted_count`."
+    },
+    {
+      "id": "F2",
+      "severity": "critical",
+      "evidence_ids": ["search_01", "test_04"],
+      "observed_facts": [
+        "src/server/session.py resets state on slot release.",
+        "test_reject_prefix failed 3/10.",
+        "Request R18 had cancellation=true and accepted_drafts=0."
+      ],
+      "hypothesis": "Cancellation triggers a premature slot release or state reset before the rejection logic can properly roll back the prefix cache, leading to corrupted session state on retry.",
+      "confidence": 0.85,
+      "falsification_test": "Trace the execution path of `test_reject_prefix` to see if `reset_state` is called while `cancellation=true` but before `verify.py` commits."
+    },
+    {
+      "id": "F3",
+      "severity": "high",
+      "evidence_ids": ["search_02", "trace_05"],
+      "observed_facts": [
+        "src/decode/verify.py commits keep rows.",
+        "Request R17: accepted_drafts=1, target_cursor=4098 (unchanged from start).",
+        "Request R18: accepted_drafts=0, target_cursor=4099 (unchanged from start)."
+      ],
+      "hypothesis": "The `target_cursor` is not updated to reflect the number of accepted drafts, causing a mismatch between the verified token count and the draft cursor position.",
+      "confidence": 0.9,
+      "falsification_test": "Check if `verify.py` updates `session.target_cursor` by `accepted_drafts` or leaves it static."
+    },
+    {
+      "id": "F4",
+      "severity": "medium",
+      "evidence_ids": ["read_03", "test_04"],
+      "observed_facts": [
+        "src/kv/ring.py indexes slots by position modulo 2064.",
+        "test_resume_after_wrap failed 2/10."
+      ],
+      "hypothesis": "The ring buffer wrap-around logic fails to correctly map the logical cursor to the physical slot index when crossing the 2064 boundary, specifically during resume operations.",
+      "confidence": 0.75,
+      "falsification_test": "Run a unit test that forces a cursor position of exactly 2063 and 2064 to verify slot indexing."
+    },
+    {
+      "id": "F5",
+      "severity": "medium",
+      "evidence_ids": ["read_03"],
+      "observed_facts": [
+        "src/kv/ring.py checks a uint64 epoch tag.",
+        "Request R17 and R18 have different target cursors (4098 vs 4099) but similar draft cursors."
+      ],
+      "hypothesis": "The epoch tag check may be insufficient to distinguish between stale slots from a previous session if the cursor wraps around within the same epoch, leading to data contamination.",
+      "confidence": 0.6,
+      "falsification_test": "Simulate two sessions with the same slot index but different epochs and verify that `ring.py` rejects the stale read."
+    },
+    {
+      "id": "F6",
+      "severity": "low",
+      "evidence_ids": ["test_04"],
+      "observed_facts": [
+        "test_cancel_after_launch passed 10/10.",
+        "Request R18 had cancellation=true."
+      ],
+      "hypothesis": "Cancellation logic works correctly for simple cases but fails in complex scenarios involving prefix rejection (as seen in F2), suggesting the issue is specific to the interaction between cancellation and cache verification.",
+      "confidence": 0.5,
+      "falsification_test": "Run `test_cancel_after_launch` with a forced prefix mismatch to see if it still passes."
+    }
+  ],
+  "next_tool_calls": [
+    {
+      "id": "TC1",
+      "name": "read_file",
+      "arguments": {
+        "path": "src/decode/draft.py"
+      },
+      "

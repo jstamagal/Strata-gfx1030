@@ -1,0 +1,166 @@
+```typescript
+import { strict as assert } from 'node:assert';
+
+export interface JsonRpcRequest {
+  jsonrpc: '2.0';
+  method: string;
+  params?: unknown;
+  id?: string | number | null;
+}
+
+export interface JsonRpcResponse {
+  jsonrpc: '2.0';
+  result?: unknown;
+  error?: {
+    code: number;
+    message: string;
+    data?: unknown;
+  };
+  id: string | number | null;
+}
+
+type MethodHandler = (params: unknown, signal: AbortSignal) => Promise<unknown>;
+
+interface ValidRequestInfo {
+  index: number;
+  isNotification: boolean;
+  method: string;
+  params: unknown;
+  id: string | number | null;
+}
+
+interface InvalidRequestInfo {
+  index: number;
+  error: { code: number; message: string };
+  id: string | number | null;
+}
+
+function isValidId(id: unknown): id is string | number | null {
+  if (id === null) return true;
+  if (typeof id === 'string') return true;
+  if (typeof id === 'number') return Number.isFinite(id);
+  return false;
+}
+
+function parseRequest(item: unknown, index: number): ValidRequestInfo | InvalidRequestInfo {
+  // Check if it's an object
+  if (item === null || typeof item !== 'object' || Array.isArray(item)) {
+    return {
+      index,
+      error: { code: -32600, message: 'Invalid Request' },
+      id: null,
+    };
+  }
+
+  const obj = item as Record<string, unknown>;
+
+  // Check jsonrpc field
+  if (obj.jsonrpc !== '2.0') {
+    return {
+      index,
+      error: { code: -32600, message: 'Invalid Request' },
+      id: null,
+    };
+  }
+
+  // Check method field
+  if (typeof obj.method !== 'string') {
+    return {
+      index,
+      error: { code: -32600, message: 'Invalid Request' },
+      id: null,
+    };
+  }
+
+  // Check id field if present
+  let id: string | number | null = null;
+  const hasId = 'id' in obj;
+  if (hasId) {
+    if (!isValidId(obj.id)) {
+      return {
+        index,
+        error: { code: -32600, message: 'Invalid Request' },
+        id: null,
+      };
+    }
+    id = obj.id as string | number | null;
+  }
+
+  const isNotification = !hasId;
+  const params = obj.params;
+
+  return {
+    index,
+    isNotification,
+    method: obj.method,
+    params,
+    id,
+  };
+}
+
+export async function dispatch(
+  input: unknown,
+  methods: Record<string, MethodHandler>,
+  concurrency: number,
+  signal: AbortSignal,
+): Promise<JsonRpcResponse[]> {
+  // Validate concurrency
+  if (!Number.isFinite(concurrency)) {
+    throw new Error('Concurrency must be a finite number');
+  }
+
+  const effectiveConcurrency = Math.max(1, Math.floor(concurrency));
+
+  // Handle empty array input
+  if (Array.isArray(input) && input.length === 0) {
+    return [
+      {
+        jsonrpc: '2.0',
+        error: { code: -32600, message: 'Invalid Request' },
+        id: null,
+      },
+    ];
+  }
+
+  // Normalize input to array
+  let items: unknown[];
+  if (Array.isArray(input)) {
+    items = input;
+  } else {
+    items = [input];
+  }
+
+  // Parse all requests first without mutating input
+  const parsedRequests: (ValidRequestInfo | InvalidRequestInfo)[] = [];
+  for (let i = 0; i < items.length; i++) {
+    parsedRequests.push(parseRequest(items[i], i));
+  }
+
+  // Prepare results array with null placeholders to maintain order
+  const results: (JsonRpcResponse | null)[] = new Array(parsedRequests.length).fill(null);
+
+  // Process invalid requests immediately
+  for (const req of parsedRequests) {
+    if ('error' in req) {
+      // Invalid request: emit error response unless it's a notification-like scenario?
+      // Per spec, invalid requests always get an error response with id null.
+      // But wait: "Invalid requests yield -32600 with null id"
+      results[req.index] = {
+        jsonrpc: '2.0',
+        error: req.error,
+        id: req.id,
+      };
+    }
+  }
+
+  // Collect valid requests that need processing
+  const validRequests: ValidRequestInfo[] = [];
+  for (const req of parsedRequests) {
+    if (!('error' in req)) {
+      validRequests.push(req);
+    }
+  }
+
+  // If no valid requests, return results filtering out nulls? 
+  // Actually, we need to return responses in input order.
+  // Notifications produce no response, so their slot remains null and should be filtered out at the

@@ -1,0 +1,101 @@
+{
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "high",
+      "evidence_ids": ["search_02", "trace_05"],
+      "observed_facts": [
+        "src/decode/draft.py advances its cursor by the whole proposed batch.",
+        "Request R17: proposed_rows=6, accepted_drafts=1, draft_cursor=4102.",
+        "Request R18: proposed_rows=4, accepted_drafts=0, draft_cursor=4106."
+      ],
+      "hypothesis": "The draft cursor advances by the full proposal size regardless of acceptance count, causing a divergence between the logical token position and the physical buffer index.",
+      "confidence": 0.95,
+      "falsification_test": "Inspect src/decode/draft.py to verify if the cursor increment is hardcoded to `len(proposed_batch)` rather than `accepted_count`."
+    },
+    {
+      "id": "F2",
+      "severity": "critical",
+      "evidence_ids": ["search_01", "test_04"],
+      "observed_facts": [
+        "src/server/session.py resets state on slot release.",
+        "test_reject_prefix failed 3/10."
+      ],
+      "hypothesis": "State reset logic is triggered prematurely or incorrectly during prefix rejection, clearing necessary context before the session can recover.",
+      "confidence": 0.85,
+      "falsification_test": "Add logging to `reset_state` in src/server/session.py to confirm if it triggers during a `reject_prefix` event."
+    },
+    {
+      "id": "F3",
+      "severity": "high",
+      "evidence_ids": ["search_01", "trace_05"],
+      "observed_facts": [
+        "src/server/session.py resets state on slot release.",
+        "Request R18 has cancellation=true."
+      ],
+      "hypothesis": "Cancellation triggers a slot release which invokes `reset_state`, potentially destroying data required for post-cancellation cleanup or logging.",
+      "confidence": 0.75,
+      "falsification_test": "Trace the execution path of R18 to see if `reset_state` is called immediately upon cancellation flag detection."
+    },
+    {
+      "id": "F4",
+      "severity": "medium",
+      "evidence_ids": ["search_02", "trace_05"],
+      "observed_facts": [
+        "src/decode/verify.py commits keep rows.",
+        "Request R17: accepted_drafts=1, target_cursor=4098."
+      ],
+      "hypothesis": "The verify module retains rows that should be discarded if the draft cursor has already advanced past them, leading to stale data in the commit buffer.",
+      "confidence": 0.65,
+      "falsification_test": "Check if `verify.py` filters rows based on the current `draft_cursor` before committing."
+    },
+    {
+      "id": "F5",
+      "severity": "high",
+      "evidence_ids": ["search_02", "test_04"],
+      "observed_facts": [
+        "src/decode/draft.py advances cursor by whole batch.",
+        "test_resume_after_wrap failed 2/10."
+      ],
+      "hypothesis": "The mismatch between logical acceptance and physical cursor advancement causes index misalignment when the ring buffer wraps around (modulo 2064).",
+      "confidence": 0.8,
+      "falsification_test": "Simulate a wrap-around scenario where `draft_cursor` exceeds 2064 while `accepted_drafts` is low, and check for index out-of-bounds or wrong slot access."
+    },
+    {
+      "id": "F6",
+      "severity": "medium",
+      "evidence_ids": ["read_03", "test_04"],
+      "observed_facts": [
+        "src/kv/ring.py checks a uint64 epoch tag.",
+        "test_resume_after_wrap failed 2/10."
+      ],
+      "hypothesis": "Epoch tags are not incremented correctly during wrap-around or cancellation, causing the ring buffer to accept stale slots as valid.",
+      "confidence": 0.7,
+      "falsification_test": "Verify if `epoch_tag` is incremented in `src/kv/ring.py` when a slot is released or when the cursor wraps."
+    }
+  ],
+  "next_tool_calls": [
+    {
+      "id": "TC1",
+      "name": "read_file",
+      "arguments": {
+        "path": "src/decode/draft.py"
+      },
+      "depends_on": []
+    },
+    {
+      "id": "TC2",
+      "name": "read_file",
+      "arguments": {
+        "path": "src/server/session.py"
+      },
+      "depends_on": []
+    },
+    {
+      "id": "TC3",
+      "name": "search_code",
+      "arguments": {
+        "pattern": "reset_state",
+        "path": "src/"
+      },
+      "depends_on": ["TC

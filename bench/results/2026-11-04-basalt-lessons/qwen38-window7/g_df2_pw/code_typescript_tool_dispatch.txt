@@ -1,0 +1,133 @@
+```typescript
+import { strict as assert } from 'node:assert';
+
+export interface JsonRpcRequest {
+  jsonrpc: '2.0';
+  method: string;
+  params?: unknown;
+  id?: string | number | null;
+}
+
+export interface JsonRpcResponse {
+  jsonrpc: '2.0';
+  result?: unknown;
+  error?: {
+    code: number;
+    message: string;
+    data?: unknown;
+  };
+  id: string | number | null;
+}
+
+type MethodHandler = (params: unknown, signal: AbortSignal) => Promise<unknown>;
+
+interface ValidRequest {
+  index: number;
+  request: JsonRpcRequest;
+  isNotification: boolean;
+  id: string | number | null;
+}
+
+interface InvalidRequestError {
+  code: number;
+  message: string;
+  id: string | number | null;
+}
+
+function isValidId(id: unknown): id is string | number | null {
+  if (id === null) return true;
+  if (typeof id === 'string') return true;
+  if (typeof id === 'number') return Number.isFinite(id);
+  return false;
+}
+
+function validateRequest(item: unknown): ValidRequest | InvalidRequestError {
+  if (item === null || typeof item !== 'object' || Array.isArray(item)) {
+    return { code: -32600, message: 'Invalid Request', id: null };
+  }
+
+  const obj = item as Record<string, unknown>;
+
+  // Check jsonrpc field
+  if (obj.jsonrpc !== '2.0') {
+    return { code: -32600, message: 'Invalid Request', id: null };
+  }
+
+  // Check method field
+  if (typeof obj.method !== 'string' || obj.method.length === 0) {
+    return { code: -32600, message: 'Invalid Request', id: null };
+  }
+
+  // Determine id
+  let id: string | number | null = null;
+  let hasId = false;
+
+  if ('id' in obj) {
+    const rawId = obj.id;
+    if (!isValidId(rawId)) {
+      return { code: -32600, message: 'Invalid Request', id: null };
+    }
+    id = rawId as string | number | null;
+    hasId = true;
+  }
+
+  const isNotification = !hasId;
+
+  // If it's a notification, we don't care about id for response purposes, but validation passed.
+  // For invalid requests that have an id, we preserve the id if valid.
+  // The spec says: "Invalid requests yield -32600 with null id". 
+  // However, standard JSON-RPC often preserves ID if it was present and valid even in some error cases?
+  // Let's re-read prompt: "Invalid requests yield -32600 with null id; missing methods yield -32601 preserving a valid id"
+  // This implies that for general invalid structure (-32600), we return null id.
+  // But wait, if the request has a valid ID but is otherwise invalid (e.g. bad jsonrpc version), do we return null?
+  // The prompt says "Invalid requests yield -32600 with null id". This suggests strict interpretation: any structural invalidity -> null id.
+  
+  return {
+    index: -1, // Will be set by caller
+    request: obj as unknown as JsonRpcRequest,
+    isNotification,
+    id,
+  };
+}
+
+function createErrorResponse(code: number, message: string, id: string | number | null): JsonRpcResponse {
+  return {
+    jsonrpc: '2.0',
+    error: { code, message },
+    id,
+  };
+}
+
+function createSuccessResponse(result: unknown, id: string | number | null): JsonRpcResponse {
+  return {
+    jsonrpc: '2.0',
+    result,
+    id,
+  };
+}
+
+export async function dispatch(
+  input: unknown,
+  methods: Record<string, MethodHandler>,
+  concurrency: number,
+  signal: AbortSignal
+): Promise<JsonRpcResponse[]> {
+  // Clamp concurrency
+  if (!Number.isFinite(concurrency)) {
+    throw new Error('Concurrency must be a finite number');
+  }
+  const effectiveConcurrency = Math.max(1, Math.floor(concurrency));
+
+  // Handle non-array input as single request? 
+  // Prompt says: "Empty input arrays are invalid." and "A nonempty batch...".
+  // It implies input is expected to be an array (batch).
+  // If input is not an array, it's likely a single request or invalid.
+  // JSON-RPC 2.0 spec allows single objects. But prompt focuses on "batch dispatcher".
+  // Let's assume if it's not an array, we treat it as a single request wrapped in an array for processing logic, 
+  // OR strictly follow "Empty input arrays are invalid" implying non-arrays might be invalid too?
+  // Usually dispatchers handle both. Let's look at "Input is an unknown value".
+  // If it's not an array, we can treat it as a batch of 1.
+  
+  let requests: unknown[];
+
+  if (Array.isArray(input)) {

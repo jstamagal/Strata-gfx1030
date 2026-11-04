@@ -1,0 +1,144 @@
+```python
+import asyncio
+from typing import Callable, Awaitable, List
+
+
+class Batcher:
+    def __init__(self, infer: Callable[[List[List[int]]], Awaitable[List[float]]], max_batch: int = 8, wait_ms: float = 2):
+        self._infer = infer
+        self._max_batch = max_batch
+        self._wait_ms = wait_ms
+        self._queue: asyncio.Queue = asyncio.Queue()
+        self._worker_task: asyncio.Task | None = None
+        self._closed = False
+
+    async def submit(self, tokens: list[int]) -> list[float]:
+        if self._closed:
+            raise RuntimeError("Batcher is closed")
+        
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future = loop.create_future()
+        item = (tokens, future)
+        
+        await self._queue.put(item)
+        
+        # Start worker if not running
+        if self._worker_task is None or self._worker_task.done():
+            self._worker_task = asyncio.create_task(self._worker())
+            
+        return await future
+
+    async def close(self):
+        if self._closed:
+            return
+        self._closed = True
+        
+        # Put a sentinel to wake up the worker if it's waiting on get()
+        # But we need to drain existing items first. 
+        # The worker loop should check _closed and queue emptiness.
+        
+        # Wait for worker to finish draining
+        if self._worker_task is not None:
+            await self._worker_task
+
+    async def _worker(self):
+        loop = asyncio.get_running_loop()
+        
+        while True:
+            batch_items: List[tuple[list[int], asyncio.Future]] = []
+            
+            # Try to get the first item, waiting indefinitely if queue is empty but not closed
+            try:
+                item = await self._queue.get()
+            except asyncio.CancelledError:
+                break
+                
+            if item is None:  # Sentinel for close? Not strictly needed if we check _closed and empty
+                 # Actually, let's handle close differently. 
+                 # If we use a sentinel, we need to ensure it doesn't interfere with normal flow.
+                 # Let's stick to checking _closed and queue size.
+                 pass
+
+            batch_items.append(item)
+            
+            # Determine deadline for this batch based on the first item's arrival time?
+            # The requirement says "wait_ms since the oldest queued request elapses".
+            # Since we process FIFO, the first item in the batch is the oldest among those currently being grouped.
+            # However, items might arrive while we are waiting. 
+            # Strategy: 
+            # 1. Get first item. Record its arrival time? No, we don't have it. 
+            #    We can record loop.time() when we start forming a batch. 
+            #    But "oldest queued request" implies the time it entered the queue.
+            #    Let's store arrival time in the item tuple.
+            
+            # Re-evaluating: The prompt says "wait_ms since the oldest queued request elapses".
+            # If I just started a batch, the first item is the oldest. 
+            # I should have stored its timestamp.
+            
+            # Let's modify submit to include timestamp? Or store it in the tuple.
+            # Tuple: (tokens, future, arrival_time)
+            
+            # Wait, I already put (tokens, future). Let's change structure.
+            # Actually, let's restart the logic with timestamps.
+            
+            break # Placeholder to rewrite below
+
+        # This implementation needs a rewrite for clarity and correctness regarding timestamps.
+        pass
+
+
+# Rewriting Batcher class properly
+
+import asyncio
+from typing import Callable, Awaitable, List, Tuple
+import time
+
+class Batcher:
+    def __init__(self, infer: Callable[[List[List[int]]], Awaitable[List[float]]], max_batch: int = 8, wait_ms: float = 2):
+        self._infer = infer
+        self._max_batch = max_batch
+        self._wait_ms = wait_ms / 1000.0  # Convert to seconds
+        self._queue: asyncio.Queue = asyncio.Queue()
+        self._worker_task: asyncio.Task | None = None
+        self._closed = False
+
+    async def submit(self, tokens: list[int]) -> list[float]:
+        if self._closed:
+            raise RuntimeError("Batcher is closed")
+        
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future = loop.create_future()
+        arrival_time = loop.time()
+        item = (tokens, future, arrival_time)
+        
+        await self._queue.put(item)
+        
+        # Start worker if not running
+        if self._worker_task is None or self._worker_task.done():
+            self._worker_task = asyncio.create_task(self._worker())
+            
+        return await future
+
+    async def close(self):
+        if self._closed:
+            return
+        self._closed = True
+        
+        # Wait for worker to finish draining
+        if self._worker_task is not None:
+            await self._worker_task
+
+    async def _worker(self):
+        loop = asyncio.get_running_loop()
+        
+        while True:
+            batch_items: List[Tuple[list[int], asyncio.Future, float]] = []
+            
+            # Get first item
+            try:
+                item = await self._queue.get()
+            except asyncio.CancelledError:
+                break
+            
+            if self._closed and self._queue.empty():
+                 # If closed and queue is empty, we

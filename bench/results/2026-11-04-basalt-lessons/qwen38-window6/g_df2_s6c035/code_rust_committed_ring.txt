@@ -1,0 +1,105 @@
+```rust
+use std::fmt;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum RingError {
+    ZeroCapacity,
+    InvalidCommitCount,
+    StaleEpoch,
+    RewindExposesOverwrittenRows,
+}
+
+impl fmt::Display for RingError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            RingError::ZeroCapacity => write!(f, "capacity must be non-zero"),
+            RingError::InvalidCommitCount => write!(f, "invalid commit count"),
+            RingError::StaleEpoch => write!(f, "stale epoch"),
+            RingError::RewindExposesOverwrittenRows => write!(f, "rewind exposes overwritten rows"),
+        }
+    }
+}
+
+impl std::error::Error for RingError {}
+
+#[derive(Debug, Clone, Copy)]
+pub struct TokenRow {
+    pub position: u64,
+    pub token: u32,
+    pub key: [f32; 4],
+    pub value: [f32; 4],
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Snapshot {
+    pub epoch: u64,
+    pub next: u64,
+}
+
+#[derive(Debug)]
+pub struct Ring {
+    capacity: usize,
+    rows: Vec<Option<TokenRow>>,
+    epoch: u64,
+    next: u64,
+    staged_start: Option<u64>,
+    staged_count: usize,
+}
+
+impl Ring {
+    pub fn new(capacity: usize) -> Result<Self, RingError> {
+        if capacity == 0 {
+            return Err(RingError::ZeroCapacity);
+        }
+        Ok(Self {
+            capacity,
+            rows: vec![None; capacity],
+            epoch: 0,
+            next: 0,
+            staged_start: None,
+            staged_count: 0,
+        })
+    }
+
+    pub fn stage(&mut self, rows: &[TokenRow]) -> Result<(), RingError> {
+        if rows.is_empty() {
+            return Ok(());
+        }
+
+        let start = self.next;
+        let count = rows.len();
+
+        // Check that the staged batch begins at next and is contiguous
+        for (i, row) in rows.iter().enumerate() {
+            if row.position != start + i as u64 {
+                return Err(RingError::InvalidCommitCount);
+            }
+        }
+
+        // Store staged rows temporarily. We need to ensure we don't alter committed rows.
+        // Committed rows are those with position < next (in the current epoch's logical space).
+        // Actually, "committed" means positions that have been committed via commit().
+        // The ring stores data at index = position % capacity.
+        // A row is committed if its position < self.next AND it belongs to the current epoch?
+        // No, epoch changes on reset. Within an epoch, next advances.
+        // Rows with position < next are committed. Rows with position >= next are not yet committed.
+        // Staging writes to positions starting at next. These positions are currently uncommitted (or empty/stale).
+        // We must not alter committed rows. Since staged positions start at next, and committed positions are < next,
+        // there is no overlap between staged positions and committed positions in terms of logical position.
+        // However, due to wraparound, the physical index might collide with a committed row's physical index?
+        // No: if position p is committed, p < next. If position q is staged, q >= next.
+        // p % capacity == q % capacity implies p = q + k*capacity for some integer k.
+        // Since p < next <= q, we have p < q. So k must be negative? No, p and q are non-negative.
+        // If p < q and p ≡ q (mod capacity), then q - p is a positive multiple of capacity.
+        // This means the physical slot for q was previously used by p. But p is committed.
+        // The problem states: "stage ... must not alter committed rows".
+        // If we write to index q % capacity, and that index currently holds row p (committed), we would overwrite it.
+        // Is this allowed? In a ring buffer for speculative decoding, typically you only overwrite old data if it's no longer needed.
+        // But the spec says "must not alter committed rows". This implies we cannot overwrite a slot that currently holds a committed row.
+        // However, in a fixed capacity ring, if next advances past capacity, we wrap around. The new positions will map to indices that previously held older committed rows.
+        // If those older rows are still considered "committed" (i.e., accessible via get()), then we cannot overwrite them.
+        // But `get(position)` returns a row only when both absolute position and epoch match.
+        // After wraparound, if we write to an index that held an old committed row, the new row has a different position.
+        // The old row is still "committed" in the sense that it was committed earlier. But its physical slot is reused.
+        // If `get(old_position)` is called after the slot is overwritten, it should return None because the stored row's position won't match.
+        // So "altering committed rows" likely means: do not modify the *content* of a slot if that slot currently holds a

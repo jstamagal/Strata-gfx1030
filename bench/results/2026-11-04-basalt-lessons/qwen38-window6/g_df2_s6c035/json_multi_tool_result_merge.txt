@@ -1,0 +1,92 @@
+{
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "high",
+      "evidence_ids": ["search_02", "trace_05"],
+      "observed_facts": [
+        "src/decode/draft.py advances its cursor by the whole proposed batch.",
+        "Request R17: proposed_rows=6, accepted_drafts=1, draft_cursor=4102.",
+        "Request R18: proposed_rows=4, accepted_drafts=0, draft_cursor=4106."
+      ],
+      "hypothesis": "The draft cursor advances by the full proposal size regardless of acceptance count, causing a divergence between the logical token position and the physical buffer index.",
+      "confidence": 0.95,
+      "falsification_test": "If the draft cursor is incremented only by `accepted_drafts` in the source code, this finding is false."
+    },
+    {
+      "id": "F2",
+      "severity": "critical",
+      "evidence_ids": ["search_01", "test_04"],
+      "observed_facts": [
+        "src/server/session.py reset_state is called on slot release.",
+        "test_reject_prefix failed 3/10."
+      ],
+      "hypothesis": "State resets triggered by slot release are clearing prefix cache metadata or KV pointers prematurely, causing valid prefixes to be rejected in subsequent requests.",
+      "confidence": 0.85,
+      "falsification_test": "If `reset_state` preserves the prefix hash map and only clears active request buffers, this finding is false."
+    },
+    {
+      "id": "F3",
+      "severity": "high",
+      "evidence_ids": ["search_02", "trace_05"],
+      "observed_facts": [
+        "src/decode/verify.py commits keep rows.",
+        "Request R17: accepted_drafts=1, consumed_inputs=2."
+      ],
+      "hypothesis": "There is an accounting mismatch where `consumed_inputs` (2) exceeds `accepted_drafts` (1), suggesting the verifier consumes input tokens for rejected drafts without rolling back the cursor.",
+      "confidence": 0.8,
+      "falsification_test": "If `consumed_inputs` strictly equals `accepted_drafts` in all passing traces, this finding is false."
+    },
+    {
+      "id": "F4",
+      "severity": "medium",
+      "evidence_ids": ["search_01", "trace_05"],
+      "observed_facts": [
+        "src/server/session.py reset_state is called on slot release.",
+        "Request R18: cancellation=true, draft_cursor=4106."
+      ],
+      "hypothesis": "Cancellation triggers a slot release which invokes `reset_state`, potentially wiping the KV cache state required for prompt-cache resume if the session object is reused or shared.",
+      "confidence": 0.75,
+      "falsification_test": "If cancelled requests do not trigger `reset_state` on the underlying session object, this finding is false."
+    },
+    {
+      "id": "F5",
+      "severity": "high",
+      "evidence_ids": ["search_03", "test_04"],
+      "observed_facts": [
+        "src/kv/ring.py indexes slots by position modulo 2064.",
+        "test_resume_after_wrap failed 2/10."
+      ],
+      "hypothesis": "The ring buffer wrap-around logic fails to correctly map logical positions to physical slots when the cursor exceeds the modulus (2064), leading to data corruption or loss during resume operations.",
+      "confidence": 0.9,
+      "falsification_test": "If `test_resume_after_wrap` passes consistently after fixing the modulo arithmetic in `src/kv/ring.py`, this finding is false."
+    },
+    {
+      "id": "F6",
+      "severity": "medium",
+      "evidence_ids": ["search_03", "trace_05"],
+      "observed_facts": [
+        "src/kv/ring.py checks a uint64 epoch tag.",
+        "Request R17: target_cursor=4098, draft_cursor=4102."
+      ],
+      "hypothesis": "The epoch tag check may be failing or stale during high-concurrency scenarios where the cursor advances rapidly (e.g., >2064), causing valid slots to be treated as invalid due to epoch mismatch.",
+      "confidence": 0.6,
+      "falsification_test": "If the epoch tag is updated atomically with every slot write and verified correctly in `src/kv/ring.py`, this finding is false."
+    }
+  ],
+  "next_tool_calls": [
+    {
+      "id": "TC1",
+      "name": "read_file",
+      "arguments": {
+        "path": "src/decode/draft.py"
+      },
+      "depends_on": []
+    },
+    {
+      "id": "TC2",
+      "name": "read_file",
+      "arguments": {
+        "path": "src/kv/ring.py"
+      },
+      "depends_on":

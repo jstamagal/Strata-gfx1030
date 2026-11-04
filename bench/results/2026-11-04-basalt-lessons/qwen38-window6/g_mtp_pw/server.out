@@ -1,0 +1,85 @@
+[strata] sampling defaults from the config: top_p=0.95, top_k=20, min_p=0.0, temperature=0.7
+loading the vision encoder ...
+loading the model (the first start takes a minute or two) ...
+[strata] layer split across GPUs [0, 1] (24)
+[strata] Drafting: MTP (DFlash2 isn't available in this mode)
+[strata] starting the engine: reading the model's weights ...
+[strata] engine priority: nice +5 (this PC has built-in Radeon graphics that usually draw the desktop; STRATA_ENGINE_NICE=0 turns it off)
+[strata] loading the experts into RAM (tens of GB) and locking part of them for the GPU.
+         YOUR PC CAN BE SLOW OR STOP RESPONDING FOR 1-3 MINUTES NOW - this is normal.
+         Please wait and don't close this window; the server says when it is ready.
+[strata] still starting (23 s) - please wait ...
+[strata] experts loaded: 71.73 GiB at 4.42 GiB/s (34 s so far)
+[strata] filling the GPU's expert cache (8963 experts, 26.16 GiB of VRAM) ...
+ready: http://127.0.0.1:8091/v1  (OpenAI: /v1/chat/completions, Anthropic: /v1/messages, context 262144 tokens, images on)
+       open http://127.0.0.1:8091/ in a browser to chat; close this window to stop the model
+[strata] done: 16 tokens in 1 s (88.0 tok/s) (length, cancel=False), expert cache 96.4% hit
+[strata] the reply reached max tokens while still thinking, so it has no answer: a thinking budget (reasoning_budget_tokens, in the request or in strata-<model>.json for every request) leaves room to answer
+[strata] answering: 32 of max 1200 tokens, 88.3 tok/s, 1 s
+[strata] answering: 132 of max 1200 tokens, 96.3 tok/s, 2 s
+[strata] answering: 234 of max 1200 tokens, 98.6 tok/s, 3 s
+[strata] answering: 336 of max 1200 tokens, 99.6 tok/s, 4 s
+[strata] answering: 429 of max 1200 tokens, 98.0 tok/s, 5 s
+[strata] answering: 539 of max 1200 tokens, 99.7 tok/s, 6 s
+[strata] answering: 655 of max 1200 tokens, 102.1 tok/s, 7 s
+[strata] answering: 769 of max 1200 tokens, 103.6 tok/s, 8 s
+[strata] answering: 868 of max 1200 tokens, 103.0 tok/s, 9 s
+[strata] answering: 953 of max 1200 tokens, 101.0 tok/s, 10 s
+[strata] done: 966 tokens in 10 s (101.0 tok/s) (stop, cancel=False), expert cache 97.5% hit
+[strata] answering: 42 of max 1200 tokens, 94.3 tok/s, 1 s
+[strata] answering: 160 of max 1200 tokens, 109.5 tok/s, 2 s
+[strata] answering: 294 of max 1200 tokens, 118.8 tok/s, 3 s
+[strata] answering: 425 of max 1200 tokens, 122.1 tok/s, 4 s
+[strata] answering: 567 of max 1200 tokens, 126.2 tok/s, 5 s
+[strata] answering: 684 of max 1200 tokens, 124.1 tok/s, 6 s
+[strata] answering: 804 of max 1200 tokens, 123.3 tok/s, 7 s
+[strata] answering: 951 of max 1200 tokens, 126.1 tok/s, 8 s
+[strata] answering: 1076 of max 1200 tokens, 125.7 tok/s, 9 s
+[strata] done: 1200 tokens in 10 s (126.3 tok/s) (length, cancel=False), expert cache 98.3% hit
+[strata] answering: 39 of max 1200 tokens, 91.3 tok/s, 1 s
+[strata] answering: 160 of max 1200 tokens, 111.1 tok/s, 2 s
+[strata] answering: 296 of max 1200 tokens, 121.2 tok/s, 3 s
+[strata] answering: 456 of max 1200 tokens, 132.4 tok/s, 4 s
+[strata] answering: 594 of max 1200 tokens, 133.4 tok/s, 5 s
+[strata] answering: 720 of max 1200 tokens, 131.9 tok/s, 6 s
+[strata] answering: 841 of max 1200 tokens, 130.0 tok/s, 7 s
+[strata] answering: 972 of max 1200 tokens, 130.1 tok/s, 8 s
+[strata] answering: 1097 of max 1200 tokens, 129.2 tok/s, 9 s
+[strata] done: 1200 tokens in 10 s (128.3 tok/s) (length, cancel=False), expert cache 98.6% hit
+[strata] answering: 31 of max 1200 tokens, 107.2 tok/s, 1 s
+[strata] answering: 156 of max 1200 tokens, 120.5 tok/s, 2 s
+[strata] answering: 250 of max 1200 tokens, 108.6 tok/s, 3 s
+[strata] answering: 358 of max 1200 tokens, 107.7 tok/s, 4 s
+[strata] answering: 469 of max 1200 tokens, 108.2 tok/s, 5 s
+[strata] answering: 570 of max 1200 tokens, 106.7 tok/s, 6 s
+[strata] answering: 702 of max 1200 tokens, 110.5 tok/s, 7 s
+[strata] answering: 808 of max 1200 tokens, 109.6 tok/s, 8 s
+[strata] answering: 926 of max 1200 tokens, 110.5 tok/s, 9 s
+[strata] answering: 1057 of max 1200 tokens, 112.4 tok/s, 10 s
+[strata] answering: 1181 of max 1200 tokens, 113.4 tok/s, 11 s
+[strata] done: 1200 tokens in 11 s (113.5 tok/s) (length, cancel=False), expert cache 97.8% hit
+[strata] answering: 56 of max 1200 tokens, 145.8 tok/s, 1 s
+[strata] answering: 222 of max 1200 tokens, 159.0 tok/s, 2 s
+[strata] answering: 440 of max 1200 tokens, 182.1 tok/s, 3 s
+[strata] answering: 605 of max 1200 tokens, 176.9 tok/s, 4 s
+[strata] answering: 785 of max 1200 tokens, 177.1 tok/s, 5 s
+[strata] answering: 958 of max 1200 tokens, 176.2 tok/s, 6 s
+[strata] answering: 1034 of max 1200 tokens, 160.4 tok/s, 7 s
+[strata] answering: 1134 of max 1200 tokens, 152.3 tok/s, 8 s
+[strata] done: 1200 tokens in 9 s (148.0 tok/s) (length, cancel=False), expert cache 98.4% hit
+[strata] answering: 48 of max 1200 tokens, 114.8 tok/s, 1 s
+[strata] answering: 165 of max 1200 tokens, 116.0 tok/s, 2 s
+[strata] answering: 256 of max 1200 tokens, 104.7 tok/s, 3 s
+[strata] answering: 349 of max 1200 tokens, 100.9 tok/s, 4 s
+[strata] answering: 446 of max 1200 tokens, 99.9 tok/s, 5 s
+[strata] answering: 543 of max 1200 tokens, 99.2 tok/s, 6 s
+[strata] answering: 653 of max 1200 tokens, 100.7 tok/s, 7 s
+[strata] answering: 740 of max 1200 tokens, 98.8 tok/s, 8 s
+[strata] answering: 832 of max 1200 tokens, 97.9 tok/s, 9 s
+[strata] answering: 927 of max 1200 tokens, 97.6 tok/s, 10 s
+[strata] answering: 1034 of max 1200 tokens, 98.3 tok/s, 11 s
+[strata] answering: 1177 of max 1200 tokens, 102.0 tok/s, 12 s
+[strata] done: 1200 tokens in 12 s (102.3 tok/s) (length, cancel=False), expert cache 98.5% hit
+
+[strata] stopping (Ctrl+C again to end the engine at once) ...
+[strata] stopped

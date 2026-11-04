@@ -1,0 +1,145 @@
+```python
+import asyncio
+from typing import Callable, Awaitable, List
+
+
+class Batcher:
+    def __init__(self, infer: Callable[[List[List[int]]], Awaitable[List[float]]], max_batch: int = 8, wait_ms: float = 2):
+        self._infer = infer
+        self._max_batch = max_batch
+        self._wait_ms = wait_ms
+        self._queue: asyncio.Queue = asyncio.Queue()
+        self._worker_task: asyncio.Task | None = None
+        self._closed = False
+
+    async def submit(self, tokens: list[int]) -> list[float]:
+        if self._closed:
+            raise RuntimeError("Batcher is closed")
+        
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future = loop.create_future()
+        item = (tokens, future)
+        
+        await self._queue.put(item)
+        
+        # Start worker if not running
+        if self._worker_task is None or self._worker_task.done():
+            self._worker_task = asyncio.create_task(self._worker())
+            
+        return await future
+
+    async def close(self):
+        if self._closed:
+            return
+        self._closed = True
+        
+        # Put a sentinel to wake up the worker if it's waiting on get()
+        # But we need to drain existing items first. 
+        # The strategy: set closed flag, then wait for queue to empty and worker to finish processing current batch.
+        
+        # Wait until all queued items are processed.
+        # We can't just join the queue because new items might be added? No, submit raises if closed.
+        # So we wait for queue to be empty AND worker to be done with its current loop iteration.
+        
+        while not self._queue.empty():
+            await asyncio.sleep(0)
+            
+        # Wait for the worker task to complete if it exists
+        if self._worker_task and not self._worker_task.done():
+            try:
+                await self._worker_task
+            except Exception:
+                pass
+
+    async def _worker(self):
+        loop = asyncio.get_running_loop()
+        
+        while True:
+            # Check if we should exit due to close
+            if self._closed and self._queue.empty():
+                break
+                
+            batch_items: List[tuple[list[int], asyncio.Future]] = []
+            
+            try:
+                # Get the first item, waiting indefinitely if queue is empty
+                # But we need to handle cancellation of this get() if close happens?
+                # Actually, if closed and queue empty, we break above.
+                # If not closed, we wait for an item.
+                
+                # To implement timeout logic properly:
+                # We want to collect items until max_batch or timeout from first item.
+                
+                # Get first item
+                try:
+                    item = await self._queue.get()
+                except asyncio.CancelledError:
+                    break
+                
+                batch_items.append(item)
+                start_time = loop.time()
+                
+                # Collect more items until max_batch or timeout
+                while len(batch_items) < self._max_batch:
+                    elapsed_ms = (loop.time() - start_time) * 1000
+                    remaining_ms = self._wait_ms - elapsed_ms
+                    
+                    if remaining_ms <= 0:
+                        break
+                        
+                    try:
+                        # Wait for next item with timeout
+                        item = await asyncio.wait_for(self._queue.get(), timeout=remaining_ms / 1000.0)
+                        batch_items.append(item)
+                    except asyncio.TimeoutError:
+                        break
+                    except asyncio.CancelledError:
+                        # If cancelled while waiting, we should process what we have? 
+                        # Or just exit? The requirement says "close drains accepted work".
+                        # If the worker task itself is cancelled, we might lose items.
+                        # But close() doesn't cancel the worker task directly, it waits for it.
+                        # So this cancellation would only happen if external code cancels the worker task.
+                        # Let's assume standard behavior: process what we have.
+                        break
+
+                # Process batch
+                await self._process_batch(batch_items)
+                
+            except Exception as e:
+                # Should not happen in normal flow, but safety net
+                pass
+
+    async def _process_batch(self, batch_items: List[tuple[list[int], asyncio.Future]]):
+        if not batch_items:
+            return
+            
+        # Filter out cancelled futures before sending to infer
+        valid_items = []
+        for tokens, future in batch_items:
+            if not future.cancelled():
+                valid_items.append((tokens, future))
+                
+        if not valid_items:
+            return
+
+        tokens_list = [t for t, f in valid_items]
+        
+        try:
+            results = await self._infer(tokens_list)
+            
+            # Check result count
+            if len(results) != len(valid_items):
+                raise ValueError(f"Infer returned {len(results)} results for {len(valid_items)} requests")
+                
+            # Distribute results
+            for (tokens, future), result in zip(valid_items, results):
+                if not future.cancelled():
+                    future.set_result(result)
+                    
+        except Exception as e:
+            # Propagate error to all still-live futures
+            for tokens, future in valid_items:
+                if not future.cancelled():
+                    future.set_exception(e)
+
+```

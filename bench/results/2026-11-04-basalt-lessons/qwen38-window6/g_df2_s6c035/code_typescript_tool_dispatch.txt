@@ -1,0 +1,154 @@
+```typescript
+import { strict as assert } from 'node:assert';
+
+export interface JsonRpcRequest {
+  jsonrpc: '2.0';
+  method: string;
+  params?: unknown;
+  id?: string | number | null;
+}
+
+export interface JsonRpcResponse {
+  jsonrpc: '2.0';
+  result?: unknown;
+  error?: {
+    code: number;
+    message: string;
+    data?: unknown;
+  };
+  id: string | number | null;
+}
+
+type MethodHandler = (params: unknown, signal: AbortSignal) => Promise<unknown>;
+
+interface ValidRequest {
+  index: number;
+  request: JsonRpcRequest;
+  isNotification: boolean;
+  id: string | number | null;
+}
+
+interface InvalidRequestError {
+  code: number;
+  message: string;
+  id: string | number | null;
+}
+
+function isValidId(id: unknown): id is string | number | null {
+  if (id === null) return true;
+  if (typeof id === 'string') return true;
+  if (typeof id === 'number' && Number.isFinite(id)) return true;
+  return false;
+}
+
+function validateRequest(item: unknown): ValidRequest | InvalidRequestError {
+  if (item === null || typeof item !== 'object' || Array.isArray(item)) {
+    return { code: -32600, message: 'Invalid Request', id: null };
+  }
+
+  const obj = item as Record<string, unknown>;
+
+  if (obj.jsonrpc !== '2.0') {
+    return { code: -32600, message: 'Invalid Request', id: null };
+  }
+
+  if (typeof obj.method !== 'string') {
+    return { code: -32600, message: 'Invalid Request', id: null };
+  }
+
+  const hasId = 'id' in obj;
+  let id: string | number | null = null;
+  let isNotification = false;
+
+  if (hasId) {
+    if (!isValidId(obj.id)) {
+      return { code: -32600, message: 'Invalid Request', id: null };
+    }
+    id = obj.id as string | number | null;
+  } else {
+    isNotification = true;
+  }
+
+  const params = obj.params;
+
+  return {
+    index: -1, // will be set later
+    request: {
+      jsonrpc: '2.0',
+      method: obj.method,
+      ...(params !== undefined ? { params } : {}),
+      ...(hasId ? { id } : {}),
+    },
+    isNotification,
+    id,
+  };
+}
+
+export async function dispatch(
+  input: unknown,
+  methods: Record<string, MethodHandler>,
+  concurrency: number,
+  signal: AbortSignal,
+): Promise<JsonRpcResponse[]> {
+  // Validate concurrency
+  if (!Number.isFinite(concurrency)) {
+    throw new Error('Concurrency must be a finite number');
+  }
+
+  const effectiveConcurrency = Math.max(1, Math.floor(concurrency));
+
+  // Handle empty array
+  if (Array.isArray(input) && input.length === 0) {
+    return [{
+      jsonrpc: '2.0',
+      error: { code: -32600, message: 'Invalid Request' },
+      id: null,
+    }];
+  }
+
+  // Determine if it's a batch or single request
+  const items = Array.isArray(input) ? input : [input];
+
+  // Validate all requests first to determine which are valid/invalid
+  const validatedItems: (ValidRequest | InvalidRequestError)[] = [];
+  for (let i = 0; i < items.length; i++) {
+    const result = validateRequest(items[i]);
+    if ('code' in result) {
+      // It's an invalid request error
+      validatedItems.push(result);
+    } else {
+      // It's a valid request, set the index
+      result.index = i;
+      validatedItems.push(result);
+    }
+  }
+
+  // Prepare results array with placeholders for notifications (null means no response)
+  const results: (JsonRpcResponse | null)[] = new Array(items.length).fill(null);
+
+  // Process invalid requests immediately
+  for (let i = 0; i < validatedItems.length; i++) {
+    const item = validatedItems[i];
+    if ('code' in item) {
+      // Invalid request - emit error response unless it's a notification scenario
+      // But invalid requests always have id: null per spec, so they're not notifications
+      results[i] = {
+        jsonrpc: '2.0',
+        error: { code: item.code, message: item.message },
+        id: item.id,
+      };
+    }
+  }
+
+  // Collect valid requests that need processing
+  const validRequests: ValidRequest[] = [];
+  for (let i = 0; i < validatedItems.length; i++) {
+    const item = validatedItems[i];
+    if (!('code' in item)) {
+      validRequests.push(item);
+    }
+  }
+
+  // If no valid requests, return filtered results (remove nulls for notifications)
+  if (validRequests.length === 0) {
+    return results.filter((r

@@ -1,0 +1,120 @@
+```rust
+use std::fmt;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum RingError {
+    ZeroCapacity,
+    InvalidCommitCount,
+    StaleEpoch,
+    RewindExposesOverwrittenRows,
+}
+
+impl fmt::Display for RingError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            RingError::ZeroCapacity => write!(f, "capacity must be non-zero"),
+            RingError::InvalidCommitCount => write!(f, "invalid commit count"),
+            RingError::StaleEpoch => write!(f, "stale epoch"),
+            RingError::RewindExposesOverwrittenRows => write!(f, "rewind exposes overwritten rows"),
+        }
+    }
+}
+
+impl std::error::Error for RingError {}
+
+#[derive(Debug, Clone, Copy)]
+pub struct TokenRow {
+    pub position: u64,
+    pub token: u32,
+    pub key: [f32; 4],
+    pub value: [f32; 4],
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Snapshot {
+    pub epoch: u64,
+    pub next: u64,
+}
+
+#[derive(Debug)]
+pub struct Ring {
+    capacity: usize,
+    rows: Vec<Option<TokenRow>>,
+    epoch: u64,
+    next: u64,
+    staged_start: Option<u64>,
+    staged_count: usize,
+}
+
+impl Ring {
+    pub fn new(capacity: usize) -> Result<Self, RingError> {
+        if capacity == 0 {
+            return Err(RingError::ZeroCapacity);
+        }
+        Ok(Self {
+            capacity,
+            rows: vec![None; capacity],
+            epoch: 0,
+            next: 0,
+            staged_start: None,
+            staged_count: 0,
+        })
+    }
+
+    pub fn stage(&mut self, rows: &[TokenRow]) -> Result<(), RingError> {
+        if rows.is_empty() {
+            return Ok(());
+        }
+
+        let start = self.next;
+        let count = rows.len();
+
+        // Check that the staged batch begins at next and is contiguous in position
+        for (i, row) in rows.iter().enumerate() {
+            let expected_pos = start + i as u64;
+            if row.position != expected_pos {
+                return Err(RingError::InvalidCommitCount);
+            }
+        }
+
+        // Check that staging does not overwrite committed rows.
+        // Committed rows are those with absolute position < next (in current epoch).
+        // We need to ensure that none of the staged positions overlap with committed positions.
+        // Since staged starts at next, and committed are < next, there is no overlap by definition
+        // IF we consider only the current epoch's committed range.
+        // However, due to wraparound, "committed" means positions in [0, next) modulo capacity?
+        // No, position is absolute. The ring stores rows at index = position % capacity.
+        // A row at absolute position P is stored at index P % capacity.
+        // Committed rows are those with absolute position < self.next (in current epoch).
+        // Staged rows have positions [next, next + count).
+        // These ranges do not overlap in absolute position space.
+        // But they might map to the same physical indices if wraparound occurs.
+        // The requirement says "must not alter committed rows".
+        // If a staged row maps to an index that currently holds a committed row, we must reject?
+        // Let's re-read: "stage ... accepts a contiguous candidate batch beginning at next, but must not alter committed rows."
+        // This implies if staging would overwrite a committed row, it should fail or be prevented.
+        // Since staged starts at `next`, and committed are `< next`, the absolute positions don't overlap.
+        // However, physical indices might collide due to wraparound.
+        // Example: capacity=4, next=3. Committed: 0,1,2. Staged: 3,4,5.
+        // Index of 3 is 3. Index of 4 is 0. Index of 5 is 1.
+        // Indices 0 and 1 hold committed rows (pos 0 and 1).
+        // So staging pos 4 and 5 would overwrite committed rows at indices 0 and 1.
+        // Thus, we must check if any staged row's physical index collides with a committed row's physical index.
+
+        for i in 0..count {
+            let abs_pos = start + i as u64;
+            let idx = (abs_pos % self.capacity as u64) as usize;
+            
+            // Check if this index currently holds a committed row
+            if let Some(ref existing_row) = self.rows[idx] {
+                // If the existing row is committed, its position must be < next
+                if existing_row.position < self.next {
+                    return Err(RingError::InvalidCommitCount);
+                }
+            }
+        }
+
+        // Store staged rows in a temporary buffer or directly? 
+        // The problem says "stage ... accepts ... but must not alter committed rows".
+        // It doesn't say stage writes to the ring immediately. 
+        // But commit() commits the prefix of the staged batch.

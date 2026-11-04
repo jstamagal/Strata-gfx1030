@@ -1,0 +1,149 @@
+```rust
+use std::fmt;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum RingError {
+    ZeroCapacity,
+    InvalidCommitCount,
+    StaleEpoch,
+    RewindExposesOverwritten,
+}
+
+impl fmt::Display for RingError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            RingError::ZeroCapacity => write!(f, "capacity must be non-zero"),
+            RingError::InvalidCommitCount => write!(f, "invalid commit count"),
+            RingError::StaleEpoch => write!(f, "stale epoch"),
+            RingError::RewindExposesOverwritten => write!(f, "rewind exposes overwritten rows"),
+        }
+    }
+}
+
+impl std::error::Error for RingError {}
+
+#[derive(Debug, Clone, Copy)]
+pub struct TokenRow {
+    pub position: u64,
+    pub token: u32,
+    pub key: [f32; 4],
+    pub value: [f32; 4],
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Snapshot {
+    pub epoch: u64,
+    pub next: u64,
+}
+
+#[derive(Debug)]
+struct Slot {
+    row: Option<TokenRow>,
+    epoch: u64,
+}
+
+impl Slot {
+    fn new() -> Self {
+        Slot {
+            row: None,
+            epoch: 0,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Ring {
+    capacity: usize,
+    slots: Vec<Slot>,
+    epoch: u64,
+    next: u64,
+    staged_start: Option<u64>,
+    staged_count: usize,
+}
+
+impl Ring {
+    pub fn new(capacity: usize) -> Result<Self, RingError> {
+        if capacity == 0 {
+            return Err(RingError::ZeroCapacity);
+        }
+        let slots = (0..capacity).map(|_| Slot::new()).collect();
+        Ok(Ring {
+            capacity,
+            slots,
+            epoch: 1,
+            next: 0,
+            staged_start: None,
+            staged_count: 0,
+        })
+    }
+
+    pub fn stage(&mut self, rows: &[TokenRow]) -> Result<(), RingError> {
+        if rows.is_empty() {
+            return Ok(());
+        }
+
+        let start = self.next;
+        let count = rows.len();
+
+        // Validate that the batch is contiguous and starts at next
+        for (i, row) in rows.iter().enumerate() {
+            let expected_pos = start + i as u64;
+            if row.position != expected_pos {
+                return Err(RingError::InvalidCommitCount);
+            }
+        }
+
+        // Check if staging would overwrite committed rows
+        // Committed rows are those with position < next and epoch == self.epoch
+        // We need to ensure we don't stage over any committed row in the current epoch
+        for i in 0..count {
+            let pos = start + i as u64;
+            let idx = (pos % self.capacity as u64) as usize;
+            let slot = &self.slots[idx];
+            
+            // If this slot has a committed row from the current epoch, we cannot stage over it
+            if slot.epoch == self.epoch && slot.row.is_some() {
+                let existing_pos = slot.row.as_ref().unwrap().position;
+                // A committed row exists at this position in the current epoch
+                // Staging would overwrite it, which is not allowed
+                return Err(RingError::InvalidCommitCount);
+            }
+        }
+
+        // Stage the rows
+        for (i, row) in rows.iter().enumerate() {
+            let pos = start + i as u64;
+            let idx = (pos % self.capacity as u64) as usize;
+            self.slots[idx].row = Some(*row);
+            self.slots[idx].epoch = self.epoch;
+        }
+
+        self.staged_start = Some(start);
+        self.staged_count = count;
+
+        Ok(())
+    }
+
+    pub fn commit(&mut self, count: usize) -> Result<(), RingError> {
+        if self.staged_start.is_none() {
+            return Err(RingError::InvalidCommitCount);
+        }
+
+        let staged_start = self.staged_start.unwrap();
+        let staged_count = self.staged_count;
+
+        if count > staged_count {
+            return Err(RingError::InvalidCommitCount);
+        }
+
+        // Commit the prefix: advance next by count
+        // Discard the rest of the staged batch (positions from next+count to next+staged_count-1)
+        
+        // First, discard the uncommitted part of the staged batch
+        for i in count..staged_count {
+            let pos = staged_start + i as u64;
+            let idx = (pos % self.capacity as u64) as usize;
+            // Only clear if it was staged in this epoch and not committed
+            if self.slots[idx].epoch == self.epoch && self.slots[idx].row.is_some() {
+                let row_pos = self.slots[idx].row.as_ref().unwrap().position;
+                if row_pos >= staged_start + count as u64 {

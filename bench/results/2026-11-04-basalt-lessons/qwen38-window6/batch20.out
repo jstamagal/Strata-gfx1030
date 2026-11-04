@@ -1,0 +1,15 @@
+k_control run1 999 tok 67.0 tok/s drafts 427 / 597
+k_control run2 999 tok 67.1 tok/s drafts 427 / 597
+                 PROFILE, ranked by routing frequency, no eviction.
+e371cf43b7e9
+e371cf43b7e9
+k_expdotz run1 999 tok 67.1 tok/s drafts 427 / 597
+k_expdotz run2 999 tok 67.1 tok/s drafts 427 / 597
+                 PROFILE, ranked by routing frequency, no eviction.
+e371cf43b7e9
+e371cf43b7e9
+i3_q4head run1 1106 tok 96.8 tok/s drafts 456 / 637
+i3_q4head run2 1106 tok 96.8 tok/s drafts 456 / 637
+                 PROFILE, ranked by routing frequency, no eviction.
+396d660784f5
+396d660784f5
