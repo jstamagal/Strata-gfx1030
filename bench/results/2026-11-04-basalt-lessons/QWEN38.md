@@ -352,4 +352,6 @@ Raw: `qwen38-windowL16/`. Binary from basalt38/split-lookup16 at 1eb7ca8d7 (sha2
 Long windows accepted about 7.5 of 15 drafts (105/210, 196/375, 184/345); the trace puts almost every reject at the
 first row of the second half (a=8). Rows 9-16 are not computed correctly somewhere on the stage-0 -> stage-1 path, and
 the wrong bonus token at the reject changes the text. The agent arms also change text with zero long windows admitted,
-so gate on alters ordinary windows too. Not adopted; back to the building agent for a fix.
+but they are not an equal-geometry pair: the long arm carries S16 and the larger verify reserve, which changes cache
+placement, and no agent arm ran with gate off. So that text change may be placement, not a bug. Not adopted; back to
+the building agent for a fix.
