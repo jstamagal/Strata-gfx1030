@@ -1,0 +1,19 @@
+h_base run1 996 tok 67.0 tok/s drafts 426 / 596
+h_base run2 996 tok 67.1 tok/s drafts 426 / 596
+h_base run3 996 tok 67.1 tok/s drafts 426 / 596
+                 PROFILE, ranked by routing frequency, no eviction.
+d5dcd30186c2
+d5dcd30186c2
+d5dcd30186c2
+h_proxy run1 996 tok 68.9 tok/s drafts 426 / 600
+h_proxy run2 996 tok 69.0 tok/s drafts 426 / 600
+h_proxy run3 996 tok 69.0 tok/s drafts 426 / 600
+                 PROFILE, ranked by routing frequency, no eviction.
+d5dcd30186c2
+d5dcd30186c2
+d5dcd30186c2
+p_side1 run1 prompt 36420 1323.8 tok/s 27.51 s
+p_side1 run2 prompt 36419 1350.3 tok/s 26.97 s
+p_side0 run1 prompt 36420 1304.7 tok/s 27.91 s
+p_side0 run2 prompt 36420 1312.6 tok/s 27.75 s
+BATCH DONE

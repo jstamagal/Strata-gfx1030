@@ -1,0 +1,37 @@
+l_base1 run1 1101 tok 73.8 tok/s drafts 464 / 694
+l_base1 run2 1147 tok 77.4 tok/s drafts 493 / 708
+l_base1 run3 1082 tok 79.8 tok/s drafts 484 / 694
+l_base1 run4 1200 tok 77.8 tok/s drafts 513 / 746
+                 PROFILE, ranked by routing frequency, no eviction.
+c5439cb0efaa
+5a98386c5d3f
+5a888793db86
+12a6199ae427
+l_proxy1 run1 1085 tok 74.9 tok/s drafts 442 / 658
+l_proxy1 run2 1095 tok 76.4 tok/s drafts 444 / 678
+l_proxy1 run3 1029 tok 77.8 tok/s drafts 436 / 643
+l_proxy1 run4 1049 tok 79.3 tok/s drafts 453 / 667
+                 PROFILE, ranked by routing frequency, no eviction.
+83f3114f200f
+1f3b1f87e83f
+4a48f34ce257
+4be9a552e02d
+l_base2 run1 1149 tok 74.1 tok/s drafts 478 / 679
+l_base2 run2 1127 tok 75.7 tok/s drafts 467 / 692
+l_base2 run3 1097 tok 74.5 tok/s drafts 452 / 663
+l_base2 run4 1091 tok 75.8 tok/s drafts 461 / 694
+                 PROFILE, ranked by routing frequency, no eviction.
+ca049082a75b
+72d673e90cd1
+0e0ceeaede5c
+7abcfb8a8294
+l_proxy2 run1 1136 tok 77.2 tok/s drafts 487 / 709
+l_proxy2 run2 1088 tok 78.5 tok/s drafts 448 / 665
+l_proxy2 run3 1098 tok 79.0 tok/s drafts 462 / 680
+l_proxy2 run4 1039 tok 80.4 tok/s drafts 453 / 658
+                 PROFILE, ranked by routing frequency, no eviction.
+8be8c5cfa121
+b5dd9efa48fd
+2106d47f3547
+0879d297f7a5
+BATCH DONE
