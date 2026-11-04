@@ -16,6 +16,8 @@
 #include "strata/kernels/fused_gr.hpp"
 #include "strata/kernels/gr.hpp"
 #include "strata/kernels/head_wide.hpp"
+#include "strata/kernels/head_screen.hpp"
+#include "strata/kernels/head_dump.hpp"
 #include "strata/kernels/kv_q4.hpp"
 #include "strata/kernels/kv_q8.hpp"
 #include "strata/kernels/native_moe.hpp"
@@ -143,6 +145,7 @@ bool read_file(const std::string& path, std::vector<uint8_t>& out) {
 
 MtpDrafter::~MtpDrafter() {
     if (cs_) cudaStreamSynchronize(cs_);
+    strata::kernels::head_dump_flush();
     for (auto& e : prefill_exec_) if (e) cudaGraphExecDestroy(e);
     for (auto& e : prefill_dev_exec_) if (e) cudaGraphExecDestroy(e);
     if (pf_dev_) cudaFree(pf_dev_);
@@ -178,6 +181,8 @@ MtpDrafter::~MtpDrafter() {
         cudaFree(dhead_);
     }
     if (owns_draft_head_ && dvocab_) cudaFree(dvocab_);
+    if (owns_draft_head_ && head_proxy_) cudaFree(head_proxy_);
+    if (head_proxy_scratch_) cudaFree(head_proxy_scratch_);
     if (ev_chain_) cudaEventDestroy(ev_chain_);
     for (cudaEvent_t e : ev_step_) if (e) cudaEventDestroy(e);
     void* hosts[] = {h_tok_, h_step_, h_pos_, h_row_, h_out_, h_prob_, h_force_, h_floor_};
@@ -692,7 +697,13 @@ uint64_t MtpDrafter::bind_bytes(uint64_t head_row_bytes, int64_t n_vocab) const 
             std::fseek(f, 0, SEEK_END);
             const long size = std::ftell(f);
             std::fclose(f);
-            if (size >= 4 && size % 4 == 0) bytes += (uint64_t) (size / 4) * head_row_bytes + (uint64_t) size;
+            if (size >= 4 && size % 4 == 0) {
+                bytes += (uint64_t)(size / 4) * head_row_bytes + (uint64_t)size;
+                if (strata::kernels::head_proxy_enabled() && !q4_head_ &&
+                    (head_row_bytes == 2720 || head_row_bytes == 2100 || head_row_bytes == 1760))
+                    bytes += strata::kernels::head_proxy_bytes((int)(size / 4)) +
+                             strata::kernels::head_proxy_scratch_bytes((int)(size / 4));
+            }
         }
     }
     // coupled draft sampling (STRATA_SPEC_COUPLED=1 only): an upper bound - the id -> subset map, the penalty ring,
@@ -830,6 +841,7 @@ bool MtpDrafter::bind(const WeightTable& wt, const NativeHead* head, const float
     wt_ = &wt;
     head_ = head;
     window_R_ = window_R;
+    strata::kernels::head_dump_prepare((int)g_->n_embd);
     const WeightRef* wo = wt.find("output.weight");
     if (!wo) { err = "mtp: output.weight is missing"; return false; }
     n_vocab_ = wo->ne1;
@@ -849,6 +861,8 @@ bool MtpDrafter::bind(const WeightTable& wt, const NativeHead* head, const float
         dhead_type_ = shared->dhead_type_;   // the subset's type (the main head's, or Q4_0): -1 failed every --batch-mtp step
         dvocab_ = shared->dvocab_;
         n_dvocab_ = shared->n_dvocab_;
+        head_proxy_ = shared->head_proxy_;
+        head_vocab_hash_ = shared->head_vocab_hash_;
         owns_draft_head_ = false;
     }
     // the draft head's token subset, when tools/draft_vocab.py wrote one
@@ -866,6 +880,8 @@ bool MtpDrafter::bind(const WeightTable& wt, const NativeHead* head, const float
             cudaMemcpy(dvocab_, raw.data(), raw.size(), cudaMemcpyHostToDevice);
             dvocab_host_.resize((size_t) n_dvocab_);
             std::memcpy(dvocab_host_.data(), raw.data(), raw.size());
+            head_vocab_hash_ = 14695981039346656037ull;
+            for (uint8_t byte : raw) { head_vocab_hash_ ^= byte; head_vocab_hash_ *= 1099511628211ull; }
             const int head_dev = head->device();
             if (head_dev >= 0 && head_dev != device_) {
                 // the main head is on another card (the drafter on the first stage of a layer split, 0.1.44): the rows are
@@ -915,6 +931,37 @@ bool MtpDrafter::bind(const WeightTable& wt, const NativeHead* head, const float
                 dhead_plain_ = false;
                 std::fprintf(stderr, "strata mtp: the draft head on the Pascal Q8_0 GEMV (STRATA_MTP_Q8_SM60=1)\n");
             }
+        }
+    }
+    // Only a plain local subset: exact rescoring reads unchanged main-head rows, copied at bind above.
+    if (strata::kernels::head_proxy_enabled() && !strata::kernels::head_dump_enabled() && dhead_ &&
+        (shared ? shared->dhead_plain_ : dhead_plain_) &&
+        strata::kernels::head_proxy_supported(dhead_type_, (int)g_->n_embd)) {
+        const size_t pb = strata::kernels::head_proxy_bytes((int)n_dvocab_);
+        const size_t sb = strata::kernels::head_proxy_scratch_bytes((int)n_dvocab_);
+        bool ok = cudaMalloc(&head_proxy_scratch_, sb) == cudaSuccess;
+        if (ok && shared == nullptr) {
+            ok = cudaMalloc(&head_proxy_, pb) == cudaSuccess;
+            if (ok) {
+                try {
+                    strata::kernels::head_proxy_pack(dhead_type_, dhead_, (int)n_dvocab_, head_proxy_, nullptr);
+                    ok = cudaDeviceSynchronize() == cudaSuccess;
+                } catch (const std::exception& e) {
+                    std::fprintf(stderr, "strata mtp: proxy fit failed (%s); exact draft head retained\n", e.what());
+                    ok = false;
+                }
+            }
+        }
+        if (!ok || !head_proxy_) {
+            (void)cudaGetLastError();
+            if (shared == nullptr && head_proxy_) cudaFree(head_proxy_);
+            if (head_proxy_scratch_) cudaFree(head_proxy_scratch_);
+            head_proxy_ = head_proxy_scratch_ = nullptr;
+            std::fprintf(stderr, "strata mtp: proxy did not fit; exact draft head retained\n");
+        } else {
+            vram_ += sb + (shared == nullptr ? pb : 0);
+            std::fprintf(stderr, "strata mtp: fitted 2-bit head over %lld rows; draft picks and tail probabilities may change\n",
+                         (long long)n_dvocab_);
         }
     }
     if (coupled_draft_env() && cparams_ == nullptr && !setup_coupled(err)) return false;
@@ -1460,7 +1507,11 @@ bool MtpDrafter::record_rest(int step_row, cudaStream_t cs, std::string& err, bo
         const int64_t nv = sub ? n_dvocab_ : n_vocab_;
         bool head_pick = false;
 #if defined(STRATA_USE_HIP)
-        if (fuse_ && !coupled_rec_ && head_wide_supported(sub ? dhead_type_ : head_->type(), (int) N, (int) nv, T)) {
+        if (head_proxy_ && T == 1 && !coupled_rec_ && !head_dump_enabled()) {
+            head_proxy_pick(dhead_type_, head_proxy_, dhead_, xq_, (int)nv, head_logits_, head_proxy_scratch_,
+                            out_ids_, probs_, cs);
+            head_pick = true;
+        } else if (fuse_ && !coupled_rec_ && head_wide_supported(sub ? dhead_type_ : head_->type(), (int) N, (int) nv, T)) {
             head_wide_draft(sub ? dhead_ : head_->weights(), xq_, head_logits_, (int) N, (int) nv,
                             head_wide_scratch_, out_ids_, probs_, cs);
             head_pick = true;
@@ -1470,6 +1521,8 @@ bool MtpDrafter::record_rest(int step_row, cudaStream_t cs, std::string& err, bo
             native_mmvq(sub ? dhead_type_ : head_->type(), sub ? dhead_ : head_->weights(), xq_, head_logits_, (int) N,
                         (int) nv, T, cs);
         g_mp.stamp(14, cs);
+        head_dump_record(1, sub ? dhead_type_ : head_->type(), (int)nv, T, T, 0, coupled_j_,
+                         sample_, xq_, head_logits_, sub ? dvocab_ : nullptr, step, 4, head_vocab_hash_, cs);
         if (coupled_rec_) {
             // coupled draft sampling: the target's chain and Philox draw for the row that will verify this draft
             // (counter = this cell + 1, from its step record), penalties over the ring; T == 1 (full layer)
@@ -2034,6 +2087,7 @@ bool MtpDrafter::draft(int T, const int32_t* tokens, int64_t p, int a, int32_t* 
     for (int j = n; j < max_t_ - 1; ++j) { drafts[j] = 0; if (probs) probs[j] = 0.0f; }
     if (n_drafts) *n_drafts = n;
     if (result) *result = {n, max_steps};
+    strata::kernels::head_dump_flush();
     ms_draft += ms_since(t0);
     ++rounds;
     return true;
@@ -2171,6 +2225,7 @@ int MtpDrafter::chain_poll(std::string& err) {
         chain_prob_[j] = ((volatile float*) h_prob_)[j];
     }
     for (int j = chain_n_; j < strata::kernels::kVerifyLongT; ++j) { chain_tok_[j] = 0; chain_prob_[j] = 0.0f; }
+    strata::kernels::head_dump_flush();
     return 1;
 }
 

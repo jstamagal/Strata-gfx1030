@@ -280,6 +280,9 @@ private:
     bool q4_ = false, q4_head_ = false;
     bool fuse_ = false;   ///< STRATA_MTP_FUSE=1, gfx1030 only; selected before graph capture
     void* head_wide_scratch_ = nullptr;   ///< carved only for the opt-in draft head
+    void* head_proxy_ = nullptr;
+    void* head_proxy_scratch_ = nullptr;
+    uint64_t head_vocab_hash_ = 0;
     uint8_t* dense4_ = nullptr;              ///< --mtp-q4: Q4_0 copies of the Q8_0 tensors
     std::vector<std::pair<std::string, uint64_t>> q4_off_;
     int dhead_type_ = -1;                    ///< the draft head subset's ggml type (the main head's, or Q4_0)
