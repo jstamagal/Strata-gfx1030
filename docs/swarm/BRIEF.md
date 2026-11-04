@@ -101,8 +101,11 @@ Other packs, at their best configs:
 - **#267 verify hang** (branch `basalt38/verify267`): "verify: the window never finished ... (#267)" then engine exit.
   - It happened twice today, both while a big download filled RAM with dirty pages.
   - Suspect: the single host service thread starving under memory/IO pressure. Unproven.
-  - A causal repro with a dirty-page flood is running now.
-  - A related symptom: a single case (`json_multi`, `json_config`) runs 30-40% slow now and then.
+  - The dirty-page/RAM-pressure repro (window 267 in the ledger) did NOT reproduce it in 9 arms.
+  - **New lead:** the "one-case slowdowns" (a single case 30-40% slow, same text) are single 0.3-4.2 s stalls of one
+    pipeline window. The census found 25 of them in 34 traced arms, on both cards, in quiet and dirty runs
+    (`bench/results/2026-11-04-basalt-lessons/qwen38-window267/stall-census.txt`). #267 is probably the >20 s tail.
+    Whether the host thread is blocked or the GPU is late is not known yet; an off-CPU trace window is next.
 - **Config audit** (`~/inbox/agents/claude/config-audit/AUDIT.md`): windows 16-28 are queued.
   - Topics: prompt cache, KV allocation, MTP cap x confidence, decode split 25-28, SIMT selector, CPU share, I/O
     threads, PCIe miss share, YaRN-vs-native quality, Gumbel sampling.

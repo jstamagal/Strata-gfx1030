@@ -432,3 +432,56 @@ Route-ahead is neutral on IQ3_S (every expert resident; run1s within 0.4%). Seco
 harness noise, not an arm effect. The next binary equals cur on agent and prompt with identical text. **Merged
 into main as ceade1b6b**; build-hip is rebuilt in the next build slot (old binary kept as
 build-hip/strata.pre-ceade1b6b).
+
+## Window L16C: lookup16 cost-aware admission policy, IQ3_S
+
+Raw: `qwen38-windowL16C/`. The validator passed: full text matches base and the equal-geometry control.
+
+| arm | edits tok/s | agent tok/s |
+|---|---|---|
+| base (8 rows) | 372.7 | 146.9 |
+| policy, 128-token runway | 374.4 | — |
+| policy, 192-token runway (default) | 374.2 (+0.4%) | 146.8 |
+| policy, 256-token runway | 374.0 | — |
+| 16-row lookup, gate off ("wide_off") | 297.2, json_config alone 331 -> 198 | 146.7 |
+
+The policy admitted 38 of 312 checks at every runway, so the runway threshold doesn't matter. Agent prompts never
+reach it (0 checks). The +0.4% is real but small. Parked opt-in on basalt38/split-lookup16; not merged.
+
+The wide_off collapse is not a lookup16 effect. Its text and draft counts equal base. The whole loss is **one 2381 ms
+gap** in pipeline.trace: card 1 launched window 109 and finished it 2.4 s later with no other loop event in between
+(normal is ~18 ms). See the stall census under window 267.
+
+## Window 267: #267 repro under dirty-page and RAM pressure
+
+Raw: `qwen38-window267/` (script, output, stall census). Binaries: old = next d0211251 (equal to main), fix =
+basalt38/verify267 230a21fe1 (c5a091d7). Profiles:
+- **auto:** the first failing config. PLE table in RAM by policy (lock given back in old, kept in fix),
+  KV_PF_SLOTS=0, kv-resident 61440.
+- **direct:** today's live geometry. PLE direct reads, KV_PF_SLOTS=1, kv-resident 65536.
+
+Dirty arms wrote 13-18 GiB at 300 MiB/s; dirty pages peaked around 210 MiB, capped by the box's 256 MiB dirty_bytes.
+The ram arm pushed available RAM down to 0.22 GiB.
+
+- **No #267 in any of 9 arms**, quiet or dirty. Inconclusive: dirty pages alone don't trigger it, and nothing is
+  established about the fix. **verify267 is not merged:** it has no reproduced failure, and its kept 26.8 GiB PLE
+  lock left 0.26 GiB available in a quiet run. The live config uses direct PLE reads, which the fix doesn't touch.
+- **The auto profile's text is not reproducible run to run:** two output sets alternate across arms, unrelated to the
+  binary, pressure or lock state. The direct profile gave identical text in all 4 arms. The cause is confounded
+  between the PLE RAM path and KV_PF_SLOTS=0. The live config is direct.
+- Throughput is not comparable to other windows: all arms carried verify/pipeline tracing (126-136 tok/s).
+
+**Stall census** (`qwen38-window267/stall-census.txt`): a gap is >300 ms in pipeline.trace with no loop event, in a
+decode request. The census found **25 gaps in 34 traced arms, 0.3-4.2 s each**:
+- in quiet arms and dirty arms, in old and fix binaries;
+- in windows L16B and L16C as well as 267;
+- following both card-1 launches (L1) and card-0 launches/drafts (L0, CD).
+
+These single stalls are the "one-case slowdowns" seen all day (json_multi, json_config, code_async_batcher).
+**Inference, not yet shown:** #267 is the >20 s tail of the same stall.
+
+The kernel log shows `page allocation stall for 10 secs` at 13:29:30, during the BF16 download. THP is
+enabled=always, defrag=defer+madvise; since boot, compact_stall = 171754 and allocstall_movable = 397974.
+
+Next: an instrumented window that captures strata's off-CPU stacks (>100 ms) and samples vmstat during the stalls.
+It splits host-blocked (reclaim, compaction, faults) from GPU-late (the service thread on CPU, polling).

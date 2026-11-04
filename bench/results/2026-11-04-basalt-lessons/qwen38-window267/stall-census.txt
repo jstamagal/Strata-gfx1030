@@ -1,0 +1,26 @@
+pipeline.trace gaps >300 ms with no loop event, decode requests only (request 0 = warmup excluded)
+w267_auto_old_quiet_1 req 1 800 ms | 980.780 L0 55 3 10 -> 1780.417 F1 54 1 0
+w267_auto_old_quiet_1 req 5 1035 ms | 5054.374 L0 332 3 10 -> 6089.418 F1 331 3 0
+w267_direct_fix_dirty_1 req 6 574 ms | 4122.175 CD 249 2 635 -> 4695.791 F0 249 1 0
+w267_direct_fix_quiet_1 req 3 1718 ms | 51.218 U 1 1 0 -> 1769.661 CE 2 3 0
+w267_direct_fix_quiet_1 req 6 439 ms | 4590.497 CL 278 1 0 -> 5029.529 CD 279 1 455
+w267_direct_old_dirty_1 req 3 322 ms | 5072.356 L0 289 3 0 -> 5394.194 CD 289 2 997
+w267_direct_old_dirty_1 req 4 413 ms | 751.339 L1 49 8 0 -> 1164.799 F1 49 8 0
+w267_direct_old_dirty_1 req 6 313 ms | 2097.830 L0 131 3 10 -> 2410.686 F1 130 2 0
+w267_direct_old_dirty_1 req 6 1298 ms | 2596.159 CD 141 2 576 -> 3894.190 F0 141 1 0
+w267_direct_old_dirty_1 req 6 434 ms | 4688.329 L1 187 1 0 -> 5122.281 F0 188 1 1
+w267_direct_old_dirty_1 req 6 999 ms | 6731.445 L1 291 1 0 -> 7730.541 F1 291 1 0
+w267_direct_old_dirty_1 req 6 403 ms | 8297.854 L0 325 3 10 -> 8700.699 F1 324 2 0
+w267_direct_old_earlydiag req 1 826 ms | 6780.809 L1 395 3 0 -> 7607.274 F1 395 3 0
+w267_direct_old_earlydiag req 3 840 ms | 7261.348 CL 448 2 0 -> 8101.112 F0 449 1 1
+w267_direct_old_earlydiag req 3 525 ms | 8899.976 L1 496 3 0 -> 9425.225 CD 496 1 0
+w267_direct_old_earlydiag req 4 1177 ms | 661.688 L1 45 3 0 -> 1839.028 CD 45 1 956
+w267_direct_old_earlydiag req 4 2861 ms | 3510.549 L1 139 3 0 -> 6371.579 F0 140 1 1
+w267_direct_old_earlydiag req 5 1651 ms | 6024.840 CD 397 2 423 -> 7675.782 F0 397 1 0
+w267_direct_old_earlydiag req 6 626 ms | 4804.770 CD 292 2 444 -> 5430.842 F0 292 1 0
+w267_direct_old_quiet_1 req 1 409 ms | 2853.133 CD 169 2 727 -> 3262.464 F0 169 1 0
+w9_df2_s7c035 req 1 4164 ms | 920.372 L0 24 7 0 -> 5084.288 F0 24 1 0
+w9_df2_s8c001 req 4 980 ms | 98.655 L1 2 8 0 -> 1078.396 F1 2 8 0
+wl16b_agent_base req 3 1339 ms | 227.958 L1 14 3 0 -> 1566.801 F1 14 3 0
+wl16b_agent_long req 4 3105 ms | 849.569 CD 40 3 750 -> 3955.048 F0 39 1 1
+wl16c_edit_wide_off req 1 2381 ms | 2206.609 L1 109 8 0 -> 4587.386 F1 109 8 0

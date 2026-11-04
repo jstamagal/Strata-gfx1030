@@ -1,0 +1,165 @@
+d0211251fa35831d7e3602823b495f1019f2f40766326a0c103bfd951f2f29b9  /home/ronald_rump/inbox/agents/claude/strata-q38-next/build/strata
+c5a091d7ef5b508bc24c324b07d23ceea117ac8d09de20514c9327a2eff7489c  /home/ronald_rump/inbox/agents/claude/strata-verify267/build/strata
+Host dirty limits (read only)
+dirty_bytes 268435456
+dirty_background_bytes 67108864
+dirty_ratio 0
+dirty_background_ratio 0
+w267_auto_old_quiet_1 code_async_batcher              1200 tok  103.2 tok/s drafts 607/767 d9050704a096
+w267_auto_old_quiet_1 code_rust_committed_ring        1200 tok  130.3 tok/s drafts 667/795 0833fc602656
+w267_auto_old_quiet_1 code_typescript_tool_dispatch   1200 tok  139.9 tok/s drafts 693/813 60c3a0e22aca
+w267_auto_old_quiet_1 json_multi_tool_result_merge    1200 tok  131.3 tok/s drafts 667/748 96cac9c8b49a
+w267_auto_old_quiet_1 json_parallel_tool_plan         1200 tok  143.4 tok/s drafts 740/795 40efa68d5aa4
+w267_auto_old_quiet_1 json_patch_tool_payload         1200 tok  116.4 tok/s drafts 609/733 62b89ab84b34
+w267_auto_old_quiet_1 TOTAL 7200 tok 125.8 tok/s
+HARNESS_STATUS w267_auto_old_quiet_1 0 MONITOR_STATUS 0
+w267_auto_fix_quiet_1 code_async_batcher              1200 tok  122.2 tok/s drafts 647/809 efa3a22361fa
+w267_auto_fix_quiet_1 code_rust_committed_ring        1200 tok  126.1 tok/s drafts 654/781 06d211375dc8
+w267_auto_fix_quiet_1 code_typescript_tool_dispatch   1200 tok  144.2 tok/s drafts 713/855 5bbb5abc9900
+w267_auto_fix_quiet_1 json_multi_tool_result_merge    1200 tok  129.9 tok/s drafts 689/910 a3bd6d24ee7e
+w267_auto_fix_quiet_1 json_parallel_tool_plan         1200 tok  168.9 tok/s drafts 797/940 145e674dfb16
+w267_auto_fix_quiet_1 json_patch_tool_payload         1200 tok  113.4 tok/s drafts 614/799 459b61bb997b
+w267_auto_fix_quiet_1 TOTAL 7200 tok 131.9 tok/s
+HARNESS_STATUS w267_auto_fix_quiet_1 0 MONITOR_STATUS 0
+w267_auto_old_dirty_1 code_async_batcher              1200 tok  122.2 tok/s drafts 647/809 efa3a22361fa
+w267_auto_old_dirty_1 code_rust_committed_ring        1200 tok  126.0 tok/s drafts 654/781 06d211375dc8
+w267_auto_old_dirty_1 code_typescript_tool_dispatch   1200 tok  144.0 tok/s drafts 713/855 5bbb5abc9900
+w267_auto_old_dirty_1 json_multi_tool_result_merge    1200 tok  131.0 tok/s drafts 692/872 3f0a7c800a92
+w267_auto_old_dirty_1 json_parallel_tool_plan         1200 tok  175.2 tok/s drafts 833/994 77727b0b0c45
+w267_auto_old_dirty_1 json_patch_tool_payload         1200 tok  112.9 tok/s drafts 615/810 459b61bb997b
+w267_auto_old_dirty_1 TOTAL 7200 tok 132.6 tok/s
+HARNESS_STATUS w267_auto_old_dirty_1 0 MONITOR_STATUS 0
+w267_auto_fix_dirty_1 code_async_batcher              1200 tok  110.7 tok/s drafts 607/767 d9050704a096
+w267_auto_fix_dirty_1 code_rust_committed_ring        1200 tok  130.2 tok/s drafts 667/795 0833fc602656
+w267_auto_fix_dirty_1 code_typescript_tool_dispatch   1200 tok  140.0 tok/s drafts 693/813 60c3a0e22aca
+w267_auto_fix_dirty_1 json_multi_tool_result_merge    1200 tok  131.2 tok/s drafts 667/748 96cac9c8b49a
+w267_auto_fix_dirty_1 json_parallel_tool_plan         1200 tok  163.4 tok/s drafts 738/784 b73351d76592
+w267_auto_fix_dirty_1 json_patch_tool_payload         1200 tok  116.5 tok/s drafts 609/733 62b89ab84b34
+w267_auto_fix_dirty_1 TOTAL 7200 tok 129.9 tok/s
+HARNESS_STATUS w267_auto_fix_dirty_1 0 MONITOR_STATUS 0
+w267_direct_old_quiet_1 code_async_batcher              1200 tok  114.7 tok/s drafts 617/801 7647be1f36bf
+w267_direct_old_quiet_1 code_rust_committed_ring        1200 tok  140.3 tok/s drafts 682/797 3677c43d7d27
+w267_direct_old_quiet_1 code_typescript_tool_dispatch   1200 tok  146.2 tok/s drafts 696/831 f51ad60baaa2
+w267_direct_old_quiet_1 json_multi_tool_result_merge    1200 tok  138.4 tok/s drafts 694/818 ac71e4d17450
+w267_direct_old_quiet_1 json_parallel_tool_plan         1200 tok  171.7 tok/s drafts 742/803 a6925d4108b1
+w267_direct_old_quiet_1 json_patch_tool_payload         1200 tok  120.7 tok/s drafts 609/765 62b89ab84b34
+w267_direct_old_quiet_1 TOTAL 7200 tok 136.3 tok/s
+HARNESS_STATUS w267_direct_old_quiet_1 0 MONITOR_STATUS 0
+w267_direct_fix_quiet_1 code_async_batcher              1200 tok  119.3 tok/s drafts 616/801 7647be1f36bf
+w267_direct_fix_quiet_1 code_rust_committed_ring        1200 tok  140.4 tok/s drafts 682/797 3677c43d7d27
+w267_direct_fix_quiet_1 code_typescript_tool_dispatch   1200 tok  120.8 tok/s drafts 698/833 f51ad60baaa2
+w267_direct_fix_quiet_1 json_multi_tool_result_merge    1200 tok  137.5 tok/s drafts 699/846 ac71e4d17450
+w267_direct_fix_quiet_1 json_parallel_tool_plan         1200 tok  185.7 tok/s drafts 833/990 a6925d4108b1
+w267_direct_fix_quiet_1 json_patch_tool_payload         1200 tok  115.7 tok/s drafts 617/796 62b89ab84b34
+w267_direct_fix_quiet_1 TOTAL 7200 tok 133.1 tok/s
+HARNESS_STATUS w267_direct_fix_quiet_1 0 MONITOR_STATUS 0
+w267_direct_old_dirty_1 code_async_batcher              1200 tok  119.2 tok/s drafts 616/801 7647be1f36bf
+w267_direct_old_dirty_1 code_rust_committed_ring        1200 tok  139.8 tok/s drafts 682/797 3677c43d7d27
+w267_direct_old_dirty_1 code_typescript_tool_dispatch   1200 tok  133.6 tok/s drafts 696/832 f51ad60baaa2
+w267_direct_old_dirty_1 json_multi_tool_result_merge    1200 tok  130.1 tok/s drafts 672/745 ac71e4d17450
+w267_direct_old_dirty_1 json_parallel_tool_plan         1200 tok  171.2 tok/s drafts 742/791 a6925d4108b1
+w267_direct_old_dirty_1 json_patch_tool_payload         1200 tok   89.9 tok/s drafts 609/744 62b89ab84b34
+w267_direct_old_dirty_1 TOTAL 7200 tok 125.8 tok/s
+HARNESS_STATUS w267_direct_old_dirty_1 0 MONITOR_STATUS 0
+w267_direct_fix_dirty_1 code_async_batcher              1200 tok  118.4 tok/s drafts 616/801 7647be1f36bf
+w267_direct_fix_dirty_1 code_rust_committed_ring        1200 tok  139.7 tok/s drafts 682/797 3677c43d7d27
+w267_direct_fix_dirty_1 code_typescript_tool_dispatch   1200 tok  142.4 tok/s drafts 696/831 f51ad60baaa2
+w267_direct_fix_dirty_1 json_multi_tool_result_merge    1200 tok  135.4 tok/s drafts 694/818 ac71e4d17450
+w267_direct_fix_dirty_1 json_parallel_tool_plan         1200 tok  165.9 tok/s drafts 742/803 a6925d4108b1
+w267_direct_fix_dirty_1 json_patch_tool_payload         1200 tok  112.9 tok/s drafts 609/765 62b89ab84b34
+w267_direct_fix_dirty_1 TOTAL 7200 tok 133.6 tok/s
+HARNESS_STATUS w267_direct_fix_dirty_1 0 MONITOR_STATUS 0
+w267_ram_old_dirty_1 code_async_batcher              1200 tok  110.7 tok/s drafts 607/767 d9050704a096
+w267_ram_old_dirty_1 code_rust_committed_ring        1200 tok  130.4 tok/s drafts 667/795 0833fc602656
+w267_ram_old_dirty_1 code_typescript_tool_dispatch   1200 tok  139.9 tok/s drafts 693/813 60c3a0e22aca
+w267_ram_old_dirty_1 json_multi_tool_result_merge    1200 tok  131.3 tok/s drafts 667/749 96cac9c8b49a
+w267_ram_old_dirty_1 json_parallel_tool_plan         1200 tok  164.6 tok/s drafts 740/785 40efa68d5aa4
+w267_ram_old_dirty_1 json_patch_tool_payload         1200 tok  116.5 tok/s drafts 609/733 62b89ab84b34
+w267_ram_old_dirty_1 TOTAL 7200 tok 130.1 tok/s
+HARNESS_STATUS w267_ram_old_dirty_1 0 MONITOR_STATUS 0
+w267_direct_old_earlydiag code_async_batcher              1200 tok  110.3 tok/s drafts 616/801 7647be1f36bf
+w267_direct_old_earlydiag code_rust_committed_ring        1200 tok  140.3 tok/s drafts 682/797 3677c43d7d27
+w267_direct_old_earlydiag code_typescript_tool_dispatch   1200 tok  125.4 tok/s drafts 696/831 f51ad60baaa2
+w267_direct_old_earlydiag json_multi_tool_result_merge    1200 tok   94.0 tok/s drafts 703/859 ac71e4d17450
+w267_direct_old_earlydiag json_parallel_tool_plan         1200 tok  134.6 tok/s drafts 743/817 a6925d4108b1
+w267_direct_old_earlydiag json_patch_tool_payload         1200 tok  113.2 tok/s drafts 609/765 62b89ab84b34
+w267_direct_old_earlydiag TOTAL 7200 tok 117.5 tok/s
+HARNESS_STATUS w267_direct_old_earlydiag 0 MONITOR_STATUS 0
+OUTCOME w267_auto_old_quiet_1: natural_verify267=False
+HOST w267_auto_old_quiet_1: written=0.00 GiB, min_available=25.64 GiB, max_dirty=17 MiB
+MD5 w267_auto_old_quiet_1 code_async_batcher d9050704a096f6a334baf202d39d213e
+MD5 w267_auto_old_quiet_1 code_rust_committed_ring 0833fc60265653b9e866d6eb67fab3ff
+MD5 w267_auto_old_quiet_1 code_typescript_tool_dispatch 60c3a0e22acaf600f531f3a130f6fc58
+MD5 w267_auto_old_quiet_1 json_parallel_tool_plan 40efa68d5aa4513986a8716c15c31a6e
+MD5 w267_auto_old_quiet_1 json_patch_tool_payload 62b89ab84b343f3a595c0a93bc845556
+MD5 w267_auto_old_quiet_1 json_multi_tool_result_merge 96cac9c8b49a09e6073114953e7075a4
+OUTCOME w267_auto_fix_quiet_1: natural_verify267=False
+HOST w267_auto_fix_quiet_1: written=0.00 GiB, min_available=0.26 GiB, max_dirty=16 MiB
+MD5 w267_auto_fix_quiet_1 code_async_batcher efa3a22361fafaece8ed0469293ef02e
+MD5 w267_auto_fix_quiet_1 code_rust_committed_ring 06d211375dc89e52105d00ad607b8f54
+MD5 w267_auto_fix_quiet_1 code_typescript_tool_dispatch 5bbb5abc990091ccad80f6916b4ed99d
+MD5 w267_auto_fix_quiet_1 json_parallel_tool_plan 145e674dfb163d888f94fda4d37e2133
+MD5 w267_auto_fix_quiet_1 json_patch_tool_payload 459b61bb997b2fb6ae73bd3dbdfbd551
+MD5 w267_auto_fix_quiet_1 json_multi_tool_result_merge a3bd6d24ee7e15633ff44e620f3a6b83
+OUTCOME w267_auto_old_dirty_1: natural_verify267=False
+HOST w267_auto_old_dirty_1: written=13.38 GiB, min_available=25.84 GiB, max_dirty=210 MiB
+MD5 w267_auto_old_dirty_1 code_async_batcher efa3a22361fafaece8ed0469293ef02e
+MD5 w267_auto_old_dirty_1 code_rust_committed_ring 06d211375dc89e52105d00ad607b8f54
+MD5 w267_auto_old_dirty_1 code_typescript_tool_dispatch 5bbb5abc990091ccad80f6916b4ed99d
+MD5 w267_auto_old_dirty_1 json_parallel_tool_plan 77727b0b0c45038cab355e533c1e8ed8
+MD5 w267_auto_old_dirty_1 json_patch_tool_payload 459b61bb997b2fb6ae73bd3dbdfbd551
+MD5 w267_auto_old_dirty_1 json_multi_tool_result_merge 3f0a7c800a927e49bffb6bb28c684795
+CONTROL FAILURE w267_auto_old_dirty_1: code_async_batcher: full text differs from quiet old control; code_rust_committed_ring: full text differs from quiet old control; code_typescript_tool_dispatch: full text differs from quiet old control; json_parallel_tool_plan: full text differs from quiet old control; json_patch_tool_payload: full text differs from quiet old control; json_multi_tool_result_merge: full text differs from quiet old control
+OUTCOME w267_auto_fix_dirty_1: natural_verify267=False
+HOST w267_auto_fix_dirty_1: written=16.44 GiB, min_available=0.33 GiB, max_dirty=205 MiB
+MD5 w267_auto_fix_dirty_1 code_async_batcher d9050704a096f6a334baf202d39d213e
+MD5 w267_auto_fix_dirty_1 code_rust_committed_ring 0833fc60265653b9e866d6eb67fab3ff
+MD5 w267_auto_fix_dirty_1 code_typescript_tool_dispatch 60c3a0e22acaf600f531f3a130f6fc58
+MD5 w267_auto_fix_dirty_1 json_parallel_tool_plan b73351d765922e8fd3a99c0059ca807a
+MD5 w267_auto_fix_dirty_1 json_patch_tool_payload 62b89ab84b343f3a595c0a93bc845556
+MD5 w267_auto_fix_dirty_1 json_multi_tool_result_merge 96cac9c8b49a09e6073114953e7075a4
+OUTCOME w267_direct_old_quiet_1: natural_verify267=False
+HOST w267_direct_old_quiet_1: written=0.00 GiB, min_available=25.69 GiB, max_dirty=23 MiB
+MD5 w267_direct_old_quiet_1 code_async_batcher 7647be1f36bf156f7724a2746f1783da
+MD5 w267_direct_old_quiet_1 code_rust_committed_ring 3677c43d7d27ab464bb87be6ae2f6210
+MD5 w267_direct_old_quiet_1 code_typescript_tool_dispatch f51ad60baaa26504aa07c8e820045f0d
+MD5 w267_direct_old_quiet_1 json_parallel_tool_plan a6925d4108b1b5e4a771c0e35c5dbeb9
+MD5 w267_direct_old_quiet_1 json_patch_tool_payload 62b89ab84b343f3a595c0a93bc845556
+MD5 w267_direct_old_quiet_1 json_multi_tool_result_merge ac71e4d1745036db3e46a20865773851
+OUTCOME w267_direct_fix_quiet_1: natural_verify267=False
+HOST w267_direct_fix_quiet_1: written=0.00 GiB, min_available=25.46 GiB, max_dirty=64 MiB
+MD5 w267_direct_fix_quiet_1 code_async_batcher 7647be1f36bf156f7724a2746f1783da
+MD5 w267_direct_fix_quiet_1 code_rust_committed_ring 3677c43d7d27ab464bb87be6ae2f6210
+MD5 w267_direct_fix_quiet_1 code_typescript_tool_dispatch f51ad60baaa26504aa07c8e820045f0d
+MD5 w267_direct_fix_quiet_1 json_parallel_tool_plan a6925d4108b1b5e4a771c0e35c5dbeb9
+MD5 w267_direct_fix_quiet_1 json_patch_tool_payload 62b89ab84b343f3a595c0a93bc845556
+MD5 w267_direct_fix_quiet_1 json_multi_tool_result_merge ac71e4d1745036db3e46a20865773851
+OUTCOME w267_direct_old_dirty_1: natural_verify267=False
+HOST w267_direct_old_dirty_1: written=15.17 GiB, min_available=25.35 GiB, max_dirty=204 MiB
+MD5 w267_direct_old_dirty_1 code_async_batcher 7647be1f36bf156f7724a2746f1783da
+MD5 w267_direct_old_dirty_1 code_rust_committed_ring 3677c43d7d27ab464bb87be6ae2f6210
+MD5 w267_direct_old_dirty_1 code_typescript_tool_dispatch f51ad60baaa26504aa07c8e820045f0d
+MD5 w267_direct_old_dirty_1 json_parallel_tool_plan a6925d4108b1b5e4a771c0e35c5dbeb9
+MD5 w267_direct_old_dirty_1 json_patch_tool_payload 62b89ab84b343f3a595c0a93bc845556
+MD5 w267_direct_old_dirty_1 json_multi_tool_result_merge ac71e4d1745036db3e46a20865773851
+OUTCOME w267_direct_fix_dirty_1: natural_verify267=False
+HOST w267_direct_fix_dirty_1: written=14.07 GiB, min_available=25.37 GiB, max_dirty=215 MiB
+MD5 w267_direct_fix_dirty_1 code_async_batcher 7647be1f36bf156f7724a2746f1783da
+MD5 w267_direct_fix_dirty_1 code_rust_committed_ring 3677c43d7d27ab464bb87be6ae2f6210
+MD5 w267_direct_fix_dirty_1 code_typescript_tool_dispatch f51ad60baaa26504aa07c8e820045f0d
+MD5 w267_direct_fix_dirty_1 json_parallel_tool_plan a6925d4108b1b5e4a771c0e35c5dbeb9
+MD5 w267_direct_fix_dirty_1 json_patch_tool_payload 62b89ab84b343f3a595c0a93bc845556
+MD5 w267_direct_fix_dirty_1 json_multi_tool_result_merge ac71e4d1745036db3e46a20865773851
+OUTCOME w267_ram_old_dirty_1: natural_verify267=False
+HOST w267_ram_old_dirty_1: written=17.88 GiB, min_available=0.22 GiB, max_dirty=64 MiB
+MD5 w267_ram_old_dirty_1 code_async_batcher d9050704a096f6a334baf202d39d213e
+MD5 w267_ram_old_dirty_1 code_rust_committed_ring 0833fc60265653b9e866d6eb67fab3ff
+MD5 w267_ram_old_dirty_1 code_typescript_tool_dispatch 60c3a0e22acaf600f531f3a130f6fc58
+MD5 w267_ram_old_dirty_1 json_parallel_tool_plan 40efa68d5aa4513986a8716c15c31a6e
+MD5 w267_ram_old_dirty_1 json_patch_tool_payload 62b89ab84b343f3a595c0a93bc845556
+MD5 w267_ram_old_dirty_1 json_multi_tool_result_merge 96cac9c8b49a09e6073114953e7075a4
+EARLY_DIAG: stall_report= False GPU_breadcrumbs= False
+GATE FAIL: w267_auto_fix_quiet_1: #267=False, code_async_batcher: full text differs from quiet old control; code_rust_committed_ring: full text differs from quiet old control; code_typescript_tool_dispatch: full text differs from quiet old control; json_parallel_tool_plan: full text differs from quiet old control; json_patch_tool_payload: full text differs from quiet old control; json_multi_tool_result_merge: full text differs from quiet old control
+GATE FAIL: w267_auto_fix_dirty_1: #267=False, json_parallel_tool_plan: full text differs from quiet old control
+INCONCLUSIVE: no natural baseline #267 reproduced: no robustness claim is established
+WINDOW267 FAILED
