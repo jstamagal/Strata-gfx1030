@@ -290,3 +290,18 @@ Raw: `qwen38-window11/`. 118,329-token prompt, 100 tokens out, interleaved twice
 At 120K, 4096 is +2.9% on prompt and +4.6% on the generation after it, the same in both repeats (+0.4% at 36K in window 8).
 The IQ3_S config now uses --prefill 4096, like UD4 and Q4_0. Overlap watch over windows 9-11: the harness never ran two
 engines at once, but free memory fell to 0.8 GB during an engine load.
+
+## Window 12: --pool-workers 4 / 8 / 12 / default (15), IQ3_S
+
+Raw: `qwen38-window12/`. Workers pinned 1-N, host on cpu0 (the engine's default placement).
+
+| workers | 36K prompt tok/s | agent tok/s |
+|---|---|---|
+| 4 (config) | 2682.0 / 2693.3 | 145.5 |
+| 8 | 2696.4 / 2704.6 | 139.2 |
+| 12 | 2694.8 / 2704.9 | 145.5 |
+| 15 (default) | 2690.5 / 2449.1 | 145.5 |
+
+Worker count doesn't matter on this box: decode hits the expert cache ~99% of the time, so the CPU pool has little to do.
+Prompt +0.4% at 8-12 (noise). The 8-worker agent dip is two cases (115 vs 127, 129 vs 148, same text and drafts) while
+Astra runs were compiling on the box; the codex runs are now niced to 19. The configs keep 4.
