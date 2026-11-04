@@ -1,0 +1,64 @@
+PASS q4_K W[128 x 512] rows {33,0,1,70}: rel L2 7.46e-08, worst |diff| 2.80e-07, zero row max 0.0e+00, unwritten 0, quantizer bad 0 (worst 0.500 d), decode 0.0e+00, hash 9f93ea03bf86e279
+PASS q4_K W[100 x 512] rows {40,9}: rel L2 7.43e-08, worst |diff| 3.02e-07, zero row max 0.0e+00, unwritten 0, quantizer bad 0 (worst 0.500 d), decode 0.0e+00, hash 6d877fd116c47d72
+PASS q4_K W[256 x 768] raw rows {5,64,0,31,130}: rel L2 8.58e-08, worst |diff| 4.97e-04, zero row max 0.0e+00, unwritten 0, quantizer bad 0 (worst 0.500 d), decode 0.0e+00, hash c8111f3e2502e3eb
+PASS q4_K W[1280 x 2560] rows {37,0,70,32,1,129}: rel L2 1.26e-07, worst |diff| 1.69e-06, zero row max 0.0e+00, unwritten 0, quantizer bad 0 (worst 0.500 d), decode 0.0e+00, hash 02d852858e5e0adb
+PASS q4_K W[2560 x 768] rows {37,0,70,32,1,129}: rel L2 8.35e-08, worst |diff| 5.73e-07, zero row max 0.0e+00, unwritten 0, quantizer bad 0 (worst 0.500 d), decode 0.0e+00, hash cd0247ca64762a58
+PASS q4_K W[2560 x 768] rows {0,320,64,3,0,200,8}: rel L2 8.28e-08, worst |diff| 6.78e-07, zero row max 0.0e+00, unwritten 0, quantizer bad 0 (worst 0.500 d), decode 0.0e+00, hash c89e67aa31147d3c
+PASS q4_K W[2560 x 2560] rows {203}: rel L2 1.26e-07, worst |diff| 2.47e-06, zero row max 0.0e+00, unwritten 0, quantizer bad 0 (worst 0.500 d), decode 0.0e+00, hash 9268f7b603c365f2
+PASS q4_K W[128 x 512] raw rows {80}: rel L2 6.94e-08, worst |diff| 2.50e-04, zero row max 0.0e+00, unwritten 0, quantizer bad 0 (worst 0.500 d), decode 0.0e+00, hash c1506be13d93067b
+PASS q4_K W[128 x 512] raw rows {96}: rel L2 7.17e-08, worst |diff| 2.50e-04, zero row max 0.0e+00, unwritten 0, quantizer bad 0 (worst 0.500 d), decode 0.0e+00, hash a788ae44c3c200e1
+PASS q4_K W[128 x 512] raw rows {112}: rel L2 7.55e-08, worst |diff| 2.39e-04, zero row max 0.0e+00, unwritten 0, quantizer bad 0 (worst 0.500 d), decode 0.0e+00, hash 11bdd0bc57968413
+PASS q4_K W[128 x 512] raw rows {128}: rel L2 7.34e-08, worst |diff| 2.51e-04, zero row max 0.0e+00, unwritten 0, quantizer bad 0 (worst 0.500 d), decode 0.0e+00, hash 802d9aa9447e4d49
+PASS q5_K W[128 x 512] rows {33,0,1,70}: rel L2 7.42e-08, worst |diff| 3.60e-07, zero row max 0.0e+00, unwritten 0, quantizer bad 0 (worst 0.500 d), decode 0.0e+00, hash 7987819c1ab3187c
+PASS q5_K W[100 x 512] rows {40,9}: rel L2 7.40e-08, worst |diff| 2.43e-07, zero row max 0.0e+00, unwritten 0, quantizer bad 0 (worst 0.500 d), decode 0.0e+00, hash d87b0948206241fd
+PASS q5_K W[256 x 768] raw rows {5,64,0,31,130}: rel L2 7.33e-08, worst |diff| 8.72e-04, zero row max 0.0e+00, unwritten 0, quantizer bad 0 (worst 0.500 d), decode 0.0e+00, hash 5e6aee413a4ca85d
+PASS q5_K W[1280 x 2560] rows {37,0,70,32,1,129}: rel L2 1.26e-07, worst |diff| 1.83e-06, zero row max 0.0e+00, unwritten 0, quantizer bad 0 (worst 0.500 d), decode 0.0e+00, hash ec3a2cec2051fc11
+PASS q5_K W[2560 x 768] rows {37,0,70,32,1,129}: rel L2 8.28e-08, worst |diff| 5.73e-07, zero row max 0.0e+00, unwritten 0, quantizer bad 0 (worst 0.500 d), decode 0.0e+00, hash 6a5bb01c211155fe
+PASS q5_K W[2560 x 768] rows {0,320,64,3,0,200,8}: rel L2 8.36e-08, worst |diff| 7.00e-07, zero row max 0.0e+00, unwritten 0, quantizer bad 0 (worst 0.500 d), decode 0.0e+00, hash 53cc9d0b4c3a7133
+PASS q5_K W[2560 x 2560] rows {203}: rel L2 1.26e-07, worst |diff| 2.15e-06, zero row max 0.0e+00, unwritten 0, quantizer bad 0 (worst 0.500 d), decode 0.0e+00, hash b573df2419959944
+PASS q5_K W[128 x 512] raw rows {80}: rel L2 6.89e-08, worst |diff| 5.03e-04, zero row max 0.0e+00, unwritten 0, quantizer bad 0 (worst 0.500 d), decode 0.0e+00, hash 837a2f19a3ec0f6f
+PASS q5_K W[128 x 512] raw rows {96}: rel L2 7.00e-08, worst |diff| 5.03e-04, zero row max 0.0e+00, unwritten 0, quantizer bad 0 (worst 0.500 d), decode 0.0e+00, hash 3bcd2ffcb7afd4cf
+PASS q5_K W[128 x 512] raw rows {112}: rel L2 6.55e-08, worst |diff| 5.01e-04, zero row max 0.0e+00, unwritten 0, quantizer bad 0 (worst 0.500 d), decode 0.0e+00, hash a954197a1106d979
+PASS q5_K W[128 x 512] raw rows {128}: rel L2 6.62e-08, worst |diff| 5.02e-04, zero row max 0.0e+00, unwritten 0, quantizer bad 0 (worst 0.500 d), decode 0.0e+00, hash 49819e66a90ca39f
+PASS q6_K W[128 x 512] rows {33,0,1,70}: rel L2 5.95e-08, worst |diff| 3.34e-07, zero row max 0.0e+00, unwritten 0, quantizer bad 0 (worst 0.500 d), decode 0.0e+00, hash 80443b125ac1b5c4
+PASS q6_K W[100 x 512] rows {40,9}: rel L2 5.83e-08, worst |diff| 2.52e-07, zero row max 0.0e+00, unwritten 0, quantizer bad 0 (worst 0.500 d), decode 0.0e+00, hash 156d3ca9d724f613
+PASS q6_K W[256 x 768] raw rows {5,64,0,31,130}: rel L2 6.42e-08, worst |diff| 2.11e-03, zero row max 0.0e+00, unwritten 0, quantizer bad 0 (worst 0.500 d), decode 0.0e+00, hash 502e40aa702bd6f6
+PASS q6_K W[1280 x 2560] rows {37,0,70,32,1,129}: rel L2 1.17e-07, worst |diff| 1.93e-06, zero row max 0.0e+00, unwritten 0, quantizer bad 0 (worst 0.500 d), decode 0.0e+00, hash 66bceec38e4fdb4f
+PASS q6_K W[2560 x 768] rows {37,0,70,32,1,129}: rel L2 6.96e-08, worst |diff| 5.69e-07, zero row max 0.0e+00, unwritten 0, quantizer bad 0 (worst 0.500 d), decode 0.0e+00, hash 78794583f6e75c3a
+PASS q6_K W[2560 x 768] rows {0,320,64,3,0,200,8}: rel L2 6.96e-08, worst |diff| 6.19e-07, zero row max 0.0e+00, unwritten 0, quantizer bad 0 (worst 0.500 d), decode 0.0e+00, hash 3479f7efb7b0674c
+PASS q6_K W[2560 x 2560] rows {203}: rel L2 1.18e-07, worst |diff| 2.00e-06, zero row max 0.0e+00, unwritten 0, quantizer bad 0 (worst 0.500 d), decode 0.0e+00, hash a5df3dfd6d691b22
+PASS q6_K W[128 x 512] raw rows {80}: rel L2 5.15e-08, worst |diff| 1.10e-03, zero row max 0.0e+00, unwritten 0, quantizer bad 0 (worst 0.500 d), decode 0.0e+00, hash 0ec5995340097f4d
+PASS q6_K W[128 x 512] raw rows {96}: rel L2 6.14e-08, worst |diff| 9.51e-04, zero row max 0.0e+00, unwritten 0, quantizer bad 0 (worst 0.500 d), decode 0.0e+00, hash 82c4910578167027
+PASS q6_K W[128 x 512] raw rows {112}: rel L2 5.00e-08, worst |diff| 9.47e-04, zero row max 0.0e+00, unwritten 0, quantizer bad 0 (worst 0.500 d), decode 0.0e+00, hash e3bc5194336395b1
+PASS q6_K W[128 x 512] raw rows {128}: rel L2 5.33e-08, worst |diff| 9.49e-04, zero row max 0.0e+00, unwritten 0, quantizer bad 0 (worst 0.500 d), decode 0.0e+00, hash 60734de9470f9e05
+time q4_K W[1280 x 2560] 16 experts x 320 rows (5120 rows, max 320): quantize 0.056 ms, product 1.036 ms (16190 G MAC/s), unwritten 0, hash 80f026e52d5dcba2
+time q4_K W[2560 x 768] 16 experts x 320 rows (5120 rows, max 320): quantize 0.035 ms, product 0.612 ms (16436 G MAC/s), unwritten 0, hash 1d4465da5b090761
+time q4_K W[2560 x 2560] 1 matrix x 512 rows (512 rows, max 512): quantize 0.017 ms, product 0.251 ms (13365 G MAC/s), unwritten 0, hash ae6a8f8b3123a8cb
+time q5_K W[1280 x 2560] 16 experts x 320 rows (5120 rows, max 320): quantize 0.063 ms, product 1.075 ms (15604 G MAC/s), unwritten 0, hash bbce2da87017fca0
+time q5_K W[2560 x 768] 16 experts x 320 rows (5120 rows, max 320): quantize 0.035 ms, product 0.636 ms (15818 G MAC/s), unwritten 0, hash 662e21dd1d2e874c
+time q5_K W[2560 x 2560] 1 matrix x 512 rows (512 rows, max 512): quantize 0.018 ms, product 0.262 ms (12821 G MAC/s), unwritten 0, hash 8d63eca3d492e081
+time q6_K W[1280 x 2560] 16 experts x 320 rows (5120 rows, max 320): quantize 0.068 ms, product 1.167 ms (14371 G MAC/s), unwritten 0, hash ddab8a5366d09ae4
+time q6_K W[2560 x 768] 16 experts x 320 rows (5120 rows, max 320): quantize 0.032 ms, product 0.687 ms (14663 G MAC/s), unwritten 0, hash 93c374292d5b270c
+time q6_K W[2560 x 2560] 1 matrix x 512 rows (512 rows, max 512): quantize 0.018 ms, product 0.286 ms (11733 G MAC/s), unwritten 0, hash 715ee841f62e2085
+time q4_K W[1280 x 2560] 16 experts uneven (5120 rows, max 1100): quantize 0.076 ms, product 1.163 ms (14420 G MAC/s), unwritten 0, hash 80f026e52d5dcba2
+time q5_K W[1280 x 2560] 16 experts uneven (5120 rows, max 1100): quantize 0.064 ms, product 1.114 ms (15054 G MAC/s), unwritten 0, hash bbce2da87017fca0
+time q6_K W[1280 x 2560] 16 experts uneven (5120 rows, max 1100): quantize 0.057 ms, product 1.208 ms (13889 G MAC/s), unwritten 0, hash ddab8a5366d09ae4
+time q4_K W[1280 x 2560] 16 experts x 48 rows (768 rows, max 48): quantize 0.019 ms, product 0.201 ms (12525 G MAC/s), unwritten 0, hash 7b4a9dd12cc757e6
+time q4_K W[1280 x 2560] 16 experts x 40 rows (640 rows, max 40): quantize 0.017 ms, product 0.174 ms (12087 G MAC/s), unwritten 0, hash 31d808b90f10ba46
+time q4_K W[1280 x 2560] 16 experts x 32 rows (512 rows, max 32): quantize 0.017 ms, product 0.147 ms (11403 G MAC/s), unwritten 0, hash 6a2c0ba25a7c5cd5
+time q4_K W[1280 x 2560] 16 experts x 24 rows (384 rows, max 24): quantize 0.016 ms, product 0.127 ms (9875 G MAC/s), unwritten 0, hash 007212cfe710b790
+time q4_K W[1280 x 2560] 16 experts x 16 rows (256 rows, max 16): quantize 0.014 ms, product 0.103 ms (8169 G MAC/s), unwritten 0, hash 4bfd9c9288ad8271
+time q4_K W[1280 x 2560] 16 experts x 8 rows (128 rows, max 8): quantize 0.013 ms, product 0.071 ms (5940 G MAC/s), unwritten 0, hash 378d4e632290b7d8
+time q5_K W[1280 x 2560] 16 experts x 48 rows (768 rows, max 48): quantize 0.018 ms, product 0.203 ms (12404 G MAC/s), unwritten 0, hash a40cfde4b38383d4
+time q5_K W[1280 x 2560] 16 experts x 40 rows (640 rows, max 40): quantize 0.017 ms, product 0.177 ms (11831 G MAC/s), unwritten 0, hash a04d076e5d70630a
+time q5_K W[1280 x 2560] 16 experts x 32 rows (512 rows, max 32): quantize 0.016 ms, product 0.159 ms (10535 G MAC/s), unwritten 0, hash c6bdbd55eabf79bc
+time q5_K W[1280 x 2560] 16 experts x 24 rows (384 rows, max 24): quantize 0.015 ms, product 0.134 ms (9423 G MAC/s), unwritten 0, hash 110b3276071deacd
+time q5_K W[1280 x 2560] 16 experts x 16 rows (256 rows, max 16): quantize 0.014 ms, product 0.112 ms (7459 G MAC/s), unwritten 0, hash 168499109c662f54
+time q5_K W[1280 x 2560] 16 experts x 8 rows (128 rows, max 8): quantize 0.027 ms, product 0.094 ms (4443 G MAC/s), unwritten 0, hash 4e9d1b81020a9f7a
+time q6_K W[1280 x 2560] 16 experts x 48 rows (768 rows, max 48): quantize 0.018 ms, product 0.201 ms (12507 G MAC/s), unwritten 0, hash 7d236c76df5f3aac
+time q6_K W[1280 x 2560] 16 experts x 40 rows (640 rows, max 40): quantize 0.017 ms, product 0.185 ms (11341 G MAC/s), unwritten 0, hash 8f51db102925a31f
+time q6_K W[1280 x 2560] 16 experts x 32 rows (512 rows, max 32): quantize 0.016 ms, product 0.164 ms (10206 G MAC/s), unwritten 0, hash 66be5b19f8daf111
+time q6_K W[1280 x 2560] 16 experts x 24 rows (384 rows, max 24): quantize 0.015 ms, product 0.140 ms (8996 G MAC/s), unwritten 0, hash c072fedec00aee91
+time q6_K W[1280 x 2560] 16 experts x 16 rows (256 rows, max 16): quantize 0.014 ms, product 0.119 ms (7024 G MAC/s), unwritten 0, hash a7543432a994dad2
+time q6_K W[1280 x 2560] 16 experts x 8 rows (128 rows, max 8): quantize 0.013 ms, product 0.093 ms (4532 G MAC/s), unwritten 0, hash 9170216e768d5a67
+ALL PASS

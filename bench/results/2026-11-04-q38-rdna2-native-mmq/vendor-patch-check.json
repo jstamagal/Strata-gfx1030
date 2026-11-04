@@ -1,0 +1,62 @@
+{
+  "pin": "3cf03257f219afbe7334045ff7c6a06ac68c627d",
+  "patches": [
+    {
+      "patch": "0001-kquant-mmq-fp32-scale-multiply.patch",
+      "sha256": "7cb7df51b89c6817db903e14bd64dfd425f594178ac92a1fa5ed4dbdaeaf4a15",
+      "exit": 0,
+      "stdout": "patching file ggml/src/ggml-cuda/vecdotq.cuh\n",
+      "stderr": ""
+    },
+    {
+      "patch": "0002-kquant-mmq-rdna-wide-lds.patch",
+      "sha256": "2305cf8e3895ad15934be89ddf8611a984d58c8942ba3a443dd0ebbd493efb31",
+      "exit": 0,
+      "stdout": "patching file ggml/src/ggml-cuda/mmq.cuh\npatching file ggml/src/ggml-cuda/mmq-vec-dot.cuh\n",
+      "stderr": ""
+    },
+    {
+      "patch": "0003-mmq-per-channel-weight-pointers.patch",
+      "sha256": "9ea6cd5454784c9cb089df0a027b16d609603191be61209423f6881ea653a729",
+      "exit": 0,
+      "stdout": "patching file ggml/src/ggml-cuda/mmq.cuh\n",
+      "stderr": ""
+    },
+    {
+      "patch": "0004-owner-rdna2-kquant-wide-j.patch",
+      "sha256": "7760858a92f9d5c94e511fdca64f0402f97c6be45c23a16d9c8d91f0d6bd3034",
+      "exit": 0,
+      "stdout": "patching file ggml/src/ggml-cuda/mmq-config-rdna2.cuh\npatching file ggml/src/ggml-cuda/mmq.cuh\n",
+      "stderr": ""
+    },
+    {
+      "patch": "0005-owner-rdna2-dot-zero-heads.patch",
+      "sha256": "59ff7738b45ce79a4d85b32eaf39c1825bec6dc2d92338033c98dd371a879288",
+      "exit": 0,
+      "stdout": "patching file ggml/src/ggml-cuda/common.cuh\npatching file ggml/src/ggml-cuda/vecdotq.cuh\n",
+      "stderr": ""
+    },
+    {
+      "patch": "0006-owner-rdna2-q8k-activations.patch",
+      "sha256": "b0eb2016ef9251a39b7558833c62e5c40e96e2a55ddecbffc8a5241d71e87cbe",
+      "exit": 0,
+      "stdout": "patching file ggml/src/ggml-cuda/vecdotq.cuh\npatching file ggml/src/ggml-cuda/mmq.cuh\npatching file ggml/src/ggml-cuda/mmq-vec-dot.cuh\npatching file ggml/src/ggml-cuda/quantize.cu\n",
+      "stderr": ""
+    },
+    {
+      "patch": "0007-mmq-vector-activation-copy.patch",
+      "sha256": "1c4dc5f1c24e717030ce49ab5748219a1c490040a3c0a7b575339665ded1f00c",
+      "exit": 0,
+      "stdout": "patching file ggml/src/ggml-cuda/mmq.cuh\n",
+      "stderr": ""
+    }
+  ],
+  "byte_identical_kernel_files": {
+    "mmq-config-rdna2.cuh": true,
+    "common.cuh": true,
+    "vecdotq.cuh": true,
+    "mmq.cuh": true,
+    "mmq-vec-dot.cuh": true,
+    "quantize.cu": true
+  }
+}

@@ -42,6 +42,36 @@ __device__ __forceinline__ int strata_dp4a(const int a, const int b, const int c
 #define STRATA_DP4A(a, b, c) __dp4a((a), (b), (c))
 #endif
 
+#ifdef STRATA_RDNA2_DOT_Z
+[[maybe_unused]] static constexpr int strata_rdna2_dot_z_build = STRATA_RDNA2_DOT_Z;
+#else
+[[maybe_unused]] static constexpr bool strata_rdna2_dot_z_build = false;
+#endif
+// Owner dfb9b770b / a508a95b9 / 4d623c1f6: a literal-zero VOP3P chain head
+// avoids v_mov_b32 0 + v_dot4c on gfx103x. Source-scoped build controls let the
+// expert, dense/rowset, head and attention schedules be measured independently.
+// Nonzero links, other HIP architectures and CUDA retain their original dot.
+__device__ __forceinline__ int strata_dp4a_z(int a, int b, int c) {
+#if defined(STRATA_RDNA2_DOT_Z) && defined(__HIP_DEVICE_COMPILE__) && \
+    (defined(__gfx1030__) || defined(__gfx1031__) || defined(__gfx1032__))
+    if (__builtin_constant_p(c) && c == 0) {
+#if STRATA_RDNA2_DOT_Z == 2
+        // A zero head is a sum of only four signed-byte products, |sum| <= 65536:
+        // clamp cannot change it, and forces VOP3P while preserving compiler latency knowledge.
+        return __builtin_amdgcn_sdot4(a, b, 0, true);
+#else
+        asm("v_dot4_i32_i8 %0, %1, %2, 0" : "=v"(c) : "v"(a), "v"(b));
+        return c;
+#endif
+    }
+#endif
+    return STRATA_DP4A(a, b, c);
+}
+#if defined(STRATA_RDNA2_DOT_Z)
+#undef STRATA_DP4A
+#define STRATA_DP4A(a, b, c) strata_dp4a_z((a), (b), (c))
+#endif
+
 // Two integer forms that the AMDGPU backend compiles to v_mul_lo_u32, which runs at quarter rate on gfx10 (RDNA2):
 //
 //   * a per-byte mask: one bit per byte (b has bits only at 0x01010101) to 0x00 / 0xFF bytes.  (b << 8) - b and

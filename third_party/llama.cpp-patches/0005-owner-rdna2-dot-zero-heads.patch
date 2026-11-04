@@ -1,0 +1,63 @@
+Owner dfb9b770b / a508a95b9: exact literal-zero VOP3P heads for the q8_0 and q8_0_16 dot chains.
+Base: pinned 3cf03257 plus Strata patches 0001..0004.
+Only gfx103x device code changes; STRATA_MMQ_RDNA2_DOT_Z_OFF retains the builtin.
+The host-visible build marker keeps device-only switches distinct to compiler caches.
+
+--- a/ggml/src/ggml-cuda/common.cuh
++++ b/ggml/src/ggml-cuda/common.cuh
+@@ -757,6 +757,31 @@
+ #endif // defined(GGML_USE_HIP)
+ }
+ 
++#if defined(STRATA_MMQ_RDNA2_DOT_Z_OFF) && !defined(STRATA_RDNA2_DOT_Z)
++[[maybe_unused]] static constexpr bool ggml_rdna2_dot_z_build = false;
++#else
++#if defined(STRATA_RDNA2_DOT_Z)
++[[maybe_unused]] static constexpr int ggml_rdna2_dot_z_build = STRATA_RDNA2_DOT_Z;
++#else
++[[maybe_unused]] static constexpr bool ggml_rdna2_dot_z_build = true;
++#endif
++#endif
++// Owner dfb9b770b: literal-zero VOP3P chain heads on RDNA2. Keep ordinary dp4a for
++// the remaining links and for Q4_K/Q5_K, where the inline asm scheduled worse.
++static __device__ __forceinline__ int ggml_cuda_dp4a_z(const int a, const int b, int c) {
++#if defined(GGML_USE_HIP) && defined(RDNA2) && (!defined(STRATA_MMQ_RDNA2_DOT_Z_OFF) || defined(STRATA_RDNA2_DOT_Z))
++    if (__builtin_constant_p(c) && c == 0) {
++#if defined(STRATA_RDNA2_DOT_Z) && STRATA_RDNA2_DOT_Z == 2
++        return __builtin_amdgcn_sdot4(a, b, 0, true); // four i8 products cannot overflow; keep scheduler latency knowledge
++#else
++        asm("v_dot4_i32_i8 %0, %1, %2, 0" : "=v"(c) : "v"(a), "v"(b));
++        return c;
++#endif
++    }
++#endif
++    return ggml_cuda_dp4a(a, b, c);
++}
++
+ static __device__ __forceinline__ void ggml_cuda_mad(float & acc, const float v, const float u) {
+     acc += v*u;
+ }
+--- a/ggml/src/ggml-cuda/vecdotq.cuh
++++ b/ggml/src/ggml-cuda/vecdotq.cuh
+@@ -250,8 +250,8 @@
+ 
+ #pragma unroll
+     for (int i = 0; i < vdr; ++i) {
+-        // SIMD dot product of quantized values
+-        sumi = ggml_cuda_dp4a(v[i], u[i], sumi);
++        // Owner dfb9b770b: the zero chain head uses VOP3P on RDNA2.
++        sumi = ggml_cuda_dp4a_z(v[i], u[i], sumi);
+     }
+ 
+     return d8_0*d8_1 * ((T) sumi);
+@@ -294,8 +294,8 @@
+ 
+ #pragma unroll
+         for (int i = i0; i < i0 + QI8_0/2; ++i) {
+-            // SIMD dot product of quantized values
+-            sumi = ggml_cuda_dp4a(v[i], u[i], sumi);
++            // Owner a508a95b9: the zero chain head uses VOP3P on RDNA2.
++            sumi = ggml_cuda_dp4a_z(v[i], u[i], sumi);
+         }
+ 
+         sumf += d8_0[i0/(QI8_0/2)]*sumi;

@@ -1,0 +1,6 @@
+strata: prompt kernels: MMQ gate/up products read the experts from their own blobs, no group copy (STRATA_PF_DIRECT=1)
+PASS q4_K     gate+up W[1280 x 2560] 6 experts 269 rows: rel L2 vs FP64 6.352e-03, hash b1dc20f6d587d7b3
+PASS q4_K     gate+up experts read from their own blobs: the same bits (hash b1dc20f6d587d7b3)
+time q4_K     gate+up 16 x 80 rows, from their own blobs: product 0.281 ms = 14915 G MAC/s
+time q4_K     gate+up 16 x 80 rows: quantize 0.022 ms, product 0.281 ms = 14904 G MAC/s | skewed 5120 rows: 1.033 ms = 16243 G MAC/s
+ALL PASS

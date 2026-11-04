@@ -1,6 +1,7 @@
-// include/strata/core/draft_cap.hpp - the widest verify window --draft dflash2 uses on each card class (measured A/Bs, notes-dflash2-p1.md; recommend, never force).
+// include/strata/core/draft_cap.hpp - draft-window and pipelined MTP output caps (pure CPU policy).
 #pragma once
 
+#include <algorithm>
 #include <cstddef>
 
 namespace strata::core {
@@ -17,5 +18,12 @@ inline int dflash2_auto_cap(bool uma, int cc_major) {
 
 /// A 12 GB NVIDIA card (< 13 GiB, CUDA): the MTP drafter was faster in most measurements, which the engine says once.
 inline bool dflash2_small_nvidia(bool cuda, size_t total_bytes) { return cuda && total_bytes < ((size_t) 13 << 30); }
+
+/// Fresh pipeline chain: A's drafts, its bonus guess, then B's drafts. Lookup
+/// takeover supplies its own tokens; forced chains have a separate output count.
+/// `storage` is the chain's output capacity (rows minus one), not a window cap.
+inline int mtp_fresh_chain_outputs(int cap_a, int cap_b, int storage, bool capped) {
+    return capped ? std::min(storage, cap_a + cap_b - 1) : storage;
+}
 
 }  // namespace strata::core

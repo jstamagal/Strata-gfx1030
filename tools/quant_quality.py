@@ -284,6 +284,57 @@ def cmd_pcompare(a) -> int:
     return 0
 
 
+# ------------------------------------------------------------------------------------------------ raw first-token logits
+# STRATA_DUMP_FIRST_LOGITS=<prefix> writes <prefix>.0, <prefix>.1, ... from
+# normal served requests. Compare those without changing the live A/B setup,
+# placement, KV mode or prompt length. This is full-vocabulary KL at the sampled
+# prompt endpoints, not teacher-forced perplexity of the entire prompt.
+def cmd_logits(a) -> int:
+    import array
+    import heapq
+
+    def read(path):
+        raw = pathlib.Path(path).read_bytes()
+        if not raw or len(raw) % 4:
+            raise SystemExit(f"{path}: expected a nonempty raw little-endian fp32 vector")
+        vals = array.array("f")
+        vals.frombytes(raw)
+        if sys.byteorder != "little": vals.byteswap()
+        if not all(math.isfinite(x) for x in vals):
+            raise SystemExit(f"{path}: non-finite logits")
+        maximum = max(vals)
+        lse = maximum + math.log(math.fsum(math.exp(x-maximum) for x in vals))
+        return raw, vals, [x-lse for x in vals]
+
+    raw, ref, lr = read(a.ref)
+    n = len(ref)
+    k = min(a.topk, n)
+    top_ref = heapq.nlargest(k, range(n), key=ref.__getitem__)
+    p = [math.exp(x) for x in lr]
+    results = {}
+    for path in a.runs:
+        rb, run, la = read(path)
+        if len(run) != n:
+            raise SystemExit(f"{path}: {len(run)} logits, reference has {n}")
+        top_run = heapq.nlargest(k, range(n), key=run.__getitem__)
+        kl = math.fsum(pi*(r-v) for pi, r, v in zip(p, lr, la))
+        # Roundoff can put an identical distribution just below zero.
+        if -1e-12 < kl < 0: kl = 0.0
+        results[path] = {
+            "vocab": n, "same_bytes": raw == rb, "reference_top1": top_ref[0], "run_top1": top_run[0],
+            "top1_agrees": top_ref[0] == top_run[0], "topk": k,
+            "topk_overlap": len(set(top_ref) & set(top_run))/k,
+            "kl_ref_to_run": kl,
+            "max_abs_logit_error": max(abs(float(r)-v) for r, v in zip(ref, run)),
+            "rms_logit_error": math.sqrt(math.fsum((float(r)-v)**2 for r, v in zip(ref, run))/n),
+            "reference_top_ids": top_ref, "run_top_ids": top_run,
+        }
+        print(json.dumps({"reference": a.ref, "run": path, **results[path]}, sort_keys=True))
+    if a.json:
+        pathlib.Path(a.json).write_text(json.dumps({"reference": a.ref, "runs": results}, indent=2)+"\n")
+    return 0
+
+
 # ------------------------------------------------------------------------------------------------ compare
 def read_run(path: str) -> dict:
     rows = open(path).read().splitlines()
@@ -391,9 +442,16 @@ def main() -> int:
     p = sub.add_parser("pcompare", help="full-vocabulary KL and top-1 of `prompt` directories against a reference one")
     p.add_argument("ref")
     p.add_argument("runs", nargs="+")
+    p = sub.add_parser("logits", help="full-vocab KL/top-k of raw STRATA_DUMP_FIRST_LOGITS files (keeps the frozen long-prompt setup)")
+    p.add_argument("ref")
+    p.add_argument("runs", nargs="+")
+    p.add_argument("--topk", type=int, default=20)
+    p.add_argument("--json")
     a = ap.parse_args()
+    if a.cmd == "logits" and a.topk < 1:
+        ap.error("--topk must be positive")
     return {"ids": cmd_ids, "run": cmd_run, "prompt": cmd_prompt, "compare": cmd_compare,
-            "pcompare": cmd_pcompare}[a.cmd](a)
+            "pcompare": cmd_pcompare, "logits": cmd_logits}[a.cmd](a)
 
 
 if __name__ == "__main__":

@@ -37,6 +37,7 @@
 #include "q8_1_il.cuh"
 #endif
 #include "strata/kernels/pdl.hpp"
+#include "strata/kernels/mmvq_dispatch.hpp"
 
 #include <cuda_fp16.h>
 #include <cuda_runtime.h>
@@ -2524,6 +2525,7 @@ __device__ __forceinline__ void mmvq_row_body(const typename F::Block* __restric
             for (int i = 0; i < R; ++i) tot[j][i] = v == 0 ? tmp[j][i] : tot[j][i] + tmp[j][i];
     }
     if constexpr (TS) {
+        static_assert(NCOLS * R <= 32, "row MMVQ transpose has at most32 sums per wave");
         constexpr int V = NCOLS * R, P = s26ts::pow2_ceil(V);
         float v[P];
 #pragma unroll
@@ -2562,7 +2564,10 @@ void row_launch_n(const void* weights, const void* x_q8_1, float* y, int n_in, i
          else native_mmvq_row_kernel<F, NCOLS, R_, false><<<blocks, threads, 0, s>>>(w, x, y, n_in, n_out); } while (0)
     if (r == 1) STRATA_ROW_GO(1);
     else if (r == 2) STRATA_ROW_GO(2);
-    else STRATA_ROW_GO(4);
+    else if constexpr (NCOLS <= 8) STRATA_ROW_GO(4);
+    // row_launch caps wide calls at two rows/wave (16*2 sums). Do not
+    // instantiate the unreachable four-row/64-sum transpose for a wide call.
+    else STRATA_ROW_GO(2);
 #undef STRATA_ROW_GO
 }
 // Where it was measured faster on gfx1030 (2x Radeon PRO V620, hip_mmvq_row_parity --bench, 1.2 GB of weight copies
@@ -2655,20 +2660,12 @@ bool row_launch(const void* weights, const void* x_q8_1, float* y, int n_in, int
     if (g_row_r < 0 && env_on < 2 && (kind == 0 || n_out < RowTable<F>::min_out)) return false;   // the table: measured shapes only
     int r = g_row_r > 0 ? g_row_r : env_r > 0 ? env_r : (ncols <= (kind == 2 ? 3 : 2) ? 1 : 2);
     int wv = g_row_w > 0 ? g_row_w : env_w > 0 ? env_w : 1;
-    r = r >= 4 ? (ncols <= 4 ? 4 : 2) : r >= 2 ? 2 : 1;      // 4 rows of 5..8 columns would be 32 sums a lane
+    r = mmvq_row_count(r, ncols);   // at most32 independent sums per wave for the transpose
     wv = wv >= 8 ? 8 : wv >= 4 ? 4 : wv >= 2 ? 2 : 1;
     const auto s = static_cast<cudaStream_t>(stream);
-    switch (ncols) {
-        case 1: row_launch_n<F, 1>(weights, x_q8_1, y, n_in, n_out, r, wv, s); break;
-        case 2: row_launch_n<F, 2>(weights, x_q8_1, y, n_in, n_out, r, wv, s); break;
-        case 3: row_launch_n<F, 3>(weights, x_q8_1, y, n_in, n_out, r, wv, s); break;
-        case 4: row_launch_n<F, 4>(weights, x_q8_1, y, n_in, n_out, r, wv, s); break;
-        case 5: row_launch_n<F, 5>(weights, x_q8_1, y, n_in, n_out, r, wv, s); break;
-        case 6: row_launch_n<F, 6>(weights, x_q8_1, y, n_in, n_out, r, wv, s); break;
-        case 7: row_launch_n<F, 7>(weights, x_q8_1, y, n_in, n_out, r, wv, s); break;
-        default: row_launch_n<F, 8>(weights, x_q8_1, y, n_in, n_out, r, wv, s); break;
-    }
-    return true;
+    return dispatch_mmvq_columns<MAX_NCOLS>(ncols, [&](auto columns) {
+        row_launch_n<F, decltype(columns)::value>(weights, x_q8_1, y, n_in, n_out, r, wv, s);
+    });
 }
 #define STRATA_WAVE_MMVQ(...) \
     if (row_launch<__VA_ARGS__>(weights, x_q8_1, y, n_in, n_out, ncols, stream)) { launch_check(); return; }
@@ -3430,18 +3427,11 @@ static bool mmvq_set_impl(const NativeMmvqItem* items, int n_items, const void* 
     }
     const auto* x = static_cast<const Q81Block*>(x_q8_1);
     const auto s = static_cast<cudaStream_t>(stream);
-    switch (ncols) {
-        case 1: row_set_launch<1>(a, x, n_in, (unsigned) blocks, s); break;
-        case 2: row_set_launch<2>(a, x, n_in, (unsigned) blocks, s); break;
-        case 3: row_set_launch<3>(a, x, n_in, (unsigned) blocks, s); break;
-        case 4: row_set_launch<4>(a, x, n_in, (unsigned) blocks, s); break;
-        case 5: row_set_launch<5>(a, x, n_in, (unsigned) blocks, s); break;
-        case 6: row_set_launch<6>(a, x, n_in, (unsigned) blocks, s); break;
-        case 7: row_set_launch<7>(a, x, n_in, (unsigned) blocks, s); break;
-        default: row_set_launch<8>(a, x, n_in, (unsigned) blocks, s); break;
-    }
-    launch_check();
-    return true;
+    const bool launched = dispatch_mmvq_columns<MAX_NCOLS>(ncols, [&](auto columns) {
+        row_set_launch<decltype(columns)::value>(a, x, n_in, (unsigned) blocks, s);
+    });
+    if (launched) launch_check();
+    return launched;
 #else
     (void) items; (void) n_items; (void) x_q8_1; (void) n_in; (void) ncols; (void) stream; (void) explicit_on;
     return false;

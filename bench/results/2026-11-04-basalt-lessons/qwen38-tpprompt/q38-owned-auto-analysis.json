@@ -1,0 +1,304 @@
+{
+  "source_path": "/home/ronald_rump/inbox/agents/claude/strata-q38-tpprompt/src/prefill/prefill.cpp",
+  "source_sha256": "b805206a45ab0cd5b79cd692057a738cad699cf08813948069dc588d038a4a8e",
+  "prediction_scope": "Python port of integer planner at b/a=283, two stages. Not a native-engine test. Plans apply per checkpoint-delimited batched segment, not necessarily whole prompt; the final prompt token ordinarily goes through the first decode window.",
+  "planner_predictions": [
+    {
+      "segment_tokens": 16000,
+      "cap": 2048,
+      "predicted_chunk": 2048,
+      "predicted_chunks": 8,
+      "predicted_tail": 1664
+    },
+    {
+      "segment_tokens": 16000,
+      "cap": 4096,
+      "predicted_chunk": 2304,
+      "predicted_chunks": 7,
+      "predicted_tail": 2176
+    },
+    {
+      "segment_tokens": 16000,
+      "cap": 8192,
+      "predicted_chunk": 2304,
+      "predicted_chunks": 7,
+      "predicted_tail": 2176
+    },
+    {
+      "segment_tokens": 16000,
+      "cap": 16384,
+      "predicted_chunk": 2304,
+      "predicted_chunks": 7,
+      "predicted_tail": 2176
+    },
+    {
+      "segment_tokens": 16384,
+      "cap": 2048,
+      "predicted_chunk": 2048,
+      "predicted_chunks": 8,
+      "predicted_tail": 2048
+    },
+    {
+      "segment_tokens": 16384,
+      "cap": 4096,
+      "predicted_chunk": 2048,
+      "predicted_chunks": 8,
+      "predicted_tail": 2048
+    },
+    {
+      "segment_tokens": 16384,
+      "cap": 8192,
+      "predicted_chunk": 2048,
+      "predicted_chunks": 8,
+      "predicted_tail": 2048
+    },
+    {
+      "segment_tokens": 16384,
+      "cap": 16384,
+      "predicted_chunk": 2048,
+      "predicted_chunks": 8,
+      "predicted_tail": 2048
+    },
+    {
+      "segment_tokens": 36410,
+      "cap": 2048,
+      "predicted_chunk": 2048,
+      "predicted_chunks": 18,
+      "predicted_tail": 1594
+    },
+    {
+      "segment_tokens": 36410,
+      "cap": 4096,
+      "predicted_chunk": 4096,
+      "predicted_chunks": 9,
+      "predicted_tail": 3642
+    },
+    {
+      "segment_tokens": 36410,
+      "cap": 8192,
+      "predicted_chunk": 3328,
+      "predicted_chunks": 11,
+      "predicted_tail": 3130
+    },
+    {
+      "segment_tokens": 36410,
+      "cap": 16384,
+      "predicted_chunk": 3328,
+      "predicted_chunks": 11,
+      "predicted_tail": 3130
+    },
+    {
+      "segment_tokens": 100000,
+      "cap": 2048,
+      "predicted_chunk": 2048,
+      "predicted_chunks": 49,
+      "predicted_tail": 1696
+    },
+    {
+      "segment_tokens": 100000,
+      "cap": 4096,
+      "predicted_chunk": 4096,
+      "predicted_chunks": 25,
+      "predicted_tail": 1696
+    },
+    {
+      "segment_tokens": 100000,
+      "cap": 8192,
+      "predicted_chunk": 8192,
+      "predicted_chunks": 13,
+      "predicted_tail": 1696
+    },
+    {
+      "segment_tokens": 100000,
+      "cap": 16384,
+      "predicted_chunk": 5888,
+      "predicted_chunks": 17,
+      "predicted_tail": 5792
+    },
+    {
+      "segment_tokens": 143000,
+      "cap": 2048,
+      "predicted_chunk": 2048,
+      "predicted_chunks": 70,
+      "predicted_tail": 1688
+    },
+    {
+      "segment_tokens": 143000,
+      "cap": 4096,
+      "predicted_chunk": 4096,
+      "predicted_chunks": 35,
+      "predicted_tail": 3736
+    },
+    {
+      "segment_tokens": 143000,
+      "cap": 8192,
+      "predicted_chunk": 8192,
+      "predicted_chunks": 18,
+      "predicted_tail": 3736
+    },
+    {
+      "segment_tokens": 143000,
+      "cap": 16384,
+      "predicted_chunk": 7168,
+      "predicted_chunks": 20,
+      "predicted_tail": 6808
+    }
+  ],
+  "completed_owner_arms": [
+    {
+      "source": "completed coordinator/owner A/B logs; not run by this analysis script",
+      "arm": "x28",
+      "prefill_requested": "auto:16384",
+      "layer_split": "28",
+      "startup_owned_estimate_mib": 1904,
+      "startup_chunk_cap": 2048,
+      "first_cache_slots": 8818,
+      "first_cache_gib": 25.68,
+      "later_caches": [
+        {
+          "device": 1,
+          "layer_begin": 28,
+          "layer_end_inclusive": 47,
+          "slots": 8565,
+          "gib": 25.1
+        }
+      ],
+      "observed_pipe_reduction_logs": [],
+      "timings": [
+        {
+          "cache_n": 0,
+          "prompt_n": 36411,
+          "prompt_ms": 24317.6,
+          "prompt_per_token_ms": 0.668,
+          "prompt_per_second": 1497.3,
+          "predicted_n": 300,
+          "predicted_ms": 3813.7,
+          "predicted_per_token_ms": 12.712,
+          "predicted_per_second": 78.7,
+          "draft_n": 186,
+          "draft_n_accepted": 136
+        },
+        {
+          "cache_n": 0,
+          "prompt_n": 36411,
+          "prompt_ms": 24266.4,
+          "prompt_per_token_ms": 0.666,
+          "prompt_per_second": 1500.5,
+          "predicted_n": 300,
+          "predicted_ms": 3854.9,
+          "predicted_per_token_ms": 12.85,
+          "predicted_per_second": 77.8,
+          "draft_n": 169,
+          "draft_n_accepted": 133
+        }
+      ]
+    },
+    {
+      "source": "completed coordinator/owner A/B logs; not run by this analysis script",
+      "arm": "x28p4k",
+      "prefill_requested": "4096",
+      "layer_split": "28",
+      "startup_owned_estimate_mib": 3264,
+      "startup_chunk_cap": 4096,
+      "first_cache_slots": 8359,
+      "first_cache_gib": 24.35,
+      "later_caches": [
+        {
+          "device": 1,
+          "layer_begin": 28,
+          "layer_end_inclusive": 47,
+          "slots": 8114,
+          "gib": 23.77
+        }
+      ],
+      "observed_pipe_reduction_logs": [],
+      "timings": [
+        {
+          "cache_n": 0,
+          "prompt_n": 36411,
+          "prompt_ms": 19809.8,
+          "prompt_per_token_ms": 0.544,
+          "prompt_per_second": 1838.0,
+          "predicted_n": 300,
+          "predicted_ms": 3776.8,
+          "predicted_per_token_ms": 12.589,
+          "predicted_per_second": 79.4,
+          "draft_n": 183,
+          "draft_n_accepted": 141
+        },
+        {
+          "cache_n": 0,
+          "prompt_n": 36411,
+          "prompt_ms": 19721.7,
+          "prompt_per_token_ms": 0.542,
+          "prompt_per_second": 1846.2,
+          "predicted_n": 300,
+          "predicted_ms": 3677.2,
+          "predicted_per_token_ms": 12.257,
+          "predicted_per_second": 81.6,
+          "draft_n": 177,
+          "draft_n_accepted": 138
+        }
+      ]
+    },
+    {
+      "source": "completed coordinator/owner A/B logs; not run by this analysis script",
+      "arm": "y26p4096",
+      "prefill_requested": "4096",
+      "layer_split": "26",
+      "startup_owned_estimate_mib": 3264,
+      "startup_chunk_cap": 4096,
+      "first_cache_slots": 8443,
+      "first_cache_gib": 24.63,
+      "later_caches": [
+        {
+          "device": 1,
+          "layer_begin": 26,
+          "layer_end_inclusive": 47,
+          "slots": 8046,
+          "gib": 23.49
+        }
+      ],
+      "observed_pipe_reduction_logs": [],
+      "timings": [
+        {
+          "cache_n": 0,
+          "prompt_n": 36411,
+          "prompt_ms": 18101.8,
+          "prompt_per_token_ms": 0.497,
+          "prompt_per_second": 2011.5,
+          "predicted_n": 300,
+          "predicted_ms": 4007.6,
+          "predicted_per_token_ms": 13.359,
+          "predicted_per_second": 74.9,
+          "draft_n": 182,
+          "draft_n_accepted": 132
+        },
+        {
+          "cache_n": 0,
+          "prompt_n": 36411,
+          "prompt_ms": 18052.7,
+          "prompt_per_token_ms": 0.496,
+          "prompt_per_second": 2016.9,
+          "predicted_n": 300,
+          "predicted_ms": 3554.2,
+          "predicted_per_token_ms": 11.847,
+          "predicted_per_second": 84.4,
+          "draft_n": 173,
+          "draft_n_accepted": 140
+        }
+      ]
+    }
+  ],
+  "live_profile": {
+    "path": "/home/ronald_rump/Strata_donttouch/data/expert-profile.bin",
+    "magic": "STRP",
+    "version": 1,
+    "layers": 48,
+    "experts": 512,
+    "slots": 24576,
+    "ranked": 24576,
+    "bytes": 196632,
+    "trailing_table_is_rank_permutation": true
+  }
+}

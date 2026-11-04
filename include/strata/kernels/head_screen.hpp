@@ -33,7 +33,7 @@ void head_screen(int type, const void* copy, const void* weights, const void* x_
                  float* logits, int n_out, int ncols, const int32_t* keep, void* scratch, void* stream);
 
 // Fitted two-bit proposal head. Only draft ids/probabilities may change; never use for target logits.
-// Unset: gfx1030 Q8_0/2560 only. 0: exact. 1: all explicitly supported formats.
+// Unset: gfx1030 Q8_0/Q6_K, width 2560 only. 0: exact. 1: all explicitly supported formats.
 bool head_proxy_enabled(int type, int n_in, int device = -1);
 std::size_t head_proxy_reserve_bytes(int type, int n_in, int n_rows, int device = -1, bool owns_proxy = true);
 bool head_proxy_supported(int type, int n_in);

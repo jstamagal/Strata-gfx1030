@@ -51,6 +51,8 @@
 #include "strata/prefill/moe_fused_iq.hpp"
 #include "strata/prefill/moe_mmq.hpp"
 #include "strata/prefill/routed_stream.hpp"
+#include "strata/prefill/lm_residual.hpp"
+#include "strata/prefill/route_ahead.hpp"
 #include "strata/core/peer_experts.hpp"
 #include "strata/core/expert_nibble.hpp"
 #include "strata/core/sm120_series.hpp"
@@ -1194,6 +1196,8 @@ struct Prefill::Impl {
     // the event that releases each ring slot: its own `used`, or - when an MMQ group is gathered in one launch - the
     // `used` of the last slot gathered with it, recorded once for all of them (a later record only waits longer)
     int used_of[RING_MAX] = {};
+    // STRATA_PF_ROUTE_AHEAD: only a copy hint. Actual routing and expert/group order never read this history.
+    route_ahead::History route_previous;
     // PLE
     float* ple_emb = nullptr;
     std::vector<float> ple_pageable[2];      // the fallback when no more RAM can be pinned
@@ -3786,6 +3790,30 @@ bool Prefill::run_impl(const int64_t* tokens, int64_t n, int64_t pos0, std::stri
             }
             m.stager->start(std::move(js));
         }
+        // STRATA_PF_ROUTE_AHEAD=N (or per-device "0,N"): a bounded hint from the preceding chunk's routing.
+        // One bank past the normal ring is enough: it is read only by this layer and released before the next
+        // layer's copies are queued. Keep two normal MMQ groups, and allocate no additional device memory.
+        const int ahead_requested = route_ahead::requested_from(std::getenv("STRATA_PF_ROUTE_AHEAD"), m.device);
+        const bool ahead_eligible = ahead_requested > 0 && routed_stream && routed_last && !kva_approx &&
+                                    !routed_stream::enabled_from(std::getenv("STRATA_PREFILL_ROUTED_STREAM"));
+        if (ahead_eligible)
+            m.route_previous.prepare((int) g.n_layers, (int) m.g->n_expert, p0 == 0);
+        const int ahead_n = ahead_eligible && m.route_previous.any()
+                                ? route_ahead::bank_slots(ahead_requested, m.ring, MMQ_GROUP) : 0;
+        const int stream_ring = m.ring - ahead_n;
+        std::vector<int> ahead_slot(ahead_n > 0 ? (size_t) m.g->n_expert : 0, -1);
+        bool ahead_live = false;
+        auto release_ahead = [&] {
+            if (!ahead_live) return;
+            // One event after all this layer's expert readers (including direct MMQ), also covering unused hints.
+            cudaEventRecord(m.used[stream_ring], m.cs);
+            for (int sl = stream_ring; sl < m.ring; ++sl) m.used_of[sl] = stream_ring;
+            ahead_live = false;
+        };
+        struct AheadDone {
+            decltype(release_ahead)& release;
+            ~AheadDone() { release(); }
+        } ahead_done{release_ahead};
         struct StagerDone {
             Stager* st;
             ~StagerDone() { if (st) st->finish(); }
@@ -3804,11 +3832,42 @@ bool Prefill::run_impl(const int64_t* tokens, int64_t n, int64_t pos0, std::stri
         }();
         double ss_ring_ms = 0, ss_wait_issue_ms = 0, ss_wait_land_ms = 0;
         int64_t ss_routed = 0, ss_bytes = 0, ss_late = 0;
+        int64_t ahead_predicted = 0, ahead_hit = 0, ahead_waste_bytes = 0;
+        auto predict_layer = [&](int64_t l) -> bool {
+            if (ahead_n == 0) return true;
+            std::fill(ahead_slot.begin(), ahead_slot.end(), -1);
+            const auto want = m.route_previous.predict((int) l, ahead_n, [&](int32_t e) {
+                return !(m.host_res && m.cache && m.host_res[(size_t) l * m.g->n_expert + e] >= 0) &&
+                       m.src->pinned(l, e);
+            });
+            int sl = stream_ring;
+            for (const int32_t e : want) {
+                const uint8_t* b = m.src->blob_stable(l, e);
+                if (b == nullptr) continue;   // a hint is optional; the exact route will still stage this expert
+                cudaError_t rc = cudaSuccess;
+                if (m.stage_live[sl]) rc = cudaStreamWaitEvent(m.copy, m.used[m.used_of[sl]], 0);
+                const size_t bytes = (size_t) lay0.blob_bytes(l);
+                if (rc == cudaSuccess) rc = cudaMemcpyAsync(m.stage_dev[sl], b, bytes, cudaMemcpyHostToDevice, m.copy);
+                if (rc == cudaSuccess) rc = cudaEventRecord(m.copied[sl], m.copy);
+                if (rc != cudaSuccess) {
+                    err = std::string("prefill: routed expert prefetch: ") + cudaGetErrorString(rc);
+                    return false;
+                }
+                m.stage_live[sl] = true;
+                ahead_slot[(size_t) e] = sl++;
+                ahead_live = true;
+                ++ahead_predicted;
+                ss_bytes += (int64_t) bytes;
+                ++stats_.experts_streamed;
+                ++stats_.experts_dma;
+            }
+            return true;
+        };
         auto issue_until = [&](size_t limit) {
             limit = std::min(limit, seq.size());
             while (issued < limit) {
                 const StreamEntry& en = seq[issued];
-                const int sl = (int) (issued % (size_t) m.ring);
+                const int sl = (int) (issued % (size_t) stream_ring);
                 const auto th = Clock::now();
                 const size_t bytes = (size_t) lay0.blob_bytes(en.l);
                 ss_bytes += (int64_t) bytes;
@@ -4000,7 +4059,7 @@ bool Prefill::run_impl(const int64_t* tokens, int64_t n, int64_t pos0, std::stri
                 }
             });
         } else if (stream_all) {
-            issue_until((size_t) m.ring);   // layer 0's first experts, behind the embedding and the PLE
+            issue_until((size_t) stream_ring);   // layer 0's first experts, behind the embedding and the PLE
         }
         // the consumer's side: entry k's copy is on the copy stream (the thread issued it), then k is given back
         auto wait_issued = [&](size_t k) {
@@ -4028,13 +4087,14 @@ bool Prefill::run_impl(const int64_t* tokens, int64_t n, int64_t pos0, std::stri
         };
         auto give_back = [&](size_t upto) {
             if (threaded_issue) a_consumed.store(upto, std::memory_order_release);
-            else issue_until(upto + (size_t) m.ring);
+            else issue_until(upto + (size_t) stream_ring);
         };
         // the routed stream: layer l's routed experts that are not in VRAM, in the walk's (id) order
         auto plan_layer = [&](int64_t l, const std::vector<int32_t>& order) -> bool {
             seq_start[(size_t) l] = seq.size();
             for (const int32_t e : order) {
                 if (m.host_res && m.cache && m.host_res[(size_t) l * m.g->n_expert + e] >= 0) continue;
+                if (!ahead_slot.empty() && ahead_slot[(size_t) e] >= 0) continue;   // the same blob was copied before attention
                 const uint8_t* b = m.src->blob_stable(l, e);
                 if (b == nullptr || !m.src->pinned(l, e) || seq.size() == seq.capacity()) {
                     err = "prefill: the routed stream met an expert it cannot copy from page-locked memory";
@@ -4043,7 +4103,7 @@ bool Prefill::run_impl(const int64_t* tokens, int64_t n, int64_t pos0, std::stri
                 seq.push_back({(int32_t) l, e, b, -1});
             }
             for (size_t i = (size_t) l + 1; i < seq_start.size(); ++i) seq_start[i] = seq.size();
-            issue_until(consumed + (size_t) m.ring);   // the layer's copies start now, as far as the ring has room
+            issue_until(consumed + (size_t) stream_ring);   // the layer's copies start now, as far as the ring has room
             return true;
         };
         if (ps_on) {
@@ -4073,6 +4133,7 @@ bool Prefill::run_impl(const int64_t* tokens, int64_t n, int64_t pos0, std::stri
             core::progress_beat();   // the serve watchdog: a prompt chunk of 8192 tokens is still moving
             if (l > LB) pf_step("reading the prompt (batched, step sync): the experts and the rest of layer", l - 1);
             core::progress_at("reading the prompt (batched): layer", l, p0);   // #251: a stall names layer and chunk
+            if (!predict_layer(l)) return false;   // copies get this layer's attention half as a head start
             const core::LayerView v(*m.wt, l);
             // STRATA_KVA: `kva_layer` means this layer's output has no consumer left for this chunk, so only its
             // state advances; `kva_subst` means the block input itself is replayed from a capture (oracle mode).
@@ -5148,6 +5209,13 @@ bool Prefill::run_impl(const int64_t* tokens, int64_t n, int64_t pos0, std::stri
                             const int32_t e = ids_h[(size_t) i];
                             if (e < 0 || e >= m.g->n_expert) { err = "prefill: routed id out of range"; return false; }
                             ++m.cnt[(size_t) e];
+                        }
+                        if (ahead_eligible) {
+                            m.route_previous.remember((int) l, m.cnt.data());
+                            for (size_t e = 0; e < ahead_slot.size(); ++e) if (ahead_slot[e] >= 0) {
+                                if (m.cnt[e] > 0) { ++ahead_hit; ++ss_routed; }
+                                else ahead_waste_bytes += lay.blob_bytes(l);
+                            }
                         }
                         // STRATA_PREFILL_ROUTED_STREAM: this layer's routing to the issuer (it drops the unrouted entries
                         // it has not issued yet; the walk below gives every unrouted entry back without reading it)
@@ -6321,7 +6389,7 @@ bool Prefill::run_impl(const int64_t* tokens, int64_t n, int64_t pos0, std::stri
                                 // (the routed stream has no entry the routing skipped, and its walk is not in id order)
                                 while (!routed_stream && k < kend && seq[k].e < e_stop) {
                                     if (gg_nslots > 0) flush(0);   // the open group's slots get their event first
-                                    const int sl = (int) (k % (size_t) m.ring);
+                                    const int sl = (int) (k % (size_t) stream_ring);
                                     cudaEventRecord(m.used[sl], m.cs);
                                     m.used_of[sl] = sl;
                                     consumed = ++k;
@@ -6332,7 +6400,7 @@ bool Prefill::run_impl(const int64_t* tokens, int64_t n, int64_t pos0, std::stri
                                 const int32_t e = order[j];
                                 release_to(e);
                                 if (k < kend && seq[k].e == e) {
-                                    const int sl = (int) (k % (size_t) m.ring);
+                                    const int sl = (int) (k % (size_t) stream_ring);
                                     ++ss_routed;
                                     wait_issued(k);
                                     if (!group_gather) {
@@ -6343,6 +6411,17 @@ bool Prefill::run_impl(const int64_t* tokens, int64_t n, int64_t pos0, std::stri
                                     if (!compute(j, m.stage_dev[sl], sl, -1)) return false;
                                     consumed = ++k;
                                     if (!group_gather || gg_nslots == 0) give_back(consumed);   // its group was gathered
+                                } else if (!ahead_slot.empty() && ahead_slot[(size_t) e] >= 0) {
+                                    const int sl = ahead_slot[(size_t) e];
+                                    pt.mark(kPfWaitCopy, cs);
+                                    if (cudaStreamWaitEvent(m.cs, m.copied[sl], 0) != cudaSuccess) {
+                                        err = "prefill: waiting for a routed expert prefetch";
+                                        return false;
+                                    }
+                                    // Not a normal ring entry: keep the bank until all this layer's direct/gathered
+                                    // readers are done, rather than giving it to the normal ring's issuer.
+                                    if (!compute(j, m.stage_dev[sl], -1, -1)) return false;
+                                    if (group_gather && gg_nslots == 0) give_back(consumed);
                                 } else {
                                     const bool r0 = m.host_res && m.cache && m.host_res[(size_t) l * m.g->n_expert + e] >= 0;
                                     const uint8_t* bp = r0 ? m.cache->device_slot(m.host_res[(size_t) l * m.g->n_expert + e])
@@ -6356,6 +6435,7 @@ bool Prefill::run_impl(const int64_t* tokens, int64_t n, int64_t pos0, std::stri
                             release_to(m.g->n_expert);
                         }
                     }
+                    release_ahead();
                     pt.mark(kPfCombine, cs);
                     if (sh_side) cudaStreamWaitEvent(m.cs, m.sh_join, 0);   // STRATA_PF_SIDE_STREAM: the shared expert's rows
                     if (cpu_fut.valid()) {   // set_cpu_pool: the CPU's rows into Dm's tail, row_sd 1 (s_down is in them)
@@ -6540,10 +6620,16 @@ bool Prefill::run_impl(const int64_t* tokens, int64_t n, int64_t pos0, std::stri
             std::fprintf(stderr, "strata prefill stream: layers %lld-%lld, %lld tokens: %zu experts copied (%.0f MiB), %lld "
                              "of them routed; host: in the copy calls %.0f ms, issuer waiting for ring slots %.0f ms "
                              "(ring %d), launcher waiting for an issue %.0f ms, for a copy to land %.0f ms (%lld "
-                             "groups)%s%s\n", (long long) LB, (long long) LE - 1, (long long) T, seq.size(),
-                         (double) ss_bytes / 1048576.0, (long long) ss_routed, iss_ms, ss_ring_ms, m.ring,
+                             "groups)%s%s\n", (long long) LB, (long long) LE - 1, (long long) T, seq.size() + (size_t) ahead_predicted,
+                         (double) ss_bytes / 1048576.0, (long long) ss_routed, iss_ms, ss_ring_ms, stream_ring,
                          ss_wait_issue_ms, ss_wait_land_ms, (long long) ss_late, sstat == 2 ? " [copies skipped]" : "",
                          routed_stream ? " [routed stream]" : "");
+        if (ahead_eligible)
+            std::fprintf(stderr, "strata prefill route-ahead: GPU%d layers %lld-%lld, %lld tokens: predicted %lld, hit %lld, "
+                                 "waste %lld (%.1f MiB); bank %d, normal ring %d\n",
+                         m.device, (long long) LB, (long long) LE - 1, (long long) T,
+                         (long long) ahead_predicted, (long long) ahead_hit, (long long) (ahead_predicted - ahead_hit),
+                         (double) ahead_waste_bytes / 1048576.0, ahead_n, stream_ring);
         stats_.tokens += T;
         core::progress_at("reading the prompt (batched): finishing the chunk from token", p0);
         pt.mark(kPfStart, cs);
@@ -6965,8 +7051,11 @@ int64_t Prefill::lm_prepare(int64_t n, std::string& why, int64_t cap) {
         while (s >= min_s && (int64_t) dev_bytes(s, r_dev) > room) s -= m.T;
         return s >= min_s ? s : (int64_t) 0;
     };
-    // a stage after the first: its rows arrive in R_host (the previous stage writes them there), so they stay there
-    const int mode = stage_lb_ > 0 ? 2 : lm_r_env();
+    // STRATA_LM_SPLIT_R_VRAM=1 (opt-in): a later stage uploads its incoming super-chunk once and keeps R in VRAM.
+    // Without it, later stages keep the original per-layer host staging. Forcing VRAM can reduce the common
+    // super-chunk if a stage has little free memory; lm_prepare_chain prices every stage before any work runs.
+    static const bool split_r_vram = detail::lm_split_r_vram_from(std::getenv("STRATA_LM_SPLIT_R_VRAM"));
+    const int mode = stage_lb_ > 0 ? (split_r_vram ? 1 : 2) : lm_r_env();
     bool r_dev = false;
     int64_t s_use = 0;
     if (mode == 1) { s_use = fit(true); r_dev = true; }
@@ -6994,7 +7083,8 @@ int64_t Prefill::lm_prepare(int64_t n, std::string& why, int64_t cap) {
     if (!host_grow(lb.idsw_host, lb.idsw_host_n, idsw) || !host_grow(lb.tab_host, lb.tab_host_n, tab)) {
         why = "no pinned RAM for the routing tables"; return 0;
     }
-    if (!r_dev) {
+    // A VRAM-resident later stage still receives the preceding stage's hand-off in pinned RAM.
+    if (!r_dev || stage_lb_ > 0) {
         int32_t* rh = (int32_t*) lb.R_host;
         if (!host_grow(rh, lb.R_host_n, (size_t) s_use * D)) { why = "no pinned RAM for the residual rows"; lb.R_host = nullptr; return 0; }
         lb.R_host = (float*) rh;
@@ -7299,7 +7389,7 @@ bool Prefill::lm_run(const std::vector<Seg>& segs, int depth, const std::vector<
         ~StagerStop() { if (st) st->finish(); }   // an early return in a layer's attention halves
     } stager_stop{m.stager.get()};
     int64_t lm_streamed = 0, lm_resident = 0, lm_groups = 0, lm_supers = 0, lm_groups_f16 = 0;
-    uint64_t lm_bytes = 0;
+    uint64_t lm_bytes = 0, lm_r_up = 0, lm_r_down = 0;
     const int64_t G = m.T * K;   // the MoE buffers' rows (Xq, GU, H, Hq, Dm): a group's most
 
     // ---- one layer's experts over the super-chunk's Sn tokens
@@ -7624,6 +7714,17 @@ bool Prefill::lm_run(const std::vector<Seg>& segs, int depth, const std::vector<
         const std::vector<LmSub>& subs = supers[sci];
         int64_t Sn = 0;
         for (const LmSub& sb : subs) Sn = std::max(Sn, sb.t0 + sb.T);
+        if (LB > 0 && lb.r_dev) {
+            // The preceding stage drained its download before starting this stage, and waits for this run
+            // before overwriting R_host. Only this boundary copy is new; all layer kernels and row groupings stay.
+            const size_t bytes = (size_t) Sn * D * sizeof(float);
+            const cudaError_t e = detail::lm_stage_upload(lb.R, lb.R_host, bytes, m.copy, cs, lb.ev_in[0]);
+            if (e != cudaSuccess) {
+                err = std::string("prefill (layer-major): the resident residual hand-off: ") + cudaGetErrorString(e);
+                return false;
+            }
+            lm_r_up += bytes;
+        }
 #if defined(STRATA_HAVE_DFLASH2)
         // the super-chunk's tapped rows: those at positions >= tap_first_ (the super-chunk's row r is position segs[0].pos0 + subs[0].c0 + r)
         const int64_t super_pos = segs[0].pos0 + subs[0].c0;
@@ -7646,6 +7747,7 @@ bool Prefill::lm_run(const std::vector<Seg>& segs, int depth, const std::vector<
                 cudaMemcpyAsync(r_buf(c), lb.R_host + (size_t) subs[(size_t) c].t0 * D, (size_t) TT * D * 4, cudaMemcpyHostToDevice,
                                 m.copy);
                 cudaEventRecord(lb.ev_in[c & 1], m.copy);
+                lm_r_up += (uint64_t) TT * D * sizeof(float);
             };
             if (!lb.r_dev && l > 0) issue_up(0);
             int64_t qsa_index = 0, gdn_index = 0;
@@ -7752,6 +7854,7 @@ bool Prefill::lm_run(const std::vector<Seg>& segs, int depth, const std::vector<
                         return false;
                     }
                     cudaEventRecord(lb.ev_out[c & 1], m.copy);
+                    lm_r_down += (uint64_t) T * D * sizeof(float);
                     continue;
                 }
                 if (l == LE) {
@@ -8091,6 +8194,7 @@ bool Prefill::lm_run(const std::vector<Seg>& segs, int depth, const std::vector<
                         return false;
                     }
                     cudaEventRecord(lb.ev_out[c & 1], m.copy);
+                    lm_r_down += (uint64_t) T * D * sizeof(float);
                 }
             }
             ms_attn += ms_since(ta);
@@ -8143,6 +8247,9 @@ bool Prefill::lm_run(const std::vector<Seg>& segs, int depth, const std::vector<
                  lb.r_dev ? "VRAM" : "pinned RAM", (long long) lb.free_mib,
                  (long long) lm_streamed, (double) lm_bytes / 1e6, (long long) lm_resident, (long long) lm_groups,
                  (long long) lm_groups_f16, ms_since(t_start), ms_attn, ms_experts, ms_wait_a, ms_host_tables);
+    if (LB > 0 && lb.r_dev)
+        std::fprintf(stderr, "strata prefill: STRATA_LM_SPLIT_R_VRAM=1: layers %lld..%lld residual copies %.1f MB H2D, %.1f MB D2H\n",
+                     (long long) LB, (long long) LE, (double) lm_r_up / 1e6, (double) lm_r_down / 1e6);
     if (pt.on) {
         pt.fold();
         double total = 0.0;

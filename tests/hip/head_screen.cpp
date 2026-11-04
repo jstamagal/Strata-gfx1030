@@ -63,18 +63,19 @@ static void proxy_policy() {
     cudaDeviceProp p{};ck(cudaGetDeviceProperties(&p,0),"policy device");
     const bool gfx1030=std::strncmp(p.gcnArchName,"gfx1030",7)==0&&(p.gcnArchName[7]=='\0'||p.gcnArchName[7]==':');
     set_env("STRATA_MTP_HEAD_PROXY",nullptr);
-    const bool automatic=head_proxy_enabled(8,2560,0);
-    if(automatic!=gfx1030||head_proxy_enabled(13,2560,0)||head_proxy_enabled(14,2560,0)||head_proxy_enabled(8,2304,0))std::abort();
+    const bool automatic=head_proxy_enabled(8,2560,0),automatic6=head_proxy_enabled(14,2560,0);
+    if(automatic!=gfx1030||automatic6!=gfx1030||head_proxy_enabled(13,2560,0)||head_proxy_enabled(8,2304,0)||head_proxy_enabled(14,2304,0))std::abort();
     const size_t owned=head_proxy_reserve_bytes(8,2560,106299,0),borrowed=head_proxy_reserve_bytes(8,2560,106299,0,false);
-    if(owned!=(gfx1030?85176080u:0u)||borrowed!=(gfx1030?132880u:0u)||head_proxy_reserve_bytes(14,2560,106299,0))std::abort();
+    if(owned!=(gfx1030?85176080u:0u)||borrowed!=(gfx1030?132880u:0u)||head_proxy_reserve_bytes(14,2560,106299,0)!=owned||
+       head_proxy_reserve_bytes(14,2560,106299,0,false)!=borrowed)std::abort();
     set_env("STRATA_MTP_HEAD_PROXY","0");
-    if(head_proxy_enabled(8,2560,0)||head_proxy_reserve_bytes(8,2560,106299,0))std::abort();
+    for(int type:{8,13,14})if(head_proxy_enabled(type,2560,0)||head_proxy_reserve_bytes(type,2560,106299,0))std::abort();
     set_env("STRATA_MTP_HEAD_PROXY","1");
     for(int type:{8,13,14})if(!head_proxy_enabled(type,2560,0)||head_proxy_reserve_bytes(type,2560,106299,0)!=85176080u)std::abort();
     if(head_proxy_enabled(23,2560,0)||head_proxy_enabled(8,2304,0))std::abort();
     set_env("STRATA_MTP_HEAD_PROXY","invalid");if(head_proxy_enabled(8,2560,0))std::abort();
     set_env("STRATA_MTP_HEAD_PROXY",had?saved.c_str():nullptr);
-    std::printf("head proxy policy: unset Q8_0=%s Q6_K=off Q5_K=off, owned reserve=%zu shared scratch=%zu bytes; explicit0/1 PASS\n",automatic?"on":"off",owned,borrowed);
+    std::printf("head proxy policy: unset Q8_0=%s Q6_K=%s Q5_K=off, owned reserve=%zu shared scratch=%zu bytes; explicit0/1 PASS\n",automatic?"on":"off",automatic6?"on":"off",owned,borrowed);
 }
 static void policy() {
     SamplerParams p; p.greedy=true;
