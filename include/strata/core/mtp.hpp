@@ -22,6 +22,7 @@
 #include "strata/core/layer.hpp"
 #include "strata/core/pinned_ring.hpp"
 #include "strata/core/draft_cum.hpp"
+#include "strata/core/draft_context.hpp"
 #include "strata/core/session.hpp"
 #include "strata/kernels/sampler.hpp"
 #include "strata/kernels/verify_kernels.hpp"
@@ -112,6 +113,8 @@ public:
     bool bind(const WeightTable& wt, const NativeHead* head, const float* window_R, std::string& err,
               const MtpDrafter* shared = nullptr);
     void set_window_R(const float* window_R) { window_R_ = window_R; }
+    bool begin_context(const int64_t* prompt, int64_t n, std::string& err);
+    void note_context(const int32_t* ids, int n, bool candidates = false) { if (ctx_base_) ctx_rows_.note(ids, n, candidates); }
 
     /// Prompt cells [cell0, cell0 + n): residual rows `R_rows` (device, hc*n_embd each) and `next_tokens` (host,
     /// the token at position cell+1).  Runs in batches of up to max_t rows.  `sync` false: returns without waiting
@@ -345,6 +348,10 @@ private:
     uint8_t* dhead_ = nullptr;
     int32_t* dvocab_ = nullptr;
     int64_t n_dvocab_ = 0;
+    int64_t ctx_base_ = 0;
+    DraftContextRows ctx_rows_;
+    void* ctx_bounce_ = nullptr;
+    bool flush_context(std::string& err);
     std::string rt_dir_;
     int64_t window_ = 0;        // attention over the last window_ cells (0 = every cell)
     int64_t cell_floor_ = 0;    // KVA: no draft cell below this one is read or built (set_cell_floor)

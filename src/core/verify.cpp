@@ -779,7 +779,7 @@ Verifier::~Verifier() {
     if (sp_dev_) cudaFree(sp_dev_);
     if (hcount_d_) cudaFree(hcount_d_);
     void* hosts[] = {h_tok_, h_step_, h_pos_, h_commit_, h_ple_, h_out_, h_x_, h_ids_, h_w_, h_seq_, h_flag_, h_ymiss_,
-                     h_flagA_, h_plan_, h_flagB_, h_plan_err_, h_nf_, h_sp_, herr_h_, hdrop_h_, h_bal_};
+                     h_flagA_, h_plan_, h_flagB_, h_plan_err_, h_nf_, h_sp_, herr_h_, hdrop_h_, h_bal_, h_top_ids_};
     for (void* h : hosts)
         if (h) cudaFreeHost(h);
 }
@@ -993,6 +993,12 @@ bool Verifier::init(const WeightTable& wt, const ModelGeometry& g, SessionState&
               mapped(64, (void**) &h_plan_err_, (void**) &m_plan_err_) &&
               mapped(T * K * N * 4, (void**) &h_ymiss_, (void**) &m_ymiss_);
     if (!ok) { err = "verify: mapped staging allocation failed " + strata::core::pin_exhausted_hint(); return false; }
+#if defined(STRATA_USE_HIP)
+    if (le_ == g.n_layers && env_on("STRATA_DRAFT_CONTEXT") &&
+        !mapped(T * 8 * sizeof(int32_t), (void**) &h_top_ids_, (void**) &m_top_ids_)) {
+        err = "verify: draft candidate staging failed"; return false;
+    }
+#endif
     // DFlash2 taps: set_taps (the drafter) or STRATA_TAP_FILE (the research dump); off, and nothing is allocated or captured, otherwise
     const char* tap_path = std::getenv("STRATA_TAP_FILE");
     if (tap_path != nullptr && tap_path[0] == '\0') tap_path = nullptr;
@@ -3358,6 +3364,7 @@ bool Verifier::capture_commit(std::string& err) {
 
 void Verifier::stage_inputs(int T, const int32_t* tokens, int64_t pos0) {
     using namespace strata::kernels;
+    if (h_top_ids_) std::fill(h_top_ids_, h_top_ids_ + T * 8, -1);
     const ModelGeometry& g = *g_;
     const QsaShapes s = shapes_of(g);
     int32_t* const pk = h_pos_ + (size_t) max_t_ * g.n_head;

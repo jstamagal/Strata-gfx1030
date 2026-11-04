@@ -35,6 +35,15 @@
 #include <vector>
 
 namespace strata::kernels {
+#if defined(STRATA_USE_HIP)
+__global__ void draft_context_mask_kernel(float* logits, int rows, int vocab, const int32_t* ids, int first) {
+    for (int i = first + blockIdx.x * blockDim.x + threadIdx.x; i < vocab; i += gridDim.x * blockDim.x)
+        if (ids[i] < 0) for (int t = 0; t < rows; ++t) logits[(size_t) t * vocab + i] = -INFINITY;
+}
+void draft_context_mask(float* logits, int rows, int vocab, const int32_t* ids, int first, void* stream) {
+    draft_context_mask_kernel<<<4,128,0,(cudaStream_t) stream>>>(logits, rows, vocab, ids, first);
+}
+#endif
 namespace {
 
 // Philox 4x32-10, the counter-based generator the phase asks for.  Counter-based matters because it makes the
@@ -409,6 +418,10 @@ __global__ void sampler_kernel(const float* __restrict__ logits, int n_vocab, in
         for (int i = 0; i < n_keep; ++i)
             if (sel_logit[i] < thresh) { n_keep = i; break; }
     }
+    if (p.top_ids != nullptr && (int) threadIdx.x < p.n_top) {
+        const int i = (int) threadIdx.x;
+        p.top_ids[(size_t) t * p.n_top + i] = i < n_keep ? sel_ids[i] : -1;
+    }
     // temperature only: the penalties were applied once, before the selection (issue #53: they were applied a
     // second time here, after the temperature scaling - llama.cpp's chain has one penalties stage)
     auto scaled = [&](int i) { return sel_logit[i] * inv_t; };
@@ -517,6 +530,8 @@ __device__ void sampled_tail_warp(const int* sel_ids, const float* sel_logit, in
         for (int i = 0; i < n_keep; ++i)
             if (sel_logit[i] < thresh) { n_keep = i; break; }
     }
+    if (p.top_ids != nullptr)
+        for (int i = lane; i < p.n_top; i += 32) p.top_ids[(size_t) t * p.n_top + i] = i < n_keep ? sel_ids[i] : -1;
     // temperature, then one Philox draw
     float smx = sel_logit[0] * inv_t;
     for (int i = 1; i < n_keep; ++i) smx = fmaxf(smx, sel_logit[i] * inv_t);

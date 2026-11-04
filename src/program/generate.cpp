@@ -17589,6 +17589,7 @@ int main(int argc, char** argv) {
             };
             if (use_mtp) {
                 mtp.set_draft_cum(cum_on ? &req_cum : nullptr);
+                if (!mtp.begin_context(ids.data(), (int64_t) ids.size(), err)) { std::printf("ERR %s\n", err.c_str()); return 1; }
             }
             std::array<float, 8> dwin_s{};   // the probabilities the current window was chosen from (STRATA_SPEC_COST)
             // STRATA_SPEC_TRACE=<file> in serve (bench only, off by default): per round "R p T a sfx ms k match | probs | drafts | lookup draft | committed tokens"
@@ -18444,6 +18445,10 @@ int main(int argc, char** argv) {
                         cum_cost();
                         if (!A.sfx && !A.lk) req_cum.observe(A.prob, A.T - 1, a);
                     }
+                    if (!nf) {
+                        mtp.note_context(outp.data(), a + 1);
+                        mtp.note_context(V1(A).top_ids(), (a + 1) * 8, true);
+                    }
                     if (pl_early_chain) {
                         bool e_eos = false;
                         int n_emit = 0;
@@ -19186,6 +19191,10 @@ int main(int argc, char** argv) {
                     if (tp_end == nullptr || !df2.context(tp_end, a + 1, p, err)) { if (adapt_thr.joinable()) adapt_thr.join(); std::printf("ERR %s\n", err.c_str()); return 1; }
                 }
 #endif
+                if (use_mtp) {
+                    mtp.note_context(outv.data(), a + 1);
+                    mtp.note_context(ver.top_ids(), (a + 1) * 8, true);
+                }
                 const GatedDraftLimit draft_limit(mtp, gated_proposal, S_mtp, p + a + 1, o.max_context);
                 const bool drafted = !draft_on || eos || produced_n >= max_new ||
                                      (req_df2 ? ((!merged && defer_df2(a)) || draft_df2(a)) : mtp.draft_long(T, outv.data(), p, a, drafts.data(), err, dprob.data(), (float) req_spec_min_p,
