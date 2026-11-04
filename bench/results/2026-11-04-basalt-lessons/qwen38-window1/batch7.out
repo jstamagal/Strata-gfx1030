@@ -1,0 +1,31 @@
+d_base run1 996 tok 67.1 tok/s drafts 426 / 596
+d_base run2 996 tok 67.1 tok/s drafts 426 / 596
+                 PROFILE, ranked by routing frequency, no eviction.
+d5dcd30186c2
+d5dcd30186c2
+d_cum run1 996 tok 66.3 tok/s drafts 382 / 495
+d_cum run2 996 tok 66.4 tok/s drafts 382 / 495
+                 PROFILE, ranked by routing frequency, no eviction.
+d5dcd30186c2
+d5dcd30186c2
+d_kvside run1 996 tok 67.0 tok/s drafts 426 / 596
+d_kvside run2 996 tok 67.1 tok/s drafts 426 / 596
+                 PROFILE, ranked by routing frequency, no eviction.
+d5dcd30186c2
+d5dcd30186c2
+d_ctx run1 996 tok 67.7 tok/s drafts 428 / 597
+d_ctx run2 996 tok 67.8 tok/s drafts 428 / 597
+                 PROFILE, ranked by routing frequency, no eviction.
+d5dcd30186c2
+d5dcd30186c2
+d_readahead run1 996 tok 68.3 tok/s drafts 426 / 596
+d_readahead run2 996 tok 68.4 tok/s drafts 426 / 596
+                 PROFILE, ranked by routing frequency, no eviction.
+d5dcd30186c2
+d5dcd30186c2
+d_cpuwarm run1 996 tok 67.0 tok/s drafts 426 / 596
+d_cpuwarm run2 996 tok 67.1 tok/s drafts 426 / 596
+                 PROFILE, ranked by routing frequency, no eviction.
+d5dcd30186c2
+d5dcd30186c2
+BATCH DONE

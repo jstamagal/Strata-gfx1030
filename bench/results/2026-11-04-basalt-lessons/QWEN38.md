@@ -35,3 +35,30 @@ With adaptive swaps off, the live config repeats exactly: every essay of every r
 Both kernel switches are bit-exact and make no measurable difference. Adaptive swapping itself is worth about 11%
 (74.4 tok/s mean with it, 67.1 without). Noise on this bench is about 0.2%, so it is the A/B bench for any change
 meant to keep the output identical.
+
+## Agent branches, one switch at a time (window 1)
+
+Each branch's own executable on both sides; frozen placement unless noted; 2 essays per load (3 for the head rows).
+Raw output in `qwen38-window1/`. Baseline on every branch exe: 67.0-67.2 tok/s, md5 d5dcd30186c2.
+
+| branch | switch | tok/s | text | verdict |
+|---|---|---|---|---|
+| head (9dee938b) | proxy auto-on, nothing set | 69.0 / 69.1 / 69.1 | identical | **+2.9%** |
+| head | + `STRATA_HEAD_Q8_SCREEN=1` | 67.8 / 67.9 / 67.9 | **changed** (1134 tokens) | bug: the "certified" screen changed a greedy pick |
+| tier (efef3efb) | `STRATA_STALL_READAHEAD=1` | 68.3 / 68.4 | identical | **+1.9%** |
+| tier | `STRATA_DRAFT_CONTEXT=1` | 67.7 / 67.8 | identical | +0.9% |
+| tier | `STRATA_MTP_KV_SIDE=1` / `STRATA_CPU_EXPERT_WARM=1` | 67.0-67.1 | identical | none |
+| tier | `STRATA_DRAFT_CUM=1` | 66.3 / 66.4 | identical (382/495 drafts) | -1% |
+| gdn (b81da7a9) | `STRATA_VERIFY_INPUT_FUSE`, `STRATA_MTP_KV_BRANCH`, `STRATA_PLE_SIDE_BRANCH` | 67.1-67.2 | identical | none |
+| gdn | `STRATA_MTP_HEAD_PREFETCH=1` | 66.9 / 67.0 | identical | none |
+| gdn | `STRATA_QSA_QUERY_FIRST=1` + `GATE_BLOCKS=0` | 66.7 / 66.8 | identical | -0.6% |
+| gdn | `STRATA_GDN_LAZY_COMMIT=1` | 66.3 / 66.3 | identical | -1.2% |
+| kern (44ae5974) | `STRATA_ROUTE_MASK`, `STRATA_QSA_ROWS4`, `STRATA_TOPK_SUFFIX` | 66.9-67.1 | identical | none at essay length |
+| kern | `STRATA_EMBED_HOT=1` | 67.3 / 67.1 | changed (21 MiB moves residency) | none |
+| kern | `STRATA_SAMPLER_ONCE=1`, seeded sampling (temp 0.7, top-k 20) | 64.2 / 64.3 vs 64.2 / 64.3 | identical | none |
+| kern | 36K prompt + 400 tokens: base / `QSA_ROWS4` / `TOPK_SUFFIX` | 80.9 / 80.9 / 80.9 gen | identical | none at 36K |
+
+rocBLAS table regenerated for the running build 5.8.0.565c4c74 (the repo had only 3d8f334b, so the prompt GEMMs ran
+rocBLAS defaults), live config, ~36K prompt, two interleaved loads per side: defaults 1331.3 / 1341.1 and 1331.7 / 1340.1,
+new table 1338.7 / 1345.5 and 1338.7 / 1345.4 prompt tok/s: +0.4%. The z GEMM is 1.32x faster alone but overlaps the GDN
+recurrence, which stays the tail.

@@ -1,0 +1,17 @@
+r_base run1 prompt 36411 1331.3 tok/s 27.35 s; gen 32 76.9 tok/s drafts 14 / 16
+76da9abb6cf2
+r_base run2 prompt 36411 1341.1 tok/s 27.15 s; gen 32 77.3 tok/s drafts 14 / 16
+76da9abb6cf2
+r_new run1 prompt 36411 1338.7 tok/s 27.2 s; gen 32 69.3 tok/s drafts 11 / 15
+618a75facdcb
+r_new run2 prompt 36411 1345.5 tok/s 27.06 s; gen 32 69.7 tok/s drafts 11 / 12
+618a75facdcb
+r_base2 run1 prompt 36411 1331.7 tok/s 27.34 s; gen 32 77.3 tok/s drafts 14 / 16
+76da9abb6cf2
+r_base2 run2 prompt 36411 1340.1 tok/s 27.17 s; gen 32 77.5 tok/s drafts 14 / 16
+76da9abb6cf2
+r_new2 run1 prompt 36411 1338.7 tok/s 27.2 s; gen 32 69.3 tok/s drafts 11 / 15
+618a75facdcb
+r_new2 run2 prompt 36411 1345.4 tok/s 27.06 s; gen 32 69.8 tok/s drafts 11 / 12
+618a75facdcb
+BATCH DONE

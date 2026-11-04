@@ -1,0 +1,42 @@
+k_base run1 996 tok 67.0 tok/s drafts 426 / 596
+k_base run2 996 tok 67.1 tok/s drafts 426 / 596
+                 PROFILE, ranked by routing frequency, no eviction.
+d5dcd30186c2
+d5dcd30186c2
+k_route run1 996 tok 67.0 tok/s drafts 426 / 596
+k_route run2 996 tok 67.1 tok/s drafts 426 / 596
+                 PROFILE, ranked by routing frequency, no eviction.
+d5dcd30186c2
+d5dcd30186c2
+k_qsa run1 996 tok 67.0 tok/s drafts 426 / 596
+k_qsa run2 996 tok 67.1 tok/s drafts 426 / 596
+                 PROFILE, ranked by routing frequency, no eviction.
+d5dcd30186c2
+d5dcd30186c2
+k_topk run1 996 tok 66.9 tok/s drafts 426 / 596
+k_topk run2 996 tok 67.1 tok/s drafts 426 / 596
+                 PROFILE, ranked by routing frequency, no eviction.
+d5dcd30186c2
+d5dcd30186c2
+k_embed run1 1069 tok 67.3 tok/s drafts 445 / 646
+k_embed run2 1069 tok 67.1 tok/s drafts 445 / 646
+                 PROFILE, ranked by routing frequency, no eviction.
+beae113c40ef
+beae113c40ef
+k_samp_base run1 1157 tok 64.2 tok/s drafts 474 / 679
+k_samp_base run2 1157 tok 64.3 tok/s drafts 474 / 679
+                 PROFILE, ranked by routing frequency, no eviction.
+484287d5bf5a
+484287d5bf5a
+k_samp_once run1 1157 tok 64.2 tok/s drafts 474 / 680
+k_samp_once run2 1157 tok 64.3 tok/s drafts 474 / 679
+                 PROFILE, ranked by routing frequency, no eviction.
+484287d5bf5a
+484287d5bf5a
+k_long_base run1 prompt 36411 1331.1 tok/s 27.35 s; gen 400 80.9 tok/s drafts 184 / 246
+5f6f9eae3189
+k_long_qsa run1 prompt 36411 1331.5 tok/s 27.35 s; gen 400 80.9 tok/s drafts 184 / 246
+5f6f9eae3189
+k_long_topk run1 prompt 36411 1331.3 tok/s 27.35 s; gen 400 80.9 tok/s drafts 184 / 246
+5f6f9eae3189
+BATCH DONE

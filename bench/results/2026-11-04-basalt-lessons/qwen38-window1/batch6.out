@@ -1,0 +1,41 @@
+g_base run1 996 tok 67.1 tok/s drafts 426 / 596
+g_base run2 996 tok 67.2 tok/s drafts 426 / 596
+                 PROFILE, ranked by routing frequency, no eviction.
+d5dcd30186c2
+d5dcd30186c2
+g_lazy run1 996 tok 66.3 tok/s drafts 426 / 596
+g_lazy run2 996 tok 66.3 tok/s drafts 426 / 596
+                 PROFILE, ranked by routing frequency, no eviction.
+d5dcd30186c2
+d5dcd30186c2
+g_vfuse run1 996 tok 67.1 tok/s drafts 426 / 596
+g_vfuse run2 996 tok 67.1 tok/s drafts 426 / 596
+                 PROFILE, ranked by routing frequency, no eviction.
+d5dcd30186c2
+d5dcd30186c2
+g_mtpkv run1 996 tok 67.1 tok/s drafts 426 / 596
+g_mtpkv run2 996 tok 67.2 tok/s drafts 426 / 596
+                 PROFILE, ranked by routing frequency, no eviction.
+d5dcd30186c2
+d5dcd30186c2
+g_qsaqf run1 996 tok 66.7 tok/s drafts 426 / 596
+g_qsaqf run2 996 tok 66.8 tok/s drafts 426 / 596
+                 PROFILE, ranked by routing frequency, no eviction.
+d5dcd30186c2
+d5dcd30186c2
+g_ple run1 996 tok 67.2 tok/s drafts 426 / 596
+g_ple run2 996 tok 67.2 tok/s drafts 426 / 596
+                 PROFILE, ranked by routing frequency, no eviction.
+d5dcd30186c2
+d5dcd30186c2
+g_hpref run1 996 tok 66.9 tok/s drafts 426 / 596
+g_hpref run2 996 tok 67.0 tok/s drafts 426 / 596
+                 PROFILE, ranked by routing frequency, no eviction.
+d5dcd30186c2
+d5dcd30186c2
+g_base2 run1 996 tok 67.1 tok/s drafts 426 / 596
+g_base2 run2 996 tok 67.2 tok/s drafts 426 / 596
+                 PROFILE, ranked by routing frequency, no eviction.
+d5dcd30186c2
+d5dcd30186c2
+BATCH DONE

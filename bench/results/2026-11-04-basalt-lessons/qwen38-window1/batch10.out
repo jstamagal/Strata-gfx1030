@@ -1,0 +1,24 @@
+a_auto run1 996 tok 69.0 tok/s drafts 426 / 600
+a_auto run2 996 tok 69.1 tok/s drafts 426 / 600
+a_auto run3 996 tok 69.1 tok/s drafts 426 / 600
+                 PROFILE, ranked by routing frequency, no eviction.
+d5dcd30186c2
+d5dcd30186c2
+d5dcd30186c2
+a_q8 run1 1134 tok 67.8 tok/s drafts 490 / 698
+a_q8 run2 1134 tok 67.9 tok/s drafts 490 / 698
+a_q8 run3 1134 tok 67.9 tok/s drafts 490 / 698
+                 PROFILE, ranked by routing frequency, no eviction.
+17d89f4ce465
+17d89f4ce465
+17d89f4ce465
+a_off run1 996 tok 67.0 tok/s drafts 426 / 596
+a_off run2 996 tok 67.1 tok/s drafts 426 / 596
+a_off run3 996 tok 67.1 tok/s drafts 426 / 596
+                 PROFILE, ranked by routing frequency, no eviction.
+d5dcd30186c2
+d5dcd30186c2
+d5dcd30186c2
+strata generate: expert cache auto: 28.86 GiB free, 700 MiB reserved (+0 MiB for the draft head, +256 MiB for what is allocated after the cache) -> 7036 slots
+strata mtp: fitted 2-bit head over 106299 rows (auto gfx1030 Q8_0) (85176080 bytes); draft picks and tail probabilities may change; STRATA_MTP_HEAD_PROXY=0 disables
+BATCH DONE
