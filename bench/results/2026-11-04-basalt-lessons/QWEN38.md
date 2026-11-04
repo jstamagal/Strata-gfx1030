@@ -496,7 +496,7 @@ the likely wait. Window STALL (started 15:39) captures the host side.
 Queue bug, fixed: when a window failed, queue-lib's EXIT trap wrote the FAILED marker into the batch log instead of
 window<N>.out. Window 17 waited on it from 15:31 to 15:39. The trap now tees the marker into the window log.
 
-## Swarm intake, 15:50 (docs/swarm/reports: titus, nyira, ziz)
+## Swarm intake, 15:45 (docs/swarm/reports: titus, nyira, ziz)
 
 Taken:
 - **Row economics** (titus): window 18 gains arms for `--spec-min-p 0.40` and `STRATA_SPEC_COST=1`, which has
@@ -520,3 +520,24 @@ Checked and corrected:
   flight 82% of the time on agent and 97% on edits; card 1 65% / 81%, plus the MTP chain on card 1. These are upper
   bounds from host-side intervals. The cards are not "half idle"; depth 3 is low priority.
 - **titus**: the stalls are ~2-4% of mean time, a tail problem, not the throughput lever. Agreed.
+
+**Verify-tree decider** (offline, mtpq agent; `strata-q38-mtpq/bench/results/2026-11-04-mtpq/offline/top2-verify-tree.txt`).
+Setup: held-out agent B, 4473 prefix-correct drafter steps. The live S2 drafter rejects its top-1 on 782 of them,
+and 112 of those rejections are tokens outside the draft vocab.
+
+| when top-1 is rejected | P(drafter top-2 = verifier token) |
+|---|---|
+| all rejections | 0.42 (0.49 counting only in-vocab targets) |
+| top-1 p < 0.4 | 0.23 |
+| top-1 p 0.4-0.7 | 0.45 (top-2 holds 0.26 of the probability) |
+| top-1 p >= 0.7 | 0.48 |
+| edits (thin data, 54 rejections) | 0.28 |
+
+BF16 experts give the same rates, so the tree doesn't depend on the drafter weights. It clears the 0.2 kill line.
+
+Economics (inference): per-step acceptance ~0.83, so a 3-draft chain rejects somewhere in ~44% of windows. A sibling
+at every depth adds ~0.18 tokens per window for ~3 extra rows. At this box's row cost (8 rows 18.0 ms, 16 rows
+33.2 ms) that is about break-even, before the cost of GDN branch state. The cheap form that could pay is a
+**leaf fork**: where the min-p gate would stop the chain (top-1 p 0.4-0.7), verify top-1 and top-2 as two candidates
+for the last row. That costs +1 row, raises the chance the last row is accepted from ~0.55 to ~0.75, and needs only a
+one-level GDN fork plus a QSA mask change. Ranked below GDN snapshot removal and the stall fix.
