@@ -117,3 +117,45 @@ q4_0-selq4 (`--draft dflash2 --draft-conf 0.35 --spec 6`), 106,299-id draft voca
 
 Serial DFlash2 ties serial MTP on prose; pipeline windows are worth +8.4% to MTP, so DFlash2 needs its pipelined
 version to compete. Code and tool-call prompts not measured yet.
+
+## Prompt split x chunk, all three packs (windows 4-5)
+
+36K-token prompt (unique first line per run, no prefix reuse), then 300 generated tokens at that context; live
+adaptive config; 2 runs per load. Card 0 = PCIe 4.0 x8, card 1 = x4. Raw output in `qwen38-window5/` (and
+`qwen38-window4/`).
+
+Why chunk size matters: with `STRATA_SPLIT_OWN=1` the engine replaces `--prefill auto:16384` with 2048-token chunks
+at startup (source: no-borrow fallback), and `STRATA_PREFILL_PIPE=283` can only lower that. Routed experts that are
+not resident are streamed again for every chunk, so 4096-token chunks halve the streaming passes (18 -> 9 at 36K)
+despite ~450 fewer cached experts per card. A cap of 8192 plans 3328-token chunks at 36K (planner hysteresis), so the
+8192 rows are not a clean bigger-chunk test.
+
+UD-Q4_K_XL (build-hip = main 11db64ca4 unless noted):
+
+| split (card 0 layers) | chunks | prompt tok/s | gen tok/s |
+|---|---|---|---|
+| 24 | auto (=2048) | 1331 / 1340 | 78.0 / 80.8 |
+| 26 | auto (=2048) | 1691 / 1708 | 80.3 / 85.3 |
+| 26 | 2048 | 1699 / 1708 | 74.0 / 85.1 |
+| **26** | **4096** | **2012 / 2017** | 74.9 / 84.4 |
+| 26 | 8192 (plans 3328) | 1552 / 1557 | 74.0 / 79.6 |
+| 25 | 4096 | 1837 / 1846 | 76.5 / 78.1 |
+| 27 | auto / 4096 | 1630 / 1645 ; 1959 / 1962 | 83 / 84 ; 80.6 / 80.2 |
+| 28 | auto / 4096 / 8192 | 1497 / 1500 ; 1838 / 1846 ; 1532 / 1530 | 78-82 |
+| 29 / 30 | auto | 1392 / 1392 ; 1296 / 1297 | 75-84 |
+
+sc117 IQ3_S: split 25 auto (its config) 2695 / 2453; 26 + 4096 2638 / 2650; 27 + 4096 2559 / 2577; 28 + 4096
+2458 / 2468 prompt tok/s; gen 73-103 (noisy). Split 24/25 with 4096 not yet measured.
+
+bartowski Swift Q4_0: split 26 auto (its config) 2155 / 2180; **26 + 4096 2382 / 2395 (+10%)**; 27 + 4096
+2263 / 2275; 28 + 4096 2110 / 2115 prompt tok/s.
+
+Configs changed: UD-Q4_K_XL split 24 -> 26 and prefill 4096 (2014 vs 1335 this morning, +51%); Swift Q4_0 prefill
+4096. IQ3_S waits for the 24/25 x 4096 points.
+
+## Draft-head proxy on a Q6_K head, reservation fix (window 5)
+
+- sc117 IQ3_S, frozen placement, 2 essays: proxy off 95.7 / 95.9, `STRATA_MTP_HEAD_PROXY=1` 98.4 / 98.5 tok/s
+  (+2.8%), md5 396d660784f5 both. Auto-enable only covers Q8_0 heads, so IQ3_S and Q4_0 configs now set it.
+- Corrected reservation fix (d545c8753, proxy bytes only): card 1 8444 -> 8417 slots (-27), frozen text changes
+  (placement), 68.4 / 68.4 tok/s. Merged to main as d8c196e42.

@@ -1,0 +1,28 @@
+x24 run1 prompt 36411 1330.8 tok/s 27.36 s; gen 300 78.0 tok/s drafts 135 / 189
+8e31fcba0093
+x24 run2 prompt 36411 1340.1 tok/s 27.17 s; gen 300 80.8 tok/s drafts 136 / 176
+691200d1d11a
+x26 run1 prompt 36411 1690.9 tok/s 21.53 s; gen 300 80.3 tok/s drafts 138 / 192
+5f09c1054107
+x26 run2 prompt 36411 1708.4 tok/s 21.31 s; gen 300 85.3 tok/s drafts 144 / 184
+2e603fa6f9d4
+x27 run1 prompt 36411 1629.5 tok/s 22.34 s; gen 300 83.4 tok/s drafts 148 / 178
+0d2fe1a6f17d
+x27 run2 prompt 36411 1644.7 tok/s 22.14 s; gen 300 84.2 tok/s drafts 144 / 184
+52b80f8103b4
+x28 run1 prompt 36411 1497.3 tok/s 24.32 s; gen 300 78.7 tok/s drafts 136 / 186
+e06fcba5f7dd
+x28 run2 prompt 36411 1500.5 tok/s 24.27 s; gen 300 77.8 tok/s drafts 133 / 169
+27f31d03dc06
+x29 run1 prompt 36411 1392.3 tok/s 26.15 s; gen 300 74.8 tok/s drafts 133 / 179
+8cadcefb7553
+x29 run2 prompt 36411 1391.6 tok/s 26.17 s; gen 300 83.6 tok/s drafts 143 / 195
+cc89ec8a605d
+x30 run1 prompt 36411 1296.4 tok/s 28.09 s; gen 300 81.3 tok/s drafts 145 / 180
+7c788223d36d
+x30 run2 prompt 36411 1296.7 tok/s 28.08 s; gen 300 82.0 tok/s drafts 144 / 185
+0c36d5ad78a5
+x28p4k run1 prompt 36411 1838.0 tok/s 19.81 s; gen 300 79.4 tok/s drafts 141 / 183
+2c192da5e664
+x28p4k run2 prompt 36411 1846.2 tok/s 19.72 s; gen 300 81.6 tok/s drafts 138 / 177
+62fd81f63d1c

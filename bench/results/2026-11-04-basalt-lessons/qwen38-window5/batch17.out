@@ -1,0 +1,91 @@
+y26p4096 run1 prompt 36411 2011.5 tok/s 18.1 s; gen 300 74.9 tok/s drafts 132 / 182
+a719da88ea02
+y26p4096 run2 prompt 36411 2016.9 tok/s 18.05 s; gen 300 84.4 tok/s drafts 140 / 173
+1b0d9f2a10ee
+y26p2048 run1 prompt 36411 1699.3 tok/s 21.43 s; gen 300 74.0 tok/s drafts 129 / 184
+cab6ae55873b
+y26p2048 run2 prompt 36411 1708.2 tok/s 21.32 s; gen 300 85.1 tok/s drafts 146 / 193
+2e54302a1f9e
+y26p8192 run1 prompt 36411 1552.1 tok/s 23.46 s; gen 300 74.0 tok/s drafts 140 / 185
+cfe90afca99c
+y26p8192 run2 prompt 36411 1556.9 tok/s 23.39 s; gen 300 79.6 tok/s drafts 143 / 199
+e4830ea0b68a
+y25p4096 run1 prompt 36411 1836.5 tok/s 19.83 s; gen 300 76.5 tok/s drafts 139 / 187
+cfe90afca99c
+y25p4096 run2 prompt 36411 1845.9 tok/s 19.73 s; gen 300 78.1 tok/s drafts 132 / 185
+8e31fcba0093
+y27p4096 run1 prompt 36411 1959.3 tok/s 18.58 s; gen 300 80.6 tok/s drafts 145 / 189
+e500d21997fc
+y27p4096 run2 prompt 36411 1962.0 tok/s 18.56 s; gen 300 80.2 tok/s drafts 137 / 179
+0fd2f341e44f
+y28p8192 run1 prompt 36411 1532.2 tok/s 23.76 s; gen 300 72.0 tok/s drafts 140 / 183
+cfe90afca99c
+y28p8192 run2 prompt 36411 1530.4 tok/s 23.79 s; gen 300 76.8 tok/s drafts 140 / 190
+1a0f49322534
+iq25 run1 prompt 36411 2694.9 tok/s 13.51 s; gen 300 93.5 tok/s drafts 127 / 203
+642fc8c96166
+iq25 run2 prompt 36411 2453.4 tok/s 14.84 s; gen 300 102.6 tok/s drafts 139 / 193
+1d4706a6b837
+iq26p4k run1 prompt 36411 2638.4 tok/s 13.8 s; gen 300 85.7 tok/s drafts 122 / 206
+18ccbcd6ce72
+iq26p4k run2 prompt 36411 2649.7 tok/s 13.74 s; gen 300 95.2 tok/s drafts 130 / 192
+70e2a7ee8396
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import json; t=json.load(open('/tmp/basalt-prof/ab/iq27p4k/long1.json'))['timings']; print('iq27p4k run1 prompt', t['prompt_n'], round(t['prompt_per_second'],1), 'tok/s', round(t['prompt_ms']/1000,2), 's; gen', t['predicted_n'], round(t['predicted_per_second'],1), 'tok/s drafts', t.get('draft_n_accepted'), '/', t.get('draft_n'))
+                   ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/json/__init__.py", line 298, in load
+    return loads(fp.read(),
+        cls=cls, object_hook=object_hook,
+        parse_float=parse_float, parse_int=parse_int,
+        parse_constant=parse_constant, object_pairs_hook=object_pairs_hook, **kw)
+  File "/usr/lib/python3.14/json/__init__.py", line 352, in loads
+    return _default_decoder.decode(s)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^
+  File "/usr/lib/python3.14/json/decoder.py", line 345, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/json/decoder.py", line 363, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import json; print(json.load(open('/tmp/basalt-prof/ab/iq27p4k/long1.json'))['choices'][0]['message']['content'])
+                       ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/json/__init__.py", line 298, in load
+    return loads(fp.read(),
+        cls=cls, object_hook=object_hook,
+        parse_float=parse_float, parse_int=parse_int,
+        parse_constant=parse_constant, object_pairs_hook=object_pairs_hook, **kw)
+  File "/usr/lib/python3.14/json/__init__.py", line 352, in loads
+    return _default_decoder.decode(s)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^
+  File "/usr/lib/python3.14/json/decoder.py", line 345, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/json/decoder.py", line 363, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+d41d8cd98f00
+iq27p4k run2 prompt 36411 2577.1 tok/s 14.13 s; gen 300 72.9 tok/s drafts 132 / 180
+36ddb4f24b19
+iq28p4k run1 prompt 36411 2457.6 tok/s 14.82 s; gen 300 90.3 tok/s drafts 129 / 185
+3ed4f992a524
+iq28p4k run2 prompt 36411 2467.9 tok/s 14.75 s; gen 300 95.6 tok/s drafts 135 / 195
+9e7f4e3c8318
+q426 run1 prompt 36411 2154.8 tok/s 16.9 s; gen 300 86.7 tok/s drafts 126 / 176
+7f8e3d00f6a7
+q426 run2 prompt 36411 2180.0 tok/s 16.7 s; gen 300 92.1 tok/s drafts 136 / 169
+1d326c944a2b
+q426p4k run1 prompt 36411 2382.1 tok/s 15.29 s; gen 300 90.3 tok/s drafts 133 / 166
+2c9db719552f
+q426p4k run2 prompt 36411 2395.4 tok/s 15.2 s; gen 300 54.3 tok/s drafts 134 / 166
+20dc88cad6ab
+q427p4k run1 prompt 36411 2262.7 tok/s 16.09 s; gen 300 85.0 tok/s drafts 128 / 161
+8490a81b3e22
+q427p4k run2 prompt 36411 2274.7 tok/s 16.01 s; gen 300 90.8 tok/s drafts 137 / 167
+b2b5637ce94f
+q428p4k run1 prompt 36411 2109.9 tok/s 17.26 s; gen 300 80.5 tok/s drafts 119 / 163
+68606aae9743
+q428p4k run2 prompt 36411 2114.6 tok/s 17.22 s; gen 300 92.8 tok/s drafts 135 / 164
+a3d213fddb61

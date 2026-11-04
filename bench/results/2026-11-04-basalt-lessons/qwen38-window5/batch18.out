@@ -1,0 +1,15 @@
+r_fix run1 1089 tok 68.4 tok/s drafts 458 / 671
+r_fix run2 1089 tok 68.4 tok/s drafts 458 / 671
+                 PROFILE, ranked by routing frequency, no eviction.
+2e555ab04f71
+2e555ab04f71
+i3_base run1 1106 tok 95.7 tok/s drafts 458 / 633
+i3_base run2 1106 tok 95.9 tok/s drafts 458 / 633
+                 PROFILE, ranked by routing frequency, no eviction.
+396d660784f5
+396d660784f5
+i3_proxy run1 1106 tok 98.4 tok/s drafts 460 / 641
+i3_proxy run2 1106 tok 98.5 tok/s drafts 460 / 641
+                 PROFILE, ranked by routing frequency, no eviction.
+396d660784f5
+396d660784f5
