@@ -1,0 +1,35 @@
+w9_df2_s7c035 code_async_batcher              1200 tok   66.5 tok/s drafts 773/1429 f10d686db52a
+w9_df2_s7c035 code_rust_committed_ring        1200 tok  104.5 tok/s drafts 847/1322 b217dab0a3bb
+w9_df2_s7c035 code_typescript_tool_dispatch   1200 tok  114.5 tok/s drafts 876/1274 56a077215859
+w9_df2_s7c035 json_multi_tool_result_merge    1200 tok   97.7 tok/s drafts 814/1233 9b9c2953cbf6
+w9_df2_s7c035 json_parallel_tool_plan         1200 tok  123.5 tok/s drafts 869/1054 8f2e9fdb22ea
+w9_df2_s7c035 json_patch_tool_payload         1200 tok   81.2 tok/s drafts 743/1441 cbed42240a7a
+w9_df2_s7c035 TOTAL 7200 tok 93.8 tok/s
+w9_df2_s8c035 code_async_batcher              1200 tok   85.5 tok/s drafts 800/1503 9488640fe5e8
+w9_df2_s8c035 code_rust_committed_ring        1200 tok   91.6 tok/s drafts 832/1398 bd8c328db458
+w9_df2_s8c035 code_typescript_tool_dispatch   1200 tok  107.9 tok/s drafts 914/1331 d819771b7ac5
+w9_df2_s8c035 json_multi_tool_result_merge    1200 tok   96.3 tok/s drafts 865/1290 2b3fee9232e3
+w9_df2_s8c035 json_parallel_tool_plan         1200 tok  116.2 tok/s drafts 961/1207 e3dbcb545bf6
+w9_df2_s8c035 json_patch_tool_payload         1200 tok   78.3 tok/s drafts 751/1506 595713daa9e8
+w9_df2_s8c035 TOTAL 7200 tok 94.3 tok/s
+w9_df2_s8c020 code_async_batcher              1200 tok   79.0 tok/s drafts 822/1848 7ff38b5b9cad
+w9_df2_s8c020 code_rust_committed_ring        1200 tok  101.6 tok/s drafts 933/1541 59cbcf642ed6
+w9_df2_s8c020 code_typescript_tool_dispatch   1200 tok  104.7 tok/s drafts 937/1540 c0189372e91c
+w9_df2_s8c020 json_multi_tool_result_merge    1200 tok   90.5 tok/s drafts 883/1502 e4193fdff7db
+w9_df2_s8c020 json_parallel_tool_plan         1200 tok  115.9 tok/s drafts 969/1270 48bde9bcfb36
+w9_df2_s8c020 json_patch_tool_payload         1200 tok   92.7 tok/s drafts 886/1628 93d211c834b4
+w9_df2_s8c020 TOTAL 7200 tok 96.0 tok/s
+w9_df2_s8c001 code_async_batcher              1200 tok   67.4 tok/s drafts 821/2608 2abb36e5c300
+w9_df2_s8c001 code_rust_committed_ring        1200 tok   78.8 tok/s drafts 877/2232 c88fd6f978fe
+w9_df2_s8c001 code_typescript_tool_dispatch   1200 tok   99.2 tok/s drafts 944/1776 882e8afa8fd7
+w9_df2_s8c001 json_multi_tool_result_merge    1200 tok   71.7 tok/s drafts 871/2217 0699c5223deb
+w9_df2_s8c001 json_parallel_tool_plan         1200 tok  117.0 tok/s drafts 960/1646 3c362774ad51
+w9_df2_s8c001 json_patch_tool_payload         1200 tok   65.9 tok/s drafts 809/2681 266030a2f2f7
+w9_df2_s8c001 TOTAL 7200 tok 79.7 tok/s
+w9_mtp_pw code_async_batcher              1200 tok  100.5 tok/s drafts 663/837 144dd732ffe1
+w9_mtp_pw code_rust_committed_ring        1200 tok  109.3 tok/s drafts 666/800 ed2a0096d323
+w9_mtp_pw code_typescript_tool_dispatch   1200 tok  122.6 tok/s drafts 725/817 fd080bb3f8c7
+w9_mtp_pw json_multi_tool_result_merge    1200 tok  106.6 tok/s drafts 687/838 6fc43e9d51c4
+w9_mtp_pw json_parallel_tool_plan         1200 tok  142.6 tok/s drafts 828/965 9996045716fa
+w9_mtp_pw json_patch_tool_payload         1200 tok  110.0 tok/s drafts 725/919 5846479cf2e1
+w9_mtp_pw TOTAL 7200 tok 113.8 tok/s

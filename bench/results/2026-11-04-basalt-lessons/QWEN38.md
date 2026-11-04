@@ -232,3 +232,25 @@ No effect: not adopted.
 
 UD4 at 120K: 8192 reads +7.6% faster (54.7 vs 58.8 s) but costs ~910 cache slots per card and decodes 8% slower after it;
 4096 stays (a full 120K re-read is rare with the prompt cache, decode is every token). IQ3_S: 4096 beats 8192 on both.
+
+## Window 9: DFlash2 at the full block (7 guesses), confidence sweep, whole-block acceptance
+
+Raw: `qwen38-window9/` (cfg.json, xz pipeline traces). Agent workload (6 code / tool-JSON prompts, greedy, 7,200 tokens),
+UD4, DF2 exe strata-q38-dflash2 b3097181374b, pipelined, every arm incl. the MTP control with STRATA_PIPELINE_DEBUG=1 and
+a pipeline trace (the trace costs ~4%: MTP 113.8 here vs 118.4 untraced). Before this window, the harness's ARG edits
+did not reach user_args, so --draft-conf would have stayed at 0.35. Fixed first.
+
+`--spec 8` = 8 verify rows = anchor + 7 guesses = the drafter's trained block (incoai config: block_size 8).
+Full accept = a window whose T-1 drafts were all accepted.
+
+| arm | tok/s | windows | full accept | full accept at T=8 | mean accepted drafts |
+|---|---|---|---|---|---|
+| DF2 spec 7, conf .35 | 93.8 | 2284 | 33.5% | 23% | 2.16 |
+| DF2 spec 8, conf .35 | 94.3 | 2083 | 34.8% | 50% | 2.46 |
+| DF2 spec 8, conf .20 | 96.0 | 1775 | 29.0% | 42% | 3.07 |
+| DF2 spec 8, conf .01 | 79.7 | 1923 | 16.9% | 17% | 2.75 |
+| MTP pipelined (control) | 113.8 | 2914 | 64.9% (T=3: 84%) | lookup windows 49% | 1.48 |
+
+Full-width DFlash2 doesn't open up here: best 96.0 vs MTP 113.8 (-16%). DFlash2 + MTP chain: at 3.00 tokens per 29.46 ms
+cycle, beating MTP needs whole-block acceptance >= 61-64% with one MTP step, or >= 36-40% with two, even with free
+verification. Measured 29-35% overall. Not built.
