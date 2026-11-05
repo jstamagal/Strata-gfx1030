@@ -1866,3 +1866,27 @@ Branch basalt38/bimodal a84e09112, compile-only:
 - Next: a robust mode that clips stall samples, then window BIMODAL (main / unset / fixed / clip, agent x3
   mirrored + edit24).
 - If a pinned policy holds the fast schedule, it is worth about +2% agent on every load that would have gone slow.
+
+## Window MIX: mixed target packs trade quality for speed; nothing is free (08:14-10:05)
+
+Same main binary and live config throughout; only the target's files change. Both live loads landed in the fast
+state (hit/miss 1896/998), so the speed numbers are clean. Quality is forced-text KL against unsloth UD-Q4_K_XL (ud4).
+
+| target | agent | edit | 36K | free MiB c0/c1 | KL all | agent-reply KL | code argmax / KL |
+|---|---|---|---|---|---|---|---|
+| live IQ3_S | 151.6 | 314.2 | 2704 | 2182/1712 | 0.0942 | 0.0135 | 79.1% / 0.294 |
+| iq3xxs | +3.6% | +3.0% | -1.9% | +4752/+2662 | 0.1549 | 0.0221 | 74.5% / 0.502 |
+| iq2xs | +5.5% | +9.6% | -9.7% | +6440/+8184 | 0.1687 | 0.0382 | 71.7% / 0.560 |
+| mixa (IQ2_XS + IQ4_NL downs + IQ1_M lift) | +5.1% | +4.6% | 0.0% | +2226/+3130 | 0.1547 | 0.0250 | 63.6% / 0.866 |
+| mixb (lowest-error gate+up per layer) | +1.5% | +2.0% | +0.8% | -538/-520 | 0.1112 | 0.0167 | 70.5% / 0.532 |
+| mixc (mixb + IQ3_S head) | +1.5% | +2.0% | +0.2% | -538/-760 | 0.1103 | 0.0137 | 69.2% / 0.566 |
+| mixd (IQ3_S dense + head, IQ2_XS experts) | quality only | | | | 0.1663 | 0.0319 | 75.5% / 0.460 |
+
+- **mixc** keeps live quality on agent replies (KL 0.0137 vs 0.0135) for +1.5% agent / +2.0% edit.
+  - The 10-06 code rows drop 79% -> 69% argmax.
+  - Card 1 is left with 952 MiB free, too little for the bundle's +998 MiB (q4n + int8 HC).
+- **mixa** is the fast pick (+5.1% agent, 36K flat) but has the worst code quality of all (63.6% / 0.866).
+- **mixp:** lifting IQ2_XS's three IQ1_M gate/up layers recovers its 36K loss (run 2 2678 vs 2443 tok/s). IQ1_M has
+  no HIP MMQ/prompt tile.
+- **mixd:** the IQ2_XS experts carry most of the quality cost; the dense and head layers matter little.
+- Verdict: **a weights trade, KING's call; no switch made.** Every mix costs code-row quality.
