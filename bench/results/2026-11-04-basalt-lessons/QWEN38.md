@@ -1546,7 +1546,7 @@ At T=8 the int8 up kernel is no faster: 40.8 us, 90 GB/s.
 
 ## Window XXS: smaller targets, speed vs quality on one binary (02:42-04:15; mtpq lane, staging/78-windowxxs.sh)
 
-**CORRECTION (04:2x, mtpq lane, tensor hashes + GGUF general.name, checked by the coordinator):** the targets are not
+**CORRECTION (04:25, mtpq lane, tensor hashes + GGUF general.name, checked by the coordinator):** the targets are not
 one model at three quants.
 - The live IQ3_S (Strata-data/models/swift-abl-IQ3_S; the directory name misleads) is SC117's abliterated **Qwen3.8-Flash-Next
   GSQ-RCO** (ISTA-DASLab), general.name "Qwen3.8-Flash-Next GSQ-RCO".
