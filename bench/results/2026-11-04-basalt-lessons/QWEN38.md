@@ -1053,3 +1053,12 @@ and its capture are appended to insert 54.
 - s2gptq's agent acceptance moved between passes on 2 cases with identical text (696 / 688, 748 / 746); live and iq2g
   repeated exactly. Inference: in the pipelined engine, acceptance can depend on timing (a chain that lands late, or
   falls below the gate, changes which drafts get verified), so "acceptance is deterministic" holds only to ~0.1%.
+
+## Window NTV: mtp/native-experts engine parity HOLDS (19:16-19:23)
+
+Branch mtp/native-experts 31398223c built in the slot (binary 0bf25b59; 11/11 ctests, mtp_experts_parity included).
+(a) On live rt the branch equals main's binary case for case, agent 6/6 and edit 3/3 (text md5, draft_n, accepted).
+(b) q38-native-iq2xxs-gptq-a loads as `native, 0 S2 Q2_0 + 512 native (ggml types gate/up 16, down 42), 637.5 MiB`,
+text equals live 9/9, and draft counts equal the mtpq worktree binary's mtpqi_iq2g runs 9/9. Gates OK on all six
+runs; one 1343 ms gap (ntv_br_live_edit). The branch is merge-ready, but it only matters once a native-format drafter
+is adopted. Not merged yet: AB3 runs on the branch binary and decides that.
