@@ -1683,3 +1683,23 @@ one stage or 1.65 ms on both). My arithmetic, over the window's pooled time:
 - The live agent share (36%) came in under the offline 41%, so the ceiling dropped from the offline +4% / +1.7%.
 - A tree verifier with forked GDN state for at most ~1-2% on agent and nothing on edits: **parked**. The hook stays on
   its branch as a measurement tool.
+
+## Scope EP: Strata #5036 expert parallelism loses to the pipelined layer split on this config (model, 06:35)
+
+EP agent (Sol xhigh), arithmetic only, no GPU run. Report + scope.py/json on basalt38/ep 9f90dbf18.
+
+How #5036 works:
+- Dense, mixer, GDN, HC, KV, head and drafter all stay on one card; only routed experts are split.
+- It refuses layer split and pipeline windows.
+
+Why it loses here:
+- Experts are ~2.8 ms of the two stages' ~16.2 ms, so halving them gives a 14.76 ms serial T=1 window. The pipelined
+  interval is ~8.24 ms.
+- Modeled agent 131-144 vs ~150 tok/s, edit24 212-282 vs ~314, before any communication cost.
+- Communication: ~54 KB per row per layer (~63x the split's single 40 KiB boundary) and 96 flag waits per window.
+
+Other facts:
+- VRAM fits with asymmetric 224/288 expert quotas, so memory is not the blocker.
+- The PCIe route to the cards is x8 and x4 upstream; P2P access is available both ways.
+- A hybrid (a few EP layers) saves ~0.09 ms of expert time.
+- Verdict: **not ported**. A gain would need the dense path parallelized too.
