@@ -1214,3 +1214,24 @@ Main build-hip, harness IQ3_S config (arena, rt drafter), agent x2 per count, tr
   and the B-q4 shortfall are not clean signal. B-q4 pass 1 changed the text in 1 of 6 cases against A-q4 (only the
   reader's config section differs; the engine args are identical). Unexplained, single occurrence: watch for it.
 - The queue-sharing theory of the stalls is dead anyway (root cause above), so there is no reason to move the reader.
+
+## Window STOCK: upstream Strata vs this fork, same config, same env (21:24-21:37)
+
+Stock = ~/Strata-clean at ffa80d73 (newest upstream), built with main's cmake options against its pinned llama.cpp;
+modded = main build-hip (f42ede4d2 tree, binary from 14:59). Both on a copy of the live config taken at window start
+(resident experts, s2gptq-a drafter, vision reader, every env var including fork-only knobs, which stock ignores).
+Interleaved, 2 passes each. Both loads: 100% of experts resident, MTP drafter on card 1; stock captures 2 zero-doorbell
+graphs, the fork 4 (even/odd verifier per stage).
+
+| workload | stock | fork | fork / stock |
+|---|---|---|---|
+| agent (6 cases x 1200 tok) | 96.9 / 97.0 tok/s | 149.7 / 151.5 tok/s | **1.55x** |
+| edits (3 cases x 1200 tok) | 152.2 / 152.1 tok/s | 365.9 / 365.8 tok/s | **2.41x** |
+| 36K prompt | 1779 / 1774 / 1774 / 1772 tok/s | 2696 / 2721 / 2706 / 2710 tok/s | **1.52x** |
+| decode after the 36K prompt (256 tok) | 74.5-75.4 tok/s | 101.0-108.2 tok/s | 1.38x |
+
+- Text: edits identical in all 6 runs; agent text differs from stock in every case (stock is self-consistent across
+  passes, as is the fork). Inference: the fork's numerics-changing kernels (fused HC/node paths, 2-bit head proxy etc.)
+  move greedy argmax on long agent outputs; edits are copy-dominated and survive. Not a correctness verdict either way.
+- Accepted drafts are similar (agent 4251 vs 4108 of ~4800): the speed is the verify/compute path, not acceptance.
+- Output: ~/inbox/agents/claude/strata-ab/windowstock.out, arms ab/st_*.
