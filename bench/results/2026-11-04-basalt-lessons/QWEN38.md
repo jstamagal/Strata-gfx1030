@@ -1742,3 +1742,31 @@ Verdict:
   rebuilt once, all port branches merge main once, and the config switches `--mtp` to q38-native-q4_0-rtn. It isn't
   merged now because that would trip the "main moved" check in every port branch's builder mid-flight.
 - The S2/IQ2/q2q4 calibration variants: none beats s2gptq-a on tok/s. Closed.
+
+## Window HCQ: int8 HC costs rounding-level quality; v2 kernels are faster at T=2/3 (06:51-07:28)
+
+Teacher-forced over 33 requests (agent 6, edit 24, text 3), 74,412 rows. Reference m = main with BF16 HC. A control load
+mc repeats m: 12,667 / 12,667 rows bit-identical.
+
+| arm | build | argmax all | KL all | agent (argmax / KL) | edit (argmax / KL) | agent reply KL | edit reply KL |
+|---|---|---|---|---|---|---|---|
+| i | int8 v1 c5aa9032a, REQ8=1 | 97.36% | 0.0285 | 98.16% / 0.0072 | 97.35% / 0.0308 | 0.00109 | 0.00009 |
+| q | main Q8_0, HC_Q8=1 | 97.49% | 0.0266 | 98.22% / 0.0049 | 97.45% / 0.0297 | 0.00115 | 0.00009 |
+| j | int8 v2 806ecab63, REQ8=1 | 97.45% | 0.0266 | 98.22% / 0.0058 | 97.51% / 0.0288 | 0.00107 | 0.00009 |
+| **k** | int8 v2, REQ8=2 (fp16 scale per 16) | 97.45% | **0.0255** | 98.20% / **0.0045** | 97.42% / 0.0285 | **0.00101** | 0.00008 |
+
+- **The noise floor.** Two int8 builds that differ only in tile order (i vs j) already disagree at KL 0.0219 / 97.69%
+  argmax. int8-vs-BF16 (0.0255-0.0285) is barely above that, so the cost is rounding-level.
+- Median KL is ~5e-5 everywhere. The mean comes from high-entropy forced-prompt tokens (p99 0.43-0.53; text/doc ppl
+  swings both ways).
+- On the model's own reply tokens: argmax 99.2% agent / 99.96% edit, KL ~1e-3 / 1e-4.
+- k (fp16 scale per 16) is the best int8 on quality.
+- Kernel bench, per layer half: v2 int8-wide matches v1 at T=1 (30.1 vs 45.6 us bf16) and is faster at T=2/3 (32.9 /
+  35.5 us vs v1's 37.2 / 38.4).
+  - Tuned env: STRATA_HC_I8_ROWS=4,2,2,2,2,2,2,2, STRATA_HC_I8_UPR=2,2,2,1,1,1,1,1.
+  - k's scale layout costs ~2 us at T=1 and much more at T=3 with U4 (50.0 us), so k needs its own up-row tuning before
+    it can be the default.
+- Cost: +351 / +323 MiB per card (BF16 kept for the prompt path).
+- Verdict: **int8 HC passes quality.** v1 measured +2.7% agent / +0.6% edit on speed; v2's engine speed is not measured
+  yet. Next is the bundle window: q4n + T1DIET 4+8 + int8 HC v2 (j and k) + KING's vendor patches, toggled arm by arm
+  against main, with card 1 residency checked with both q4n (+675 MiB) and int8 HC (+323 MiB) loaded.
