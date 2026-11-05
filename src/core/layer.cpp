@@ -590,6 +590,10 @@ uint8_t* kv_host_alloc(uint64_t bytes) {
         (void) cudaGetLastError();
         return nullptr;
     };
+    // No anonymous registration fallback in this arm, including when the
+    // user previously selected STRATA_KV_HOST_REGISTER. Allocation failure is
+    // reported by qsa_state_init instead of silently restoring SVM exposure.
+    if (strata::platform::host_immune()) return host_alloc(bytes);
 #ifdef _WIN32
     return host_alloc(bytes);
 #else

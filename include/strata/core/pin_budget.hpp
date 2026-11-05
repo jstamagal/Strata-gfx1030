@@ -25,6 +25,7 @@
 #include <cuda_runtime.h>
 
 #include "strata/platform/memory.hpp"
+#include "strata/platform/host_immune.hpp"
 
 #include <cstdint>
 #include <cstdio>
@@ -101,6 +102,10 @@ inline uint64_t soft_reserve_default_mib() {
 
 /// cudaHostRegister with STRATA_MLOCK_REGISTERED's lock first (platform/memory.hpp; off by default).
 inline cudaError_t host_register_locked(void* p, size_t bytes, unsigned flags) {
+    // Registration cannot change the backing of an existing pointer. Let
+    // optional callers use their staged-copy path, never quietly reintroduce
+    // a notifier-backed range in the experimental GTT arm.
+    if (strata::platform::host_immune()) return cudaErrorMemoryAllocation;
     const uint64_t locked = strata::platform::lock_registered(p, bytes);
     const cudaError_t e = cudaHostRegister(p, bytes, flags);
     if (e != cudaSuccess && locked != 0) strata::platform::unlock_registered(p, bytes);
