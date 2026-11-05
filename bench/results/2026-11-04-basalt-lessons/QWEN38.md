@@ -1622,3 +1622,25 @@ medians, delta vs the branch with the flag off (us):
   megakernel rewrite. The bulk of the window is bandwidth-bound matvec time: mixer 2.3 ms, HC 1.6, experts 1.4, head 1.0.
   Bytes (quant level, int8 HC, the head screen) and per-kernel GB/s are the levers. Window T1PMC measures the GB/s.
 - Bits 4 and 8 are exact and slightly positive, so they are merge candidates for a later bundle. Bit 2 is dropped.
+
+## Window HS: the certified Q6_K head screen loses on the live head path (05:09-05:34)
+
+Arms:
+- b: live config.
+- hs1: STRATA_HEAD_Q6_SCREEN=1, +424 MiB on card 1.
+- hs2: hs1 with STRATA_HEAD_Q6_BITS=2, +191 MiB.
+
+Agent + edit24, 2 passes mirrored, main binary. Text identical to live in every case, so the screen is exact as
+certified. 100% resident, zero-doorbell.
+
+| arm | s1 T1 / T2 / T3 ms (slope) | agent tok/s | edit24 tok/s |
+|---|---|---|---|
+| b | 8.23 / 9.17 / 10.30 (1.03) | 151.6 | 313.9 |
+| hs1 | 8.30 / 9.33 / 10.69 (1.20) | -1.16% (0 of 6 faster) | -3.30% (0 of 24) |
+| hs2 | 8.30 / 9.34 / 10.70 (1.21) | -1.23% | -3.35% |
+
+- The screen costs card 1 +0.07 ms at T=1 and +0.4 ms at T=3: the screen pass plus the exact rescoring of the survivors
+  per row.
+- The live head (HEAD_WIDE, MTP_HEAD_PROXY, HEAD_SAMPLE) already reads the Q6_K rows in one ~1.0 ms pass. A screen
+  wins only where the head reads well under bandwidth, and it doesn't here.
+- Dead on this config, both bit widths.
