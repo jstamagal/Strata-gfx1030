@@ -1546,6 +1546,18 @@ At T=8 the int8 up kernel is no faster: 40.8 us, 90 GB/s.
 
 ## Window XXS: smaller targets, speed vs quality on one binary (02:42-04:15; mtpq lane, staging/78-windowxxs.sh)
 
+**CORRECTION (04:2x, mtpq lane, tensor hashes + GGUF general.name, checked by the coordinator):** the targets are not
+one model at three quants.
+- The live IQ3_S (Strata-data/models/swift-abl-IQ3_S; the directory name misleads) is SC117's abliterated **Qwen3.8-Flash-Next
+  GSQ-RCO** (ISTA-DASLab), general.name "Qwen3.8-Flash-Next GSQ-RCO".
+- The "xxs", "iq2xs" and "rco" targets are **Swift-1.5** (ukisai's post-trained Qwen derivative, its own GSQ-RCO run),
+  general.name "Swift Flash Next". xxs and iq2xs are SC117's abliteration of it; rco is ukisai's original.
+- So "xxs vs live" and "iq2xs vs live" change model AND quant. Only xxs -> iq2xs is a pure quant step, and rco -> xxs is
+  abliteration only.
+- The numbers below stand as measured; the labels in the table mean Swift for every non-live row.
+- The same-model quant step (Qwen-abl IQ3_XXS / IQ2_XS) was never measured. The mtpq lane pulls both and stages window
+  MIX.
+
 Setup:
 - Main 063bf754 with a copy of the live config (HOST_IMMUNE, HC_DOWN2); only the target files change.
 - Every arm 100% resident, zero-doorbell, 0 KFD eviction episodes. Text identical across passes within each target.
