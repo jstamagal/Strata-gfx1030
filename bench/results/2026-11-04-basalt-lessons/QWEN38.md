@@ -1080,3 +1080,10 @@ signature as the natural #267 deaths.
 - An Opus xhigh agent (background subagent in this session) is reading the code: graph enqueue vs flag timing, which
   streams exist per card, ROCclr's stream-to-queue mapping. It delivers a fix branch (basalt38/parked-graph), an
   in-slot builder, and a staged repro plus A/B window. The capture's 23 good cases are usable offline.
+- **Correction (from the capture): the hang was in DECODE, not the prompt read.** The capture holds 214 emitted tokens of
+  wedit_json_config_2 at cells 1697-1910 (prompt ends ~1696) and 334 drafter records at cells 1696-1913, so the
+  1690-token prefill finished and the engine hung 214 tokens into decode. The dump's "pos 1910" is that request's last
+  emitted token, and the watchdog's phase label ("reading the prompt (batched) ... chunk from token 1024") was stale, a
+  second, smaller bug. The shape is classic #267: the stage 1 odd window in flight with its plan and copies flags never
+  raised while the host sat idle. The edit24 capture was repaired (the restarted engine's seq/request ids renumbered;
+  mtpq/cap/edit24, raw copy in edit24-raw): 23 full cases plus 214 tokens of the 24th.
