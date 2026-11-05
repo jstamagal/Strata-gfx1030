@@ -1890,3 +1890,41 @@ state (hit/miss 1896/998), so the speed numbers are clean. Quality is forced-tex
   no HIP MMQ/prompt tile.
 - **mixd:** the IQ2_XS experts carry most of the quality cost; the dense and head layers matter little.
 - Verdict: **a weights trade, KING's call; no switch made.** Every mix costs code-row quality.
+
+## Window TWOCARD: the copy kernels are flat, the prefill scratch flag gives NaNs, and the PREFILL_MAX cap is slower (10:05-11:50)
+
+Branch basalt38/two-card c164b00ad vs main. Arms:
+- m: main; o: branch, all off;
+- s: STRATA_MTP_SOURCE_COPY_KERNEL; v: STRATA_VERIFY_SOURCE_COPY_KERNEL; k: STRATA_DRAFT_KV_COPY_KERNEL (copy kernels
+  from llama #28178);
+- c: STRATA_PREFILL_MAX=0,2048 (Strata #3306);
+- g: STRATA_PF_GROUP_SCRATCH; h: STRATA_PF_HC_REGION (Strata #4039);
+- a: all.
+
+Agent loads were all in the fast state (~151.6). The window ended GATE FAIL, so its reader gave no verdict; the
+numbers below come from its output.
+
+| arm | agent vs m | edit vs m | 36K prompt vs m | text |
+|---|---|---|---|---|
+| s | +0.04% | -0.15% | +0.12% | identical |
+| v | -0.02% | -0.06% | +0.07% | identical (one pass-2 crash, see below) |
+| k | +0.03% | -0.30% | 0.00% | identical |
+| c | +0.06% | -0.27% | **-2.89%** | long2 differs |
+| g | +0.02% | **-49%** (13/24 requests NaN) | +3.35% | differs; NaN in prompt and decode windows |
+| h | +0.05% | -0.27% | +0.12% | identical |
+| a | +0.08% | -49% | +2.88% | differs |
+
+- **No win.** The copy kernels and the HC region are flat. PREFILL_MAX is slower and changes text.
+- PF_GROUP_SCRATCH is the only prompt gain (+3.4%), and it corrupts output. It goes back to the two-card agent: fix the
+  NaN, keep text identity.
+- The 6144/8192 capacity probes change text.
+- Profiled phase-2 trace (n=160):
+  - host F1 -> CL median 84.7 us (p95 286);
+  - GPU tail -> next MTP round start median 182.9 us (p95 329), ~2% of a T1 round.
+  - The device-wait chaining design goes to the two-card agent.
+- **Main itself crashed once** (tc_m_edit_2, 11:23:43), as did branch arm v (tc_v_edit_2, 11:14:59):
+  - gdn_step_commit_layers_kernel read an unmapped host page on card 1 (TCP fault);
+  - 53 SVM queue evictions and 129 failed restores;
+  - atop shows reclaim/swap at both fault clusters today.
+
+  This is a production stability bug, chased CPU-only on basalt38/svm-fix.
