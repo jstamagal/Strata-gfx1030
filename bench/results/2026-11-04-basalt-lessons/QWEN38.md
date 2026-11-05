@@ -1424,3 +1424,8 @@ Main vs basalt38/pinned-host + HOST_IMMUNE=1, a copy of the live config, 2 loads
 
 Text identical. Speed level, freezes gone. Merged into main (a14e57959, includes parked-graph). Build slot 56550 rebuilds
 build-hip, then sets STRATA_HOST_IMMUNE=1 and STRATA_HC_DOWN2=1 in the live config (old copy kept).
+
+- Live 01:33: build-hip/strata rebuilt from a74ae983c (sha256 063bf754...; the old binary is kept as
+  build-hip/strata.pre-a14e57959, d4d10152...), route_window_parity and kv_window_parity pass, and the live config now has
+  STRATA_HOST_IMMUNE=1 and STRATA_HC_DOWN2=1 (old copy: strata-ab/staging/live-cfg.pre-immune-0130.json). Every window
+  from here on runs on that binary and config.
