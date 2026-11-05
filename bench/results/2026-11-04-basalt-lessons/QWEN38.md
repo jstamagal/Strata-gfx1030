@@ -1046,3 +1046,10 @@ Text identical everywhere, gates OK, no gaps. On agent, iq2g sits between live a
 over in full. It frees 38 MiB on card 1. Edit differences on 3 cases are single draws (see the AB2 correction). The
 24-case edit A/B (live / s2gptq on main, livebr / iq2g on the branch, per-case paired accepted tokens with a sign test)
 and its capture are appended to insert 54.
+- Paired accepted tokens per case, pass 1 (mtpq agent's reader): agent s2gptq vs live 6 won / 0 lost (sign test p 0.031,
+  +1.66%); iq2g vs live 5 / 0 / 1 tied (p 0.062, +1.24%); iq2g vs s2gptq 2 / 4 (p 0.69): the two don't separate on
+  agent. Edit (3 cases): iq2g vs s2gptq +9 tokens, 2 / 0 / 1; undecided until edit24. The offline replay ranked iq2g
+  well above s2gptq on agent; the engine has them level: the replay picks direction, not small margins.
+- s2gptq's agent acceptance moved between passes on 2 cases with identical text (696 / 688, 748 / 746); live and iq2g
+  repeated exactly. Inference: in the pipelined engine, acceptance can depend on timing (a chain that lands late, or
+  falls below the gate, changes which drafts get verified), so "acceptance is deterministic" holds only to ~0.1%.
