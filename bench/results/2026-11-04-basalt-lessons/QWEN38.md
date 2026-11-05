@@ -1087,3 +1087,28 @@ signature as the natural #267 deaths.
   second, smaller bug. The shape is classic #267: the stage 1 odd window in flight with its plan and copies flags never
   raised while the host sat idle. The edit24 capture was repaired (the restarted engine's seq/request ids renumbered;
   mtpq/cap/edit24, raw copy in edit24-raw): 23 full cases plus 214 tokens of the 24th.
+
+## edit24 A/B: s2gptq-a does NOT cost edits (19:37-19:54)
+
+24 edit cases (mtpq/prompts/edit24.json, llama.cpp + forgecode files), 2 passes. live / s2gptq on main's build-hip,
+livebr / iq2g on the mtpq branch binary. Per-case paired accepted tokens (mean over passes; |delta| <= 2 = tie):
+
+| pair | won / lost / tied | sign test p | accepted |
+|---|---|---|---|
+| s2gptq vs live | 4 / 3 / 17 | 1.000 | 22971.5 vs 22973.5 (-0.01%) |
+| iq2g vs live | 6 / 3 / 15 | 0.508 | 22934.0 vs 22973.5 (-0.17%) |
+| iq2g vs livebr | 5 / 3 / 16 | 0.727 | +0.12% |
+| livebr vs live (same drafter, two binaries) | 1 / 3 / 20 | 0.625 | -0.30% |
+
+- **The AB2 edit -0.6% was a single draw: no edit cost.** s2gptq-a stays adopted with no caveat (+2.0% agent).
+- Text identical to live in all 24 cases for every arm.
+- Throughput across arms (live 300.0, s2gptq 311.0, livebr 304.5, iq2g 309.9 tok/s) is NOT drafter signal. Pass
+  order and stalls dominate it: s2gptq's +3.6% is mostly its pass 2 (312.2 vs 300.3), and live's pass 2 had a #267
+  restart.
+- Acceptance drifts between passes much more than 0.1% on some JSON cases (livebr json_config_2 912 / 802, iq2g
+  json_config_1 865 / 952) with identical text. Timing-dependent drafting (the suffix/lookup drafter runs beside the
+  MTP; late chains) makes per-case acceptance noisy, so pairs need means over passes and ties, as the reader does.
+- **#267 on main's binary:** mtpqe_live_edit24_p2, wedit_py_rename_4, at decode start after a 953-token prompt:
+  "verify: the window never finished; its GPU waits were released but the GPU did not finish within 5 s", releases
+  finished in 3/0/1/0 ms, engine exit 1, restarted. That's 2 #267-class failures in ~216 edit24 requests within 30 min:
+  edit24 is a usable repro set (handed to the parked-graph agent).
