@@ -1,6 +1,6 @@
-# Swarm brief: make Qwen3.8 go zoom on 2x V620 (written 2026-11-04 15:15, updated 20:42 for run 3, 21:18 with run 3's verdicts, 23:57 for run 4)
+# Swarm brief: make Qwen3.8 go zoom on 2x V620 (written 2026-11-04 15:15, updated 20:42 for run 3, 21:18 with run 3's verdicts, 00:00 11-05 for run 4)
 
-**Earlier swarm runs' reports (runs 1 and 2) are withheld on purpose.** What they proposed, and what the measurements
+**Earlier swarm runs' reports (runs 1-3) are withheld on purpose.** What they proposed, and what the measurements
 said, is folded into section 2 ("Already proposed and judged"). Don't go looking for those reports, their chat or
 transcripts, including in git history.
 
