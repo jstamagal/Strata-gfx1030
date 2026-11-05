@@ -8,6 +8,7 @@
 //   5. the policy never proposes a window beyond its cap.
 #include "strata/spec/draft_policy.hpp"
 
+#include <algorithm>
 #include <cstdio>
 
 using strata::spec::DraftPolicy;
@@ -23,6 +24,86 @@ double cost(int t) { return 19.0 + 10.5 * (t - 1); }   // ms per round, measured
 
 int main() {
     std::printf("draft_policy_test\n");
+    {
+        DraftPolicy prefix(8);
+        for (int i = 0; i < 300; ++i) prefix.observe(false, 3, 2 - (i & 1), 0, 18.94);
+        for (int a : {3, 2}) prefix.observe(true, 8, a, 3, 23.8838);
+        DraftPolicy normal = prefix, injected = prefix, clipped = prefix;
+        check(clipped.set_cost_clip(2.10), "clip: finite factor > 1 accepted");
+        check(!clipped.set_cost_clip(0) && !clipped.set_cost_clip(1) && !clipped.set_cost_clip(-2),
+              "clip: invalid factors rejected without changing the active clip");
+        // Saved fast-prefix intervals at windows 263..268. Inject only at 263, with identical outcomes.
+        const int widths[] = {3, 3, 8, 3, 3, 1};
+        const int accept[] = {2, 1, 2, 2, 2, 0};
+        const double ms[] = {21.381, 11.332, 34.199, 21.234, 11.307, 9.747};
+        for (int i = 0; i < 6; ++i) {
+            const bool lookup = widths[i] == 8;
+            normal.observe(lookup, widths[i], accept[i], 3, ms[i]);
+            injected.observe(lookup, widths[i], accept[i], 3, ms[i] + (i == 0 ? 31.25 : 0.0));
+            clipped.observe(lookup, widths[i], accept[i], 3, ms[i] + (i == 0 ? 31.25 : 0.0));
+        }
+        check(!normal.choose(3, 7, 5).lookup && injected.choose(3, 7, 5).lookup,
+              "clip regression: the unprotected 31.25 ms injection flips the choice");
+        check(!clipped.choose(3, 7, 5).lookup, "clip regression: 2.10 preserves MTP T3 under the same injection");
+        DraftPolicy changed(3);
+        changed.set_cost_clip(2.10);
+        changed.observe(false, 3, 2, 0, 10.0);  // real-ms bootstrap, never clipped against a unitless prior
+        check(changed.cost_ms(3) == 10.0, "clip: first sample bootstraps without clipping");
+        for (int i = 0; i < 22; ++i) changed.observe(false, 3, 2, 0, 20.0);
+        check(changed.cost_ms(3) >= 19.0 && changed.cost_ms(3) <= 20.0,
+              "clip: a sustained 2x cost is within 5% of its new value after 22 windows");
+    }
+    {
+        DraftPolicy p(3);
+        check(p.set_fixed_costs(" 8.2, 9.3, 10.4 "), "fixed costs: a complete positive profile is accepted");
+        bool invalid = true;
+        for (const char* s : {"", "8,9", "8,9,10,11", "8,9,0", "8,9,-1", "8,9,nan", "8,9,inf",
+                              "8,9,1e999", "8,9,1e-999", "8,9,10,", "8,9,10junk", "8,,10"})
+            invalid &= !p.set_fixed_costs(s) && p.cost_ms(3) == 10.4;
+        check(invalid, "fixed costs: invalid/partial profiles leave the policy unchanged");
+        for (int i = 0; i < 100; ++i) p.observe(false, 3, 1, 0, 1000.0 + i);
+        check(p.cost_ms(3) == 10.4 && p.cost_ms(1) == 8.2, "fixed costs: neither observed nor unseen widths learn time");
+        p.set_robust(true);
+        p.set_context(30000);
+        p.observe_chain(2, 1, 2, 12, 9999.0);
+        p.defer_cost(5, 3, 123456.0);
+        p.apply_costs(6);
+        check(p.cost_ms(3) == 10.4, "fixed costs: context buckets, chains and deferred costs stay fixed");
+        DraftPolicy copy = p;
+        copy.observe(false, 3, 0, 0, 1e10);
+        check(copy.cost_ms(3) == p.cost_ms(3), "fixed costs: generation policy copies retain the profile");
+    }
+    {
+        // The live agent trace's first split: the same outcomes at different T3 wall costs take different lookups.
+        DraftPolicy fast(8), slow(8);
+        for (int i = 0; i < 300; ++i) {
+            fast.observe(false, 3, 1 + (i & 1), 0, 17.94);
+            slow.observe(false, 3, 1 + (i & 1), 0, 20.23);
+        }
+        for (int a : {3, 2, 2}) {
+            fast.observe(true, 8, a, 3, 24.92);
+            slow.observe(true, 8, a, 3, 24.92);
+        }
+        check(!fast.choose(3, 7, 5).lookup && slow.choose(3, 7, 5).lookup,
+              "bimodal: timing alone flips MTP T3 versus lookup T8");
+        const char* profile = "14.3505,15.5044,17.9436,24.1993,28.9211,33.6429,38.3647,24.9153";
+        check(fast.set_fixed_costs(profile) && slow.set_fixed_costs(profile), "bimodal: opt-in profile applied to both histories");
+        bool same = true;
+        for (int i = 0; i < 1000; ++i) {
+            const auto f = fast.choose(3, 7, 5), s = slow.choose(3, 7, 5);
+            same &= f.lookup == s.lookup && f.t == s.t;
+            const int a = std::min(f.t - 1, i % 4);
+            fast.observe(f.lookup, f.t, a, 5, 0.01 + (i % 5));
+            slow.observe(s.lookup, s.t, a, 5, 40.0 + (i % 17) * 31.25);
+        }
+        check(same && fast.lookup_rate(5) == slow.lookup_rate(5),
+              "bimodal: 1000 decisions agree despite adversarial timing jitter");
+        const double q_before = fast.lookup_rate(5);
+        fast.observe(true, 8, 0, 5, 1.0);
+        slow.observe(true, 8, 0, 5, 99999.0);
+        check(fast.lookup_rate(5) < q_before && fast.lookup_rate(5) == slow.lookup_rate(5),
+              "fixed costs: acceptance is still learned, not frozen");
+    }
     {
         DraftPolicy p(6);
         for (int i = 0; i < 50; ++i) p.observe(false, 4, 2, 0, cost(4));   // MTP windows of 4: 3 tokens each

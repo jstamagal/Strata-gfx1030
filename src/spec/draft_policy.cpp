@@ -2,7 +2,10 @@
 #include "strata/spec/draft_policy.hpp"
 
 #include <algorithm>
+#include <cctype>
+#include <cmath>
 #include <cstdio>
+#include <cstdlib>
 
 namespace strata::spec {
 namespace {
@@ -52,8 +55,36 @@ double DraftPolicy::lookup_rate(int match) const {
     return (ok_[b] + kPriorN * kPriorQ[b]) / (ok_[b] + bad_[b] + kPriorN);
 }
 
+bool DraftPolicy::set_fixed_costs(const std::string& csv) {
+    std::array<double, kMaxT + 1> next{};
+    const char* p = csv.c_str();
+    for (int t = 1; t <= max_t_; ++t) {
+        char* end = nullptr;
+        const double ms = std::strtod(p, &end);
+        if (end == p || !std::isfinite(ms) || ms <= 0.0) return false;
+        next[t] = ms;
+        p = end;
+        while (std::isspace((unsigned char) *p)) ++p;
+        if (t == max_t_) {
+            if (*p != '\0') return false;
+        } else {
+            if (*p != ',') return false;
+            ++p;
+        }
+    }
+    fixed_cost_ = next;
+    return true;
+}
+
+bool DraftPolicy::set_cost_clip(double factor) {
+    if (!std::isfinite(factor) || factor <= 1.0) return false;
+    cost_clip_ = factor;
+    return true;
+}
+
 double DraftPolicy::cost_ms(int t) const {
     t = std::clamp(t, 1, kMaxT);
+    if (fixed_cost_[t] > 0.0) return fixed_cost_[t];
     if (cost_n_[bk_][t] > 0) return cost_[bk_][t];
     // scale from the measured sizes, weighting each by how often it was seen
     double num = 0.0, den = 0.0;
@@ -67,6 +98,10 @@ double DraftPolicy::cost_ms(int t) const {
 }
 
 double DraftPolicy::clamp_sample(int t, double ms) const {
+    if (fixed_cost_[t] > 0.0) return fixed_cost_[t];
+    // Verdict intervals contain positive stalls and also legitimately short overlapped rounds. Preserve the
+    // latter so an overestimate can recover quickly; cap only the upper tail, after a width has bootstrapped.
+    if (cost_clip_ > 1.0 && cost_n_[bk_][t] > 0.0) ms = std::min(ms, cost_clip_ * cost_[bk_][t]);
     if (!robust_) return ms;
     const double known = cost_ms(t);           // the measured value, or the scaled guess from the other widths
     if (cost_n_[bk_][t] == 0) {
