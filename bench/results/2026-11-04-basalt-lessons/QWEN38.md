@@ -1960,3 +1960,33 @@ pressure, agent and edit24, two passes. PASS requires all of:
 - speed is within 2%.
 
 INCONCLUSIVE if main doesn't reproduce.
+
+## Window BIMODAL: no stall this time; the clip guard is free; a fixed cost table trades agent for edit (11:53-12:19)
+
+Branch basalt38/bimodal bf07bf391. Arms:
+- m: main;
+- u: patched, unset;
+- f: STRATA_PL_POLICY_COSTS, the fixed table from the fast replay;
+- c: STRATA_PL_POLICY_CLIP=2.10.
+
+Agent 3 mirrored passes + edit24 x1. Text is byte-identical vs m everywhere (18/18 agent, 24/24 edit). The window ended
+GATE FAIL on "one exact schedule".
+
+| arm | agent tok/s (3 loads) | states | edit24 | T8/T3 windows (agent) |
+|---|---|---|---|---|
+| m | 151.564 | 3 fast-like | 313.58 | 43/2040 |
+| u | 151.612 (+0.03%) | 2 fast, 1 fast-like | 313.37 (-0.07%) | 42/2042 |
+| c | 151.631 (+0.04%) | 2 fast, 1 fast-like | 313.25 (-0.10%) | 42/2042 |
+| f | 152.629 (**+0.70%**) | 3 other (its own schedule) | 311.45 (**-0.68%**) | 157/1809 |
+
+- **No load went slow**, main included, so the window could not show c rescuing a stalled load.
+  - The morning windows ran next to heavy agent compiles; this one had none. That supports external CPU contention
+    as the source of the stall, but it is not proven.
+  - Host service is not the stall: L0->S0 is 1-20 us everywhere.
+- **The exact-schedule gate was too strict.** c's third load and every m load differ from the reference by one
+  speculation-class flip (a pipeline race, not a policy choice). The policy decisions match.
+- **c is free** (+0.04% agent, -0.1% edit, identical text) and the CPU replay shows it blocks the 31 ms flip. Adopt it
+  as a guard: merge basalt38/bimodal and set STRATA_PL_POLICY_CLIP=2.10 in the live config.
+- **f** picks lookup T8 more often and is consistently faster on agent (+0.7%, all 3 loads within 0.07 tok/s) but
+  slower on edit (-0.7%). A trade, not adopted. It shows the learned policy is not optimal for agent prompts; a
+  per-workload policy tune is a lead.
