@@ -1314,8 +1314,8 @@ Built in one slot with main's options (gdn-life quad2c 186 VGPRs; iq-signed iq2s
   bitwise (rec_head 32 PASS; stage-bench y/state hashes identical). Recurrence + norm -3.4% / -4.2% / -4.9% at
   T 4096 / 16384 / 32768 (control kernel within 0.5%). 36K prompt on the engine: main 2698.5, branch 2673.2 tok/s
   (-0.94%, one slow load; main spread 1.54%): neutral. **Corrected 11-05 01:05 (sabyinyo, run 4):** the stage bench's
-  3.3 ms is ONE GDN layer at T=4096; 36 GDN layers make the ~127 ms "gdn recurrence" bucket (~10% of a chunk), so the
-  brief's 10% was right and the kernel saving is ~0.4% of the prompt, below this A/B's 1.5% spread (not "~0.01%").
+  3.3 ms is ONE GDN layer at T=4096 (not per chunk); the engine's ~10% "gdn recurrence" bucket is ~7.5 ms per GDN layer
+  (see the prompt-stage section), so the kernel saving is ~0.2-0.4% of the prompt, below this A/B's 1.5% spread.
   Parked, not merged.
 - **IQSIGNED** (basalt38/iq-signed 6edc7415f: IQ3_XXS gate/up on a 16 KiB signed codebook in LDS, STRATA_IQ_SIGNED_CB):
   bitwise (lab parity 594 comparisons, 0 differ, synthetic + real rows; decode_expert_lab hash same off/on).
@@ -1371,17 +1371,21 @@ Main binary, copy of the live config, per-case medians over 3 passes, text vs b 
 - HC_DOWN2: exact, edit24 +0.43% with every case faster, agent flat. Goes into the live config with the IMMUNE
   adoption (one config change), not before.
 
-## The 36K prompt runs its two stages one after the other (found 11-05 01:05 from SW3's timing arms, ab/sw3_f_*)
+## The 36K prompt's two stages: overlapped, card 0 the bottleneck, ~1.2 s drain (11-05 01:25, SW3 timing arms ab/sw3_f_*)
 
-Post-RXP, STRATA_PREFILL_TIMING=1, 36K prompt: per 4096-token chunk "GPU timeline" 1264-1324 ms, wall 1283-1343 ms;
-the request: GPU timeline 12441 ms, wall 12507 ms, harness 13.9 s (2620 tok/s; untimed live 2708).
-- The chunk timeline holds every layer of both cards: its "gdn recurrence" is 127 ms = 36 GDN layers x the stage
-  bench's 3.3 ms per layer at T=4096 (card 0 alone has ~19). So it is card 0 + card 1 summed, and the wall equals the
-  sum: **the stages do not overlap on the prompt.** A pipelined read could approach the slower card's half.
-- Why: with the live STRATA_PREFILL_PIPE=283 (a b/a calibrated while experts streamed), pipeline_chunk's cost model
-  (k*r + n + (S-1)*(r + c)) keeps the 4096 cap, so planned_C is not below the cap and the read is not "pipe chunked".
-  At b/a 64 it picks ~1536-token chunks and the pipelined path.
-- Post-RXP phase shares (per chunk): gemm gate/up 20.5%, qsa attn 12.7%, gdn recurrence 9.9%, qsa proj 9.9%,
+Corrected the same hour: a 01:05 entry here claimed the stages don't overlap; wrong. Stage 0 hands each chunk to stage
+1 on an async thread (prefill.cpp, next_run_ = std::async) and waits only for stage 1's *previous* chunk. The
+per-chunk "4096 tokens, GPU timeline" lines are stage 1's own run_impl (card 1, 23 layers); the "36404 tokens" line is
+stage 0's whole request (card 0, 25 layers).
+- Card 0: 12441 ms GPU for 9 chunks = ~1382 ms per 4096 chunk, wall 12507 ms (never waits).
+- Card 1: 1264-1324 ms per 4096 chunk (~90 ms idle per chunk), last chunk 3636 tokens 1185 ms.
+- Request ~= card 0's chunks + card 1's last chunk: 12.5 + ~1.2 s, harness 13.9 s (timing on, 2620 tok/s).
+- Levers this leaves: (1) a small LAST chunk (drain ~1.2 s -> ~0.3 s; ~5% at 36K if per-chunk overhead is small:
+  planner change, pipeline_chunk only models uniform chunks); (2) split 24 for prompt (card 0 ~7% slower per chunk;
+  costs card 1 a layer in decode, where card 1 is the limiter on hit windows); (3) the per-chunk work itself.
+- GDN: the engine's "gdn recurrence" bucket is ~7.5 ms per GDN layer per 4096 chunk (142 ms / 19 layers on card 0,
+  127 / 17 on card 1), ~2x the stage bench's 3.3 ms kernel: the bucket holds more than that kernel. GDNLIFE's
+  -3.4..-4.9% kernel saving is ~0.2-0.4% of the prompt either way: neutral stands.
+- Post-RXP phase shares (card 1 per chunk): gemm gate/up 20.5%, qsa attn 12.7%, gdn recurrence 9.9%, qsa proj 9.9%,
   gdn 8.7%, gemm down 8.2%, gdn out proj 5.3%, hc read down+silu 5.2%, hc read up 4.5%, dequant 3.6%, hc write 2.7%.
-- Window PFX (insert 5658) decides it: live vs b/a 32/64/128 vs --prefill 2048/3072, two mirrored passes, then L and
-  b/a 64 with timing (folded GPU time vs wall = the overlap).
+- Window PFX (insert 5658) reshaped: live vs split 24 vs b/a 64, two mirrored passes, timed L and split 24.
