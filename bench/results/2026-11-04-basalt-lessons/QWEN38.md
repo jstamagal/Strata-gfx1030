@@ -1770,3 +1770,59 @@ mc repeats m: 12,667 / 12,667 rows bit-identical.
 - Verdict: **int8 HC passes quality.** v1 measured +2.7% agent / +0.6% edit on speed; v2's engine speed is not measured
   yet. Next is the bundle window: q4n + T1DIET 4+8 + int8 HC v2 (j and k) + KING's vendor patches, toggled arm by arm
   against main, with card 1 residency checked with both q4n (+675 MiB) and int8 HC (+323 MiB) loaded.
+
+## Window PRPORT2: the head/DQ ports are flat; every load lands in one of two speed states (07:29-08:08)
+
+Branch basalt38/pr-port2 9fb5fc7ca vs main. Arms:
+- m: main live;
+- o: branch, all flags off;
+- x: HEAD_Q8X4 (head pack at T1);
+- n: HEAD_NARROW (head at T2/3);
+- d: DQ_MMV (raw-float dequant at T1);
+- a: all three.
+
+Agent 6 + edit24, two mirrored passes, 24 loads, all harness statuses 0.
+
+Slot (both cards, bitwise parity, 0 mismatches everywhere):
+- **Q6_K head NT:** at the live 248320 vocab -1.2..-1.9% at T1/T2 and +0.7..+1.2% at T3. At 40525 rows it is
+  +27% (T2) / +52% (T3) slower.
+- **DQ raw-float:** faster on mid-size matrices (6144x2560: 24.6 -> 15.6 us). On the live head with pick+flags it is
+  slower (1023 -> 1091 us card 0, 1011 -> 1058 us card 1), because QFUSE quantization stays in the path.
+- **ALIAS probe:** HC-down-like BF16 rows with a 128 B pad are 15-17% faster (9.52 -> 8.07 us T1) and bitwise equal.
+  This became branch HCPAD.
+
+Engine:
+
+| arm | agent pass 2 (tok/s) | edit vs m | text | stage T1 s0/s1 vs off |
+|---|---|---|---|---|
+| m | 151.60 | - | ref | - |
+| o | 151.66 | -0.21% | identical | 0 / 0 us |
+| x | 151.66 | -0.20% | identical | -10 / -15 us |
+| n | 151.58 | -0.16% | identical | -8 / -3 us |
+| d | 153.64 | -0.15% | **2/6 agent cases differ** | -9 / +14 us |
+| a | 151.76 | -0.12% | 2/6 differ | -4 / +23 us |
+
+- Pooled over both passes the reader says x +0.70%, n +1.07%, d +2.41% agent. **That is the load state below, not the
+  kernels.** Pass 1's m and o landed in the slow state, and every other arm in the fast state.
+- On pass 2 (all fast) x and n are flat. d's gain comes with changed text, and its stage times are not faster: a
+  numeric change, not an engine speedup.
+- Verdict: **no win.** x and n parked (~10 us at T1, lost at T3). d dead on the live head.
+
+### Two load states
+Each server load of the same binary, config and prompts lands in one of two discrete states on the agent workload:
+
+| state | pipeline hit/miss | tok/s |
+|---|---|---|
+| fast | exactly 1898/997 | ~151.6 |
+| slow | ~1750/1030 | ~148.4 (-2.1%) |
+
+- The text is byte-identical across the two states, and edit24 is unaffected.
+- Seen in TOP4 (pass 1 fast, pass 2 slow), PRPORT2 (first two loads slow), and AB3 (9 of 14 loads slow).
+- Not the expert cache: 0 swaps and 0 file reads during decode. Not the PLE read probe either; its value doesn't
+  track the state.
+- **AB3 correction:** q4n's +1.4% over s2gptq-a came from q4n landing fast in both passes. Fast loads only: q4n
+  151.37 / 151.86 vs s2gptq-a 151.62, which is **flat**. q4n stays in BUNDLE1 for its own reading; it is not a
+  standing win.
+- Every window from here reads arms within a state (by pipeline hit/miss), not pooled.
+- Root cause is being chased CPU-only on branch basalt38/bimodal (Sol xhigh). If the fast state can be pinned, the
+  win is ~+2% on agent prompts for every load that would have landed slow.
