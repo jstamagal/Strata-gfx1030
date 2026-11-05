@@ -1410,3 +1410,17 @@ exact draft head over the recorded hidden state (exact top-1 = GPU's on 98-99% o
 - STRATA_MTP_TOP2's record_top2 has NO call site anywhere (the serial diagnostic has read zero since the call was lost).
   An in-engine runner-up hook (head_proxy final_kernel top-4 + host-mapped per-step ranks, ~80-120 lines) measures the
   live share before any branch is built.
+
+## Window IMMUNE: STRATA_HOST_IMMUNE=1 adopted (quiet check 01:09-01:28; merged a14e57959)
+
+Main vs basalt38/pinned-host + HOST_IMMUNE=1, a copy of the live config, 2 loads each, interleaved:
+
+| | main | immune |
+|---|---|---|
+| agent tok/s (pooled; per-case median) | 150.2 | 150.5 (+0.18%; -0.53%, 1 faster / 5 slower) |
+| edit24 tok/s (pooled; per-case median) | 310.2 | 312.2 (+0.65%; +0.03%, 17 / 6) |
+| 36K prompt tok/s; decode after it | 2711.8; 103.6 | 2701.2 (-0.39%); 103.7 |
+| KFD queue-eviction episodes per arm | 8-125 (longest 727 and 1023 ms, quiet box) | **0 in every arm** |
+
+Text identical. Speed level, freezes gone. Merged into main (a14e57959, includes parked-graph). Build slot 56550 rebuilds
+build-hip, then sets STRATA_HOST_IMMUNE=1 and STRATA_HC_DOWN2=1 in the live config (old copy kept).
