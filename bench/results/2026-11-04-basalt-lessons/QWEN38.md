@@ -1543,3 +1543,43 @@ At T=8 the int8 up kernel is no faster: 40.8 us, 90 GB/s.
   ties.
 - Not adopted yet: the quality number is missing (the 10-06 single-GPU REQ8 measured code argmax 93.3%). Next: a
   teacher-forced quality read (argmax / KL vs BF16 HC), and a better int8 up kernel at T >= 4.
+
+## Window XXS: smaller targets, speed vs quality on one binary (02:42-04:15; mtpq lane, staging/78-windowxxs.sh)
+
+Setup:
+- Main 063bf754 with a copy of the live config (HOST_IMMUNE, HC_DOWN2); only the target files change.
+- Every arm 100% resident, zero-doorbell, 0 KFD eviction episodes. Text identical across passes within each target.
+- The reader crashed on a format bug in its reply-length note. Fixed (+.1f) and re-read offline at 04:17:
+  strata-ab/windowxxs.reread-0417.out.
+
+| target | agent tok/s | edit24 tok/s | 36K prompt | free VRAM card 0 / 1 |
+|---|---|---|---|---|
+| live: abliterated IQ3_S | 151.6 | 314.4 | 2716 tok/s | 2182 / 1712 MiB |
+| xxs: abliterated IQ3_XXS | 173.2 (+14.3%; per-case +9.5%, 6/6) | 330.9 (+5.2%; 22/24) | 2498 (-8.0%) | +4976 / +2870 |
+| iq2xs: abliterated IQ2_XS | 188.9 (+24.7%; per-case +23.0%, 6/6) | 356.8 (+13.5%; 24/24) | 2402 (-11.6%) | +6666 / +8392 |
+| rco: IQ3_XXS, not abliterated | 172.8 (+14.0%) | 329.2 (+4.7%) | 2591 (-4.6%) | +4898 / +2752 |
+
+T=1 stage times (s0 / s1 ms): live 7.93 / 8.23, xxs 7.35 / 8.14, iq2xs 7.23 / 7.40, rco 7.44 / 8.08. Under xxs, card 1
+stays at ~8.1 ms and becomes the clear bottleneck. The head and HC are unchanged and sit on card 1.
+
+Teacher-forced quality. Same forced text for every target (each case's messages plus live's own pass-1 reply, and the
+three 10-06 texts), top-256 log-probs, 74412 rows per load. The control (live twice) gave 100% / KL 0, so the reads
+repeat. Argmax agreement / KL(ref || run):
+
+| vs ud4 (unsloth UD-Q4_K_XL, original Qwen) | all rows | agent reply rows | edit reply rows | 10-06 code text |
+|---|---|---|---|---|
+| live IQ3_S | 94.12% / 0.094 | 97.01% / 0.0135 | 99.88% / 0.0009 | 79.1% / 0.29 |
+| xxs | 91.22% / 0.184 | 94.86% / 0.0399 | 99.78% / 0.0018 | 62.3% / 0.92 |
+| iq2xs | 89.71% / 0.230 | 94.15% / 0.0537 | 99.78% / 0.0021 | 67.5% / 0.66 |
+| rco | 91.29% / 0.193 | 95.21% / 0.0472 | 99.84% / 0.0013 | 78.3% / 0.38 |
+
+- vs live: xxs 90.98% / 0.190, iq2xs 89.67% / 0.227, rco 90.85% / 0.212 on all rows.
+- Distance to the Q4_K_XL reference roughly doubles from IQ3_S to IQ3_XXS: agent reply KL 0.0135 -> 0.040, about 3x.
+  IQ2_XS is about 4x.
+- Abliteration is not the main part of it: rco (same quant, not abliterated) sits at the same distance as xxs.
+- Edit replies are near-copies: every target is at 99.8%.
+- The 10-06 texts are small (about 1.1K rows each) with odd perplexities (doc 955-1508), so read them as noise-prone.
+- Smaller targets lose on the prompt path: -8% / -12% on 36K.
+- Decision is KING's: speed vs this quality drop. Not switched.
+- Longshot: a mixed pack (IQ2_XS base with IQ3_S promotions where sensitivity is highest, in the KING quant-method
+  spirit) could buy much of the speed for less of the KL.
