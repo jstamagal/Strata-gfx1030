@@ -1703,3 +1703,42 @@ Other facts:
 - The PCIe route to the cards is x8 and x4 upstream; P2P access is available both ways.
 - A hybrid (a few EP layers) saves ~0.09 ms of expert time.
 - Verdict: **not ported**. A gain would need the dense path parallelized too.
+
+## Window AB3: q4n is the best drafter again (+1.4% agent over the live s2gptq-a, edits flat); next merge bundle (05:58-06:44)
+
+Setup:
+- Binary: strata-mtp-native (branch mtp/native-experts 31398223c), only `--mtp` differs between arms.
+- Workloads: agent + edit24, 2 mirrored passes, --resident-experts, KV_PF_SLOTS=1.
+- "live" in this window is the old rt drafter; s2gptq is the live drafter.
+- The window's own reader left out q4n / q4gc / q2q4c (the arms were added at 01:15 and the reader call wasn't updated).
+  Re-read with all arms: strata-ab/mtpq_ab3.reread-all.out.
+
+| drafter | MiB | agent tok/s (passes) | vs s2gptq | edit24 tok/s | vs s2gptq | text vs rt |
+|---|---|---|---|---|---|---|
+| rt (old live) | 839 | 146.82 (144.9 / 148.8) | -1.8% | 310.77 | +0.4% | - |
+| **s2gptq-a (live)** | 839 | 149.50 (147.4 / 151.6) | - | 309.62 | - | 6/6, 24/24 |
+| s2gptq_c | 839 | 149.23 | -0.2% | 310.04 | +0.1% | 6/6, 24/24 |
+| iq2c | 802 | 149.07 | -0.3% | 311.95 | +0.8% | 6/6, 24/24 |
+| **q4n** (native Q4_0 RTN) | 1514 | **151.60 (151.4 / 151.8)** | **+1.4%** | 308.69 | -0.3% | 5/6, 24/24 |
+| q4gc | 1514 | 148.06 | -1.0% | 309.91 | +0.1% | 6/6, 24/24 |
+| q2q4c | 1064 | 147.53 | -1.3% | 309.48 | -0.0% | 6/6, 24/24 |
+
+Agent acceptance, paired per case:
+- q4n vs s2gptq: 3 won / 0 lost / 3 tied, +0.66%. q4n's rounds are also slightly shorter: 15.73 vs 15.80 ms.
+- q2q4c accepts the most (+1.25% vs s2gptq, held-out +2.3%), but its rounds are 3% longer (16.29 ms), which eats the
+  gain.
+
+Edits: every drafter is within 0.4% on acceptance. The paired tests show nothing (p >= 0.13).
+
+Notes:
+- Gates OK in every arm: card 1 fully resident; q4n leaves 1038 MiB free on card 1 vs 1712.
+- q4n's one text change (1 of 6 agent cases) is the target's numerics under different verify widths. The drafter does not
+  pick tokens.
+
+Verdict:
+- q4n now leads s2gptq-a in both drafter windows: AB2 +0.5%, AB3 +1.4% on agent; edits -0.3% / +0.3%.
+- Its only cost is 675 MiB on card 1, which was held back by a rule KING never made.
+- **It goes into the next merge bundle**: 31398223c plus T1DIET bits 4+8, plus int8 HC if HCQ passes. Main's build-hip is
+  rebuilt once, all port branches merge main once, and the config switches `--mtp` to q38-native-q4_0-rtn. It isn't
+  merged now because that would trip the "main moved" check in every port branch's builder mid-flight.
+- The S2/IQ2/q2q4 calibration variants: none beats s2gptq-a on tok/s. Closed.
