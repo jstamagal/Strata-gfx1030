@@ -184,4 +184,8 @@ ConversationRestore conversation_snapshot_restore_prefix(const SavedConversation
                                                           SessionState& session, const ModelGeometry& g,
                                                           const QsaState* draft, std::string& error);
 
+// Reserve the current device's persistent host checkpoint buffer at session
+// creation. A no-op unless STRATA_HOST_IMMUNE=1; no device allocation.
+bool conversation_host_prepare(size_t bytes);
+
 } // namespace strata::core

@@ -1,5 +1,6 @@
 // src/core/session.cpp - one token through all 48 layers.  See the header for why the graphs are per-layer.
 #include "strata/core/session.hpp"
+#include "strata/core/conversation_snapshot.hpp"
 #include "strata/core/pin_budget.hpp"
 #include "strata/kernels/mrope.hpp"
 #include "strata/core/progress.hpp"
@@ -94,6 +95,10 @@ uint64_t session_init(const ModelGeometry& g, int64_t max_cells, int64_t k, void
 
     gdn_buffers_init(g, take(gdn_buffers_bytes(g)), s.gdn);
     s.gdn_state = (float*) take((uint64_t) s.gdn_alloc * gdn_state_floats(g) * 4);
+    if (!conversation_host_prepare((size_t) s.gdn_alloc * gdn_state_floats(g) * 4)) {
+        std::fprintf(stderr, "strata: STRATA_HOST_IMMUNE: cannot reserve checkpoint host buffer\n");
+        return 0;
+    }
 
     // the QSA states are separate allocations carved from one arena, because `QsaState` is a struct of
     // pointers and `qsa_state_init` writes them - a contiguous array would need the arena to be laid out the

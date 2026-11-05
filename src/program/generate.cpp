@@ -16,6 +16,7 @@
 // (`phase-2-correct-engine.md:5-9`).  What it is FOR is the honest tok/s figure and the logit dump.
 
 #include "strata/platform/memory.hpp"
+#include "strata/platform/kfd_watch.hpp"
 #include "strata/platform/io_priority.hpp"
 #include "strata/core/adapt_async_default.hpp"
 #include "strata/core/arch_defaults.hpp"
@@ -479,7 +480,7 @@ int pin_blobs(std::vector<std::pair<uintptr_t, uintptr_t>> r, std::vector<void*>
     }
     r.resize(k + 1);
     for (const auto& [a, e] : r) {
-        if (cudaHostRegister((void*) a, (size_t) (e - a), cudaHostRegisterReadOnly | cudaHostRegisterPortable) ==
+        if (strata::core::host_register_locked((void*) a, (size_t) (e - a), cudaHostRegisterReadOnly | cudaHostRegisterPortable) ==
             cudaSuccess)
             live.push_back((void*) a);
         else {
@@ -1861,6 +1862,7 @@ void stall_report(std::FILE* f, uint64_t layers_during) {
 #if !defined(_WIN32)
         disk_wait_threads(f);
 #endif
+        if (const std::string k = strata::platform::kfd_summary(); !k.empty()) std::fprintf(f, "  %s\n", k.c_str());
         const MemSample m = mem_sample();
         std::fprintf(f, "  memory: %llu MiB resident, %llu MiB %s, %llu MiB RAM available; %llu %s\n", m.rss_mib,
                      m.commit_mib,
@@ -3192,6 +3194,7 @@ int main(int argc, char** argv) {
     // **UNBUFFERED, BECAUSE THE INTERESTING OUTPUT IS THE OUTPUT BEFORE A CRASH.**  `stdout` redirected to a
     // pipe or a file is block-buffered, so a program that dies loses every line it had already printed - which
     // turns "it crashed at step 7" into "it crashed somewhere", and the difference is a debugging session.
+    if (!strata::platform::host_immune_bootstrap()) return 1;
     std::setvbuf(stdout, nullptr, _IONBF, 0);
     strata::platform::restore_normal_io_priority();   // #4733: not the low disk priority of the program that started this one
 #if defined(STRATA_USE_HIP) && defined(_WIN32)
@@ -13494,28 +13497,44 @@ int main(int argc, char** argv) {
             // slow, not stuck; it gets up to STRATA_WATCHDOG_IO_S (default 10 x the limit) of such time. 0 = no allowance.
             const char* wio = std::getenv("STRATA_WATCHDOG_IO_S");
             const int io_limit = wio ? std::atoi(wio) : limit * 10;
+            // #267 on AMD: the kernel's queue evictions, watched from here on (STRATA_KFD_WATCH; the load's share is
+            // printed now, from KFD's own count)
+            strata::platform::kfd_watch_start(stderr, "at READY");
             if (limit > 0)
                 std::thread([limit, io_limit] {
                     strata::platform::name_this_thread("strata-watchdog");
                     strata::aux_cpus::pin_current_thread();
                     strata::core::Progress& p = strata::core::progress();
+                    // STRATA_WATCHDOG_RECHECK=0: stop the engine even when the request moved again during the report
+                    static const bool recheck = [] { const char* e = std::getenv("STRATA_WATCHDOG_RECHECK"); return e == nullptr || std::atoi(e) != 0; }();
                     uint64_t last = p.beats.load(), ticks_at = p.ticks.load();
                     auto since = std::chrono::steady_clock::now();
                     auto io_since = since;
                     uint64_t io_last = file_tier_activity();
                     auto io_active_at = since;   // the last second the file tier was busy
                     bool io_noted = false;
+                    auto woke = since;
+                    double late_s = 0.0;   // this stall's longest 1 s sleep: a host that itself stopped (D state, swap)
+                    const auto steady_ms = [](std::chrono::steady_clock::time_point t) {
+                        return std::chrono::duration<double, std::milli>(t.time_since_epoch()).count();
+                    };
                     for (;;) {
                         std::this_thread::sleep_for(std::chrono::seconds(1));
                         const auto now = std::chrono::steady_clock::now();
+                        const double slept = std::chrono::duration<double>(now - woke).count();
+                        woke = now;
                         const uint64_t b = p.beats.load();
-                        if (!p.busy.load() || b != last) { last = b; ticks_at = p.ticks.load(); since = now; io_since = now; io_active_at = now; io_noted = false; io_last = file_tier_activity(); continue; }
+                        if (!p.busy.load() || b != last) { last = b; ticks_at = p.ticks.load(); since = now; io_since = now; io_active_at = now; io_noted = false; io_last = file_tier_activity(); late_s = 0.0; continue; }
+                        if (slept > late_s) late_s = slept;
                         {   // sampled every second, also during the first `limit` seconds, so a busy file tier is seen
                             const uint64_t a = file_tier_activity();
                             if (a >= io_last + 16) io_active_at = now;   // 16 = faults + MiB read in a second: busy
                             io_last = a;
                         }
                         if (now - since < std::chrono::seconds(limit)) continue;
+                        // #267 on AMD: time the kernel kept the GPU queues evicted is not a stopped request
+                        // (STRATA_KFD_EVICT_WAIT, platform/kfd_watch.hpp; wall time without the watcher)
+                        if (!strata::platform::kfd_deadline_passed(steady_ms(since), steady_ms(now), 1000.0 * limit)) continue;
                         if (io_limit > limit && now - io_since < std::chrono::seconds(io_limit)) {
                             // a thrashing host has seconds with almost no reads (one thread waiting on one page while
                             // swap is written): busy within the last 10 s still counts as slow, not stuck (P2003, 46 GB)
@@ -13531,18 +13550,35 @@ int main(int argc, char** argv) {
                         }
                         // a blocking step's explicit allowance (session files): still within it, not yet stuck
                         if (strata::core::progress_now_ms() < p.allow_until_ms.load()) continue;
+                        const double stalled_s = std::chrono::duration<double>(now - since).count();
                         std::fprintf(stderr, "strata serve: no progress for %d s during a request (%s) - stopping "
-                                             "the engine so the server starts it again (issue #29)%s\n",
+                                             "the engine so the server starts it again (issue #29)%s; %.0f s since the "
+                                             "last beat, this thread's 1 s sleeps took up to %.1f s%s\n",
                                      limit, stage_text().c_str(),
                                      launch_blocking() ? "; CUDA_LAUNCH_BLOCKING=1 is set, and no verify window can "
-                                                         "finish with it (#1341)" : "");
+                                                         "finish with it (#1341)" : "",
+                                     stalled_s, late_s, late_s > 3.0 ? " (the host itself was stalled)" : "");
                         stall_report(stderr, p.ticks.load() - ticks_at);
+                        // the report takes 2 s: a request that moved again meanwhile was slow, not stuck.  Nothing has
+                        // been released yet, so it goes on as it was (releasing would poison its windows).
+                        if (recheck && (p.beats.load() != b || !p.busy.load())) {
+                            std::fprintf(stderr, "strata serve: the request moved again during the stall report (stage "
+                                                 "now: %s) - it was stalled for %.0f s, not stuck; the engine goes on "
+                                                 "(STRATA_WATCHDOG_RECHECK=0: stop anyway)\n",
+                                         stage_text().c_str(), stalled_s);
+                            std::fflush(stderr);
+                            const auto t = std::chrono::steady_clock::now();
+                            last = p.beats.load(); ticks_at = p.ticks.load(); since = t; io_since = t; io_active_at = t;
+                            io_noted = false; io_last = file_tier_activity(); late_s = 0.0; woke = t;
+                            continue;
+                        }
                         strata::core::release_gpu_waits(stderr);   // #267: no spin kernel outlives the process
                         std::fflush(stderr);
                         std::abort();
                     }
                 }).detach();
         }
+        strata::platform::report_registered_locks("at READY");
         strata::core::pin_sim_report("at READY");
         strata::core::pin_reserve_release_hard();   // the load is over: nothing else needs the headroom
         std::printf("READY %lld stop\n", (long long) o.max_context);   // "stop": this engine honours STOP
@@ -17859,8 +17895,35 @@ int main(int argc, char** argv) {
                 // an error ends the engine, as the serial loop's do: every GPU wait is released first (#267), so no
                 // window in flight keeps spinning on a flag nobody raises, and the tier's thread can finish (the
                 // asynchronous tier's job does host work alone: it ends)
+                // STRATA_PIPELINE_TRACE=<file>: every event of the loop with its time (appended per request; a request
+                // that ends in an error writes its events too, with the error after them)
+                static const char* pl_trace_path = pipe_dbg_env("STRATA_PIPELINE_TRACE");
+                std::string pl_trace;
+                const Clock::time_point pl_tr0 = Clock::now();
+                auto tre = [&](const char* ev, int seq, int x0 = 0, int x1 = 0) {
+                    if (pl_trace_path == nullptr) return;
+                    char b[96];
+                    std::snprintf(b, sizeof b, "%.3f %s %d %d %d\n",
+                                  std::chrono::duration<double, std::milli>(Clock::now() - pl_tr0).count(), ev, seq, x0, x1);
+                    pl_trace += b;
+                };
+                auto pl_trace_flush = [&](const char* ended) {
+                    if (pl_trace_path == nullptr || pl_trace.empty()) return;
+                    if (std::FILE* f = std::fopen(pl_trace_path, "a")) {
+                        // one '#' line per request, as the readers count them; an error rides on it and ends the events
+                        std::fprintf(f, "# request p0=%lld%s%s%s\n", (long long) (n - 1), ended ? " (ended in an error: " : "",
+                                     ended ? ended : "", ended ? ")" : "");
+                        std::fwrite(pl_trace.data(), 1, pl_trace.size(), f);
+                        if (ended != nullptr)
+                            std::fprintf(f, "%.3f ENDED 0 0 0\n",
+                                         std::chrono::duration<double, std::milli>(Clock::now() - pl_tr0).count());
+                        std::fclose(f);
+                    }
+                    pl_trace.clear();
+                };
                 auto die = [&](const std::string& m) -> int {
                     std::fprintf(stderr, "strata serve: pipelined decode: %s\n", m.c_str());
+                    pl_trace_flush(m.c_str());   // the failing request's last windows: what a #267 report needs most
                     strata::core::diag_pipeline_fn().store(nullptr);
                     strata::core::release_gpu_waits(stderr);
                     pl_copy_gap.stopping.store(true, std::memory_order_release);
@@ -17873,17 +17936,6 @@ int main(int argc, char** argv) {
                     std::printf("ERR %s\n", m.c_str());
                     std::fflush(stdout);
                     return 1;
-                };
-                // STRATA_PIPELINE_TRACE=<file>: every event of the loop with its time (appended per request)
-                static const char* pl_trace_path = pipe_dbg_env("STRATA_PIPELINE_TRACE");
-                std::string pl_trace;
-                const Clock::time_point pl_tr0 = Clock::now();
-                auto tre = [&](const char* ev, int seq, int x0 = 0, int x1 = 0) {
-                    if (pl_trace_path == nullptr) return;
-                    char b[96];
-                    std::snprintf(b, sizeof b, "%.3f %s %d %d %d\n",
-                                  std::chrono::duration<double, std::milli>(Clock::now() - pl_tr0).count(), ev, seq, x0, x1);
-                    pl_trace += b;
                 };
                 auto pump0 = [&](PW& w) -> bool {   // w's front stage in flight
                     if (!w.fl) return true;
@@ -18658,13 +18710,7 @@ int main(int argc, char** argv) {
                 a_pl_settle();
                 for (cudaEvent_t ev : fence_ev) if (ev) cudaEventDestroy(ev);
                 for (cudaEvent_t ev : exch_ev) if (ev) cudaEventDestroy(ev);
-                if (pl_trace_path != nullptr && !pl_trace.empty()) {
-                    if (std::FILE* f = std::fopen(pl_trace_path, "a")) {
-                        std::fprintf(f, "# request p0=%lld\n", (long long) (n - 1));
-                        std::fwrite(pl_trace.data(), 1, pl_trace.size(), f);
-                        std::fclose(f);
-                    }
-                }
+                pl_trace_flush(nullptr);
                 // the odd windows' counters and GPU profiles into the verifiers that report them
                 for (int st = 0; st < n_stages; ++st) stage_ver_p(st, 0).absorb_stats(stage_ver_p(st, 1));
                 if (!pl_adapt_ok) {

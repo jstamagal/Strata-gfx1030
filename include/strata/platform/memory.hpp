@@ -30,6 +30,21 @@ LockResult lock_resident_ranges(const std::vector<std::pair<void*, uint64_t>>& r
 /// Undo lock_resident for the same region (best effort).
 void unlock_resident(void* p, uint64_t bytes);
 
+/// STRATA_MLOCK_REGISTERED=1 (Linux, opt-in; off by default and everywhere else).  On AMD, hipHostRegister of ordinary
+/// memory is a KFD SVM range (libhsakmt's default, HSA_USE_SVM) or, without SVM, a userptr: neither pins it.  The
+/// kernel's compaction and reclaim may still move or take its pages, and every such change stops all GPU queues of the
+/// process until the driver re-validates the range (KFD's stats_*/evicted_ms counts it; platform/kfd_watch.hpp
+/// watches it live).  With the
+/// switch on, every range is locked (mlock2 MLOCK_ONFAULT, so nothing is touched before the registration faults it
+/// in; plain mlock where that call is missing) just before it is registered; with vm.compact_unevictable_allowed=0
+/// compaction then leaves those pages alone.  Returns the bytes locked (0 when off or refused; a refusal is printed
+/// once and the load goes on).  Call unlock_registered for the same range when the registration then fails.
+bool mlock_registered_on();
+uint64_t lock_registered(void* p, uint64_t bytes);
+void unlock_registered(void* p, uint64_t bytes);
+/// One line on stderr with the bytes locked so far (only when the switch is on).
+void report_registered_locks(const char* when);
+
 /// #243, Windows: the GPU's shared (non-local) memory budget and this process's use of it, from DXGI
 /// (IDXGIAdapter3::QueryVideoMemoryInfo, DXGI_MEMORY_SEGMENT_GROUP_NON_LOCAL) for the adapter whose LUID is the
 /// 8 bytes at `luid` (cudaDeviceProp::luid).  Page-locked host memory the GPU maps is charged there.  False (and

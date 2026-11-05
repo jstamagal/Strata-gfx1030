@@ -590,6 +590,10 @@ uint8_t* kv_host_alloc(uint64_t bytes) {
         (void) cudaGetLastError();
         return nullptr;
     };
+    // No anonymous registration fallback in this arm, including when the
+    // user previously selected STRATA_KV_HOST_REGISTER. Allocation failure is
+    // reported by qsa_state_init instead of silently restoring SVM exposure.
+    if (strata::platform::host_immune()) return host_alloc(bytes);
 #ifdef _WIN32
     return host_alloc(bytes);
 #else
@@ -601,7 +605,7 @@ uint8_t* kv_host_alloc(uint64_t bytes) {
     auto register_anon = [](uint64_t n) -> uint8_t* {
         void* m = mmap(nullptr, (size_t) n, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
         if (m == MAP_FAILED) return nullptr;
-        if (cudaHostRegister(m, (size_t) n, cudaHostRegisterPortable | cudaHostRegisterMapped) != cudaSuccess) {
+        if (strata::core::host_register_locked(m, (size_t) n, cudaHostRegisterPortable | cudaHostRegisterMapped) != cudaSuccess) {
             (void) cudaGetLastError();
             munmap(m, (size_t) n);
             return nullptr;

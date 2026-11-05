@@ -470,7 +470,7 @@ target_link_libraries(strata-plan PRIVATE strata_plan)
 # ---- strata_core (GPU runtime) ---------------------------------------------
 # Only built when a GPU backend is on, so the Phase 1 targets keep working without a toolkit.
 if(STRATA_ENABLE_CUDA OR STRATA_ENABLE_HIP)
-  add_library(strata_core STATIC src/core/device.cu src/core/pinned.cu src/platform/memory.cpp src/platform/io_priority.cpp src/core/graph.cpp src/core/weights.cpp
+  add_library(strata_core STATIC src/core/device.cu src/core/pinned.cu src/platform/memory.cpp src/platform/io_priority.cpp src/platform/kfd_watch.cpp src/core/graph.cpp src/core/weights.cpp
                                src/core/layout.cpp)
   target_include_directories(strata_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
   # the DFlash2 drafter (src/core/dflash2.cpp, src/kernels/cuda/dflash2.cu) exists in the CUDA and HIP builds; the Metal and SYCL builds compile without it
@@ -3203,6 +3203,10 @@ if(STRATA_BUILD_TESTS)
   target_include_directories(aux_cpus_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
   target_link_libraries(aux_cpus_test PRIVATE Threads::Threads)
   add_test(NAME aux_cpus_test COMMAND aux_cpus_test)
+  # #267 on AMD: the KFD queue-eviction event parser, episodes and the deadline rule (header part; no GPU, no /dev/kfd)
+  add_executable(kfd_watch_test tests/platform/kfd_watch_test.cpp)
+  target_include_directories(kfd_watch_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  add_test(NAME kfd_watch_test COMMAND kfd_watch_test)
 endif()
 
 # CUDA release kernels must not spill or keep a per-thread array in local memory: every access there is a round trip
