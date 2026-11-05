@@ -1,4 +1,4 @@
-# Swarm brief: make Qwen3.8 go zoom on 2x V620 (written 2026-11-04 15:15, updated 20:30 for run 3)
+# Swarm brief: make Qwen3.8 go zoom on 2x V620 (written 2026-11-04 15:15, updated 20:29 for run 3)
 
 **Earlier swarm runs' reports (runs 1 and 2) are withheld on purpose.** What they proposed, and what the measurements
 said, is folded into section 2 ("Already proposed and judged"). Don't go looking for those reports, their chat or
