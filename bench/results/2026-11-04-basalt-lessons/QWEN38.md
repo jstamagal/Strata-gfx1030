@@ -1190,3 +1190,21 @@ Opus xhigh subagent; full report saved at ~/inbox/agents/claude/parked-graph/REP
   STRATA_MLOCK_REGISTERED (from KING's cl-mlock/1020). Builds in insert 55's slot; window PGR (insert 57, ~2.5-3 h):
   edit24 under pressure on main / main + resident / branch, a quiet speed A/B, and diagnostics
   (HSA_SVM_HOST_UNREGISTER_DEBUG, mlock, hugetlb arena).
+
+## Window HWQ3: keep GPU_MAX_HW_QUEUES=4 (20:27-20:44)
+
+Main build-hip, harness IQ3_S config (arena, rt drafter), agent x2 per count, traces.
+
+| set | pass 1 | pass 2 |
+|---|---|---|
+| A: with the picture reader, q4 (live) | 148.9 | 148.9 |
+| A: q3 | 145.9 | 145.1 |
+| A: q2 | 146.3 | 146.2 |
+| B: no reader, q4 | 146.8 (text 5/6, gap 548 ms) | 141.3 (gaps 328, 1907 ms) |
+| B: no reader, q6 (fits: no oversubscription) | 140.7 | 140.0 |
+
+- Fewer queues cost 1.7-2.3%; 6 queues (possible only without the reader) cost 4-6% against A's q4. 4 stays.
+- The B runs overlap the start of swarm run 3 (~20:40) and the arena was still in the harness config: their gaps
+  and the B-q4 shortfall are not clean signal. B-q4 pass 1 changed the text in 1 of 6 cases against A-q4 (only the
+  reader's config section differs; the engine args are identical). Unexplained, single occurrence: watch for it.
+- The queue-sharing theory of the stalls is dead anyway (root cause above), so there is no reason to move the reader.
