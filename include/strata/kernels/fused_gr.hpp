@@ -27,6 +27,10 @@ struct FusedGrArgs {
     const float* R = nullptr;          ///< (hc, n_embd), read by `down`; `up` updates it in place when apply
     float* R_out = nullptr;            ///< == R for the in-place update
     bool apply = false;                ///< fold the previous half's gr_write
+    /// STRATA_HC_REQ8=2 (the layer split's decode copies): s_down / s_up (below) hold one fp16 scale per 16 contiguous
+    /// values ([row][col / 16], the same bytes) instead of one fp32 per 32.  (Next to `apply`, in its padding: the
+    /// struct's other offsets, and so the bf16 kernels' code, stay as they were.)
+    bool s16 = false;
     const float* bo_prev = nullptr;    ///< that half's block output, n_embd
     const float* inj_prev = nullptr;   ///< that half's injection, hc
     const float* w_norm = nullptr;     ///< (hc * n_embd) f32
@@ -99,6 +103,11 @@ void fused_gr_set_wide8(int on);
 void fused_gr_set_up_tsum(int on);
 /// Tests: STRATA_HC_DOWN2 on (1) or off (0) whatever the environment says; -1 = the environment again.
 void fused_gr_set_down2(int on);
+/// The bench only: STRATA_HC_REQ8's wide down rows a block (1, 2 or 4) for windows of n_tok tokens (n_tok <= 0: every
+/// size); another value = STRATA_HC_I8_ROWS / the default again.
+void fused_gr_set_i8_rows(int n_tok, int rows);
+/// The bench only: STRATA_HC_REQ8's wide up rows in flight a warp (1, 2, 4 or 8), as fused_gr_set_i8_rows (STRATA_HC_I8_UPR).
+void fused_gr_set_i8_upr(int n_tok, int upr);
 /// The bench only: the v3 read's weight-prefetch kernels (STRATA_GR_V3_PF, bit 0 down / bit 1 up) for every read; -1 = the environment.
 void fused_gr_v3_pf(int mask);
 /// The bench only: registers / spills / shared memory / resident blocks a multiprocessor of the v3 kernels (T = 4), one line each.
