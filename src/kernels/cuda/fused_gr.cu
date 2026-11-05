@@ -1922,103 +1922,117 @@ bool hc_up_tsum() {
 // fmaf(scale, dot, acc): the int8 multi kernels' operations (accw / firstw) in their order, so every output is bitwise
 // gr_down_multi_kernel<.., true>'s and gr_up_multi_kernel<.., true>'s (hc_i8_bench checks it, 1-8 tokens).  Dequantize
 // and fma rather than v_dot4: the read is bound by the weight bytes, and a dot4 would quantize the activations as well.
-// The down kernels park each chunk's dot unscaled with its scale beside it (the 4 lanes of a 32-value block share one:
-// scl[step][lane / 4]) and the token's wavefront folds them in the multi kernel's order (a bf16 inject row has scale 1:
-// fmaf(1, d, acc) is acc + d, the multi kernel's bf16 step).
+// The down kernels park each chunk's dot unscaled (the bf16 kernels' LDS, no more) and the token's wavefront folds them
+// in the multi kernel's order with the chunks' scales read back from s_down (chunk s of lane l: scale 8 s + l / 4 of the
+// row, 1280 bytes a row the tiles' wavefronts have just read); a block's rows are all int8 or all bf16 inject rows, and
+// each kind is its own code path (rows_i8_body<BF>), so the int8 path holds packed codes and the registers stay the bf16
+// kernel's (one path holding both took 213 VGPRs and the scales in LDS crossed the 3-blocks-a-WGP line).
 template <bool BF>
-__device__ __forceinline__ float i8_chunk_dot(const uint4 w, const float4 x0, const float4 x1) {
-    if constexpr (BF) return dot8u(unpack8(w), x0, x1);
-    else return dot8u(unpack8_i8(make_uint2(w.x, w.y)), x0, x1);
-}
-// tile h of `row`: a bf16 inject row's 8 values a uint4, or an int8 row's 8 codes in .x/.y; lanes 4j store the chunks' scales
-__device__ __forceinline__ void i8_row_load(const GrMulti& m, bool inject, int row, int h, int lane, uint4 (&wv)[HQ], float (*scl)[8]) {
-    if (inject) {
+using I8W = std::conditional_t<BF, uint4, uint2>;   // a chunk: 8 bf16 values, or 8 int8 codes
+template <bool BF>
+__device__ __forceinline__ void i8_row_load(const GrMulti& m, int row, int h, int lane, I8W<BF> (&wv)[HQ]) {
+    if constexpr (BF) {
         const uint4* w4 = reinterpret_cast<const uint4*>(m.a[0].w_inject + (size_t) row * D) + h * (H_TILE / 8);
 #pragma unroll
         for (int q = 0; q < HQ; ++q) wv[q] = __ldg(w4 + lane + 32 * q);
-        if ((lane & 3) == 0) {
-#pragma unroll
-            for (int q = 0; q < HQ; ++q) scl[h * HQ + q][lane >> 2] = 1.0f;
-        }
     } else {
         const uint2* w2 = reinterpret_cast<const uint2*>(reinterpret_cast<const int8_t*>(m.a[0].w_down) + (size_t) row * D) +
                           h * (H_TILE / 8);
-        const float* sr = m.a[0].s_down + (size_t) row * (D / 32) + h * (H_TILE / 32);   // chunk lane + 32 q: scale 8 q + lane / 4
 #pragma unroll
-        for (int q = 0; q < HQ; ++q) {
-            const uint2 v = __ldg(w2 + lane + 32 * q);
-            wv[q] = make_uint4(v.x, v.y, 0u, 0u);
-        }
-        if ((lane & 3) == 0) {
-#pragma unroll
-            for (int q = 0; q < HQ; ++q) scl[h * HQ + q][lane >> 2] = __ldg(sr + 8 * q + (lane >> 2));
-        }
+        for (int q = 0; q < HQ; ++q) wv[q] = __ldg(w2 + lane + 32 * q);
     }
 }
-template <int MAX_T = kFusedGrMaxT, bool EXACT_T = false, bool LOOP = false>   // EXACT_T, or LOOP over m.T
-__global__ void __launch_bounds__(THREADS) gr_down_rows_i8_kernel(GrMulti m) {
-    static_assert(EXACT_T != LOOP, "gr_down_rows_i8_kernel: exact T unrolled, or the token loop");
-    __shared__ float part[MAX_T][ROW_STEPS][32];
-    __shared__ float scl[ROW_STEPS][8];
+template <bool BF>
+__device__ __forceinline__ float i8_chunk_dot(const I8W<BF> w, const float4 x0, const float4 x1) {
+    if constexpr (BF) return dot8u(unpack8(w), x0, x1);
+    else return dot8u(unpack8_i8(w), x0, x1);
+}
+// a row's sum of its 40 parked chunk dots, the multi kernel's fold: bf16 acc + d; int8 fmaf(scale, d, acc)
+template <bool BF>
+__device__ __forceinline__ float i8_row_fold(const GrMulti& m, int row, const float (*part)[32], int lane) {
+    float acc = 0.0f;
+    if constexpr (BF) {
+#pragma unroll
+        for (int s = 0; s < ROW_STEPS; ++s) acc += part[s][lane];
+    } else {
+        const float* sr = m.a[0].s_down + (size_t) row * (D / 32) + (lane >> 2);
+#pragma unroll
+        for (int s = 0; s < ROW_STEPS; ++s) acc = fmaf(__ldg(sr + 8 * s), part[s][lane], acc);
+    }
+    return acc;
+}
+template <int MAX_T, bool EXACT_T, bool LOOP, bool BF>
+__device__ __forceinline__ void rows_i8_body(const GrMulti& m, int row, float (*part)[ROW_STEPS][32]) {
     const int t = threadIdx.x, lane = t & 31, h = t >> 5;
     const int T = EXACT_T ? MAX_T : m.T;
-    const bool inject = blockIdx.x >= LR;
-    const int row = inject ? (int) blockIdx.x - LR : (int) blockIdx.x;
-    uint4 wv[HQ];
-    i8_row_load(m, inject, row, h, lane, wv, scl);
-    auto dots = [&](auto bf) {
-        constexpr bool BF = decltype(bf)::value;
-        auto token = [&](int k) {
-            const float4* x4 = reinterpret_cast<const float4*>(m.xn + (size_t) k * D + (size_t) h * H_TILE);
-            float4 xa[HQ], xb[HQ];
+    I8W<BF> wv[HQ];
+    i8_row_load<BF>(m, row, h, lane, wv);
+    auto token = [&](int k) {
+        const float4* x4 = reinterpret_cast<const float4*>(m.xn + (size_t) k * D + (size_t) h * H_TILE);
+        float4 xa[HQ], xb[HQ];
+#pragma unroll
+        for (int q = 0; q < HQ; ++q) {
+            const int j = lane + 32 * q;
+            xa[q] = x4[2 * j];
+            xb[q] = x4[2 * j + 1];
+        }
+        if constexpr (!BF) {   // convert the codes per token: shared by the unrolled tokens, the 40 floats cost 3-4 tokens 13-15 VGPRs
 #pragma unroll
             for (int q = 0; q < HQ; ++q) {
-                const int j = lane + 32 * q;
-                xa[q] = x4[2 * j];
-                xb[q] = x4[2 * j + 1];
+#if defined(__HIPCC__)
+                asm volatile("" : "+v"(wv[q].x), "+v"(wv[q].y));
+#else
+                asm volatile("" : "+r"(wv[q].x), "+r"(wv[q].y));
+#endif
             }
-#pragma unroll
-            for (int q = 0; q < HQ; ++q) part[k][h * HQ + q][lane] = i8_chunk_dot<BF>(wv[q], xa[q], xb[q]);
-        };
-        if constexpr (LOOP) {
-#pragma unroll 1
-            for (int k = 0; k < T; ++k) token(k);
-        } else {
-#pragma unroll
-            for (int k = 0; k < MAX_T; ++k) token(k);
         }
+#pragma unroll
+        for (int q = 0; q < HQ; ++q) part[k][h * HQ + q][lane] = i8_chunk_dot<BF>(wv[q], xa[q], xb[q]);
     };
-    if (inject) dots(std::true_type{});
-    else dots(std::false_type{});
+    if constexpr (LOOP) {
+#pragma unroll 1
+        for (int k = 0; k < T; ++k) token(k);
+    } else {
+#pragma unroll
+        for (int k = 0; k < MAX_T; ++k) token(k);
+    }
     __syncthreads();
     if (h >= T) return;
-    float acc = 0.0f;
-#pragma unroll
-    for (int s = 0; s < ROW_STEPS; ++s) acc = fmaf(scl[s][lane >> 2], part[h][s][lane], acc);
-    const float sum = warp_sum(acc);
+    const float sum = warp_sum(i8_row_fold<BF>(m, row, part[h], lane));
     if (lane != 0) return;
-    if (inject) {
+    if constexpr (BF) {
         m.a[h].inject_out[row] = sum;
     } else {
         const float x = sum / (float) HC;
         m.a[h].lo[row] = x / (1.0f + __expf(-x));
     }
 }
+// gfx1030: the 3-token kernel compiles to 99 VGPRs (9 waves a SIMD) where the bf16 one has 84 (10); asked for 10 it makes
+// 96 without spilling.  Every other instantiation is at or above its bf16 kernel's occupancy as it is (1 = no request).
+constexpr int i8_rows_waves(int t, bool loop) { return !loop && t == 3 ? 10 : 1; }
+#if defined(__gfx1030__)
+#define STRATA_I8_ROWS_WAVES(n) __attribute__((amdgpu_waves_per_eu(n)))
+#else
+#define STRATA_I8_ROWS_WAVES(n)
+#endif
+template <int MAX_T = kFusedGrMaxT, bool EXACT_T = false, bool LOOP = false>   // EXACT_T, or LOOP over m.T
+__global__ void __launch_bounds__(THREADS) STRATA_I8_ROWS_WAVES(i8_rows_waves(MAX_T, LOOP)) gr_down_rows_i8_kernel(GrMulti m) {
+    static_assert(EXACT_T != LOOP, "gr_down_rows_i8_kernel: exact T unrolled, or the token loop");
+    __shared__ float part[MAX_T][ROW_STEPS][32];
+    if (blockIdx.x >= LR) rows_i8_body<MAX_T, EXACT_T, LOOP, true>(m, (int) blockIdx.x - LR, part);
+    else rows_i8_body<MAX_T, EXACT_T, LOOP, false>(m, (int) blockIdx.x, part);
+}
 // STRATA_HC_DOWN2's two rows a block, int8 (gr_down_rows2_kernel's passes of 4 tokens; the folds as above)
-__global__ void __launch_bounds__(THREADS) gr_down_rows2_i8_kernel(GrMulti m) {
-    constexpr int G = 4;
-    __shared__ float part[2][G][ROW_STEPS][32];
-    __shared__ float scl[2][ROW_STEPS][8];
+constexpr int D2G = 4;
+template <bool BF>
+__device__ __forceinline__ void rows2_i8_body(const GrMulti& m, int row0, float (*part)[D2G][ROW_STEPS][32]) {
     const int t = threadIdx.x, lane = t & 31, h = t >> 5;
     const int T = m.T;
-    const int row_g = (int) blockIdx.x * 2;   // rows row_g, row_g + 1 of [w_down | w_inject] (LR is even: no pair mixes them)
-    const bool inject = row_g >= LR;
-    const int row0 = inject ? row_g - LR : row_g;
-    uint4 wv[2][HQ];
+    I8W<BF> wv[2][HQ];
 #pragma unroll
-    for (int rr = 0; rr < 2; ++rr) i8_row_load(m, inject, row0 + rr, h, lane, wv[rr], scl[rr]);
-    auto pass = [&](auto bf, int k0, int nk) {
-        constexpr bool BF = decltype(bf)::value;
+    for (int rr = 0; rr < 2; ++rr) i8_row_load<BF>(m, row0 + rr, h, lane, wv[rr]);
+    for (int k0 = 0; k0 < T; k0 += D2G) {
+        const int nk = T - k0 < D2G ? T - k0 : D2G;
 #pragma unroll 1
         for (int kk = 0; kk < nk; ++kk) {
             const float4* x4 = reinterpret_cast<const float4*>(m.xn + (size_t) (k0 + kk) * D + (size_t) h * H_TILE);
@@ -2035,21 +2049,13 @@ __global__ void __launch_bounds__(THREADS) gr_down_rows2_i8_kernel(GrMulti m) {
                 part[1][kk][h * HQ + q][lane] = i8_chunk_dot<BF>(wv[1][q], xa[q], xb[q]);
             }
         }
-    };
-    for (int k0 = 0; k0 < T; k0 += G) {
-        const int nk = T - k0 < G ? T - k0 : G;
-        if (inject) pass(std::true_type{}, k0, nk);
-        else pass(std::false_type{}, k0, nk);
         __syncthreads();
-        const int rr = h / G, kk = h - rr * G;   // wave h: row rr, token k0 + kk
+        const int rr = h / D2G, kk = h - rr * D2G;   // wave h: row rr, token k0 + kk
         if (kk < nk) {
-            float acc = 0.0f;
-#pragma unroll
-            for (int s2 = 0; s2 < ROW_STEPS; ++s2) acc = fmaf(scl[rr][s2][lane >> 2], part[rr][kk][s2][lane], acc);
-            const float sum = warp_sum(acc);
+            const float sum = warp_sum(i8_row_fold<BF>(m, row0 + rr, part[rr][kk], lane));
             if (lane == 0) {
                 const int row = row0 + rr, k = k0 + kk;
-                if (inject) {
+                if constexpr (BF) {
                     m.a[k].inject_out[row] = sum;
                 } else {
                     const float x = sum / (float) HC;
@@ -2059,6 +2065,12 @@ __global__ void __launch_bounds__(THREADS) gr_down_rows2_i8_kernel(GrMulti m) {
         }
         __syncthreads();
     }
+}
+__global__ void __launch_bounds__(THREADS) gr_down_rows2_i8_kernel(GrMulti m) {
+    __shared__ float part[2][D2G][ROW_STEPS][32];
+    const int row_g = (int) blockIdx.x * 2;   // rows row_g, row_g + 1 of [w_down | w_inject] (LR is even: no pair mixes them)
+    if (row_g >= LR) rows2_i8_body<true>(m, row_g - LR, part);
+    else rows2_i8_body<false>(m, row_g, part);
 }
 // the int8 row i of w_up as gr_up_multi_kernel<.., true> reads it: chunk `lane`, and on lanes 0-7 chunk 32 + lane, with scales
 struct UpI8 { Bf16x8 wa, wb; float sa, sb; };
