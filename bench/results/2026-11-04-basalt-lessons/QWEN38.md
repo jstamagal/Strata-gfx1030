@@ -1307,7 +1307,7 @@ queue windows. Per-case medians over 3 passes below survive one bad pass; pooled
   mixed SVM and USERPTR): what window PIN's HOST_IMMUNE arm targets.
 - Text identical to live in every clean arm. Output: strata-ab/windowsw3.out.
 
-## Windows GDNLIFE and IQSIGNED: two exact kernel lanes, both neutral at engine level (23:08-23:34)
+## Windows GDNLIFE and IQSIGNED: two exact kernel lanes, both neutral at engine level (23:08-23:33)
 
 Built in one slot with main's options (gdn-life quad2c 186 VGPRs; iq-signed iq2s<18> 97 / fused<18> 102 VGPRs).
 - **GDNLIFE** (basalt38/gdn-life 928b78907: in-place v_fma state update in gdn_rec_quad2c_kernel, 220 -> 186 VGPRs):
