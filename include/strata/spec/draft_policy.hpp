@@ -74,6 +74,9 @@ public:
     /// these never learn from wall time. Acceptance, probe counts and stale-width rounds still learn normally.
     /// Invalid input leaves the policy unchanged. No environment is read by the policy itself.
     bool set_fixed_costs(const std::string& csv);
+    /// Upper winsorization of observed samples at factor * this width's current EMA (factor > 1).
+    /// The first sample bootstraps in real milliseconds. Lower samples are not clipped. Default: off.
+    bool set_cost_clip(double factor);
     /// STRATA_SPEC_COST: the context position of the next round; selects the row-cost table of its length (a row of attention costs
     /// more at 16K than at 1K).  A bucket with no measurement yet starts from the nearest one that has.  A no-op without set_robust(true).
     void set_context(long long pos);
@@ -120,6 +123,7 @@ private:
     unsigned sizes_ = ~0u;                                 // allowed window sizes (bit t)
     std::array<std::array<double, kMaxT + 1>, kCtxBuckets> cost_{}, cost_n_{};   // round ms by context bucket and window size
     std::array<double, kMaxT + 1> fixed_cost_{};             // zero: normal measured costs (default)
+    double cost_clip_ = 0.0;                               // zero: no upper sample clipping (default)
     int bk_ = 0;                                           // the current context bucket
     std::array<double, kMaxT + 1> mtp_tok_{}, mtp_n_{};    // tokens committed by MTP windows of that size
     std::array<double, kBuckets> ok_{}, bad_{};            // lookup drafts accepted / windows cut short, decayed

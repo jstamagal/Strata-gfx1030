@@ -76,6 +76,12 @@ bool DraftPolicy::set_fixed_costs(const std::string& csv) {
     return true;
 }
 
+bool DraftPolicy::set_cost_clip(double factor) {
+    if (!std::isfinite(factor) || factor <= 1.0) return false;
+    cost_clip_ = factor;
+    return true;
+}
+
 double DraftPolicy::cost_ms(int t) const {
     t = std::clamp(t, 1, kMaxT);
     if (fixed_cost_[t] > 0.0) return fixed_cost_[t];
@@ -93,6 +99,9 @@ double DraftPolicy::cost_ms(int t) const {
 
 double DraftPolicy::clamp_sample(int t, double ms) const {
     if (fixed_cost_[t] > 0.0) return fixed_cost_[t];
+    // Verdict intervals contain positive stalls and also legitimately short overlapped rounds. Preserve the
+    // latter so an overestimate can recover quickly; cap only the upper tail, after a width has bootstrapped.
+    if (cost_clip_ > 1.0 && cost_n_[bk_][t] > 0.0) ms = std::min(ms, cost_clip_ * cost_[bk_][t]);
     if (!robust_) return ms;
     const double known = cost_ms(t);           // the measured value, or the scaled guess from the other widths
     if (cost_n_[bk_][t] == 0) {

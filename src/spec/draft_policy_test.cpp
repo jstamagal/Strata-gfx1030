@@ -25,6 +25,35 @@ double cost(int t) { return 19.0 + 10.5 * (t - 1); }   // ms per round, measured
 int main() {
     std::printf("draft_policy_test\n");
     {
+        DraftPolicy prefix(8);
+        for (int i = 0; i < 300; ++i) prefix.observe(false, 3, 2 - (i & 1), 0, 18.94);
+        for (int a : {3, 2}) prefix.observe(true, 8, a, 3, 23.8838);
+        DraftPolicy normal = prefix, injected = prefix, clipped = prefix;
+        check(clipped.set_cost_clip(2.10), "clip: finite factor > 1 accepted");
+        check(!clipped.set_cost_clip(0) && !clipped.set_cost_clip(1) && !clipped.set_cost_clip(-2),
+              "clip: invalid factors rejected without changing the active clip");
+        // Saved fast-prefix intervals at windows 263..268. Inject only at 263, with identical outcomes.
+        const int widths[] = {3, 3, 8, 3, 3, 1};
+        const int accept[] = {2, 1, 2, 2, 2, 0};
+        const double ms[] = {21.381, 11.332, 34.199, 21.234, 11.307, 9.747};
+        for (int i = 0; i < 6; ++i) {
+            const bool lookup = widths[i] == 8;
+            normal.observe(lookup, widths[i], accept[i], 3, ms[i]);
+            injected.observe(lookup, widths[i], accept[i], 3, ms[i] + (i == 0 ? 31.25 : 0.0));
+            clipped.observe(lookup, widths[i], accept[i], 3, ms[i] + (i == 0 ? 31.25 : 0.0));
+        }
+        check(!normal.choose(3, 7, 5).lookup && injected.choose(3, 7, 5).lookup,
+              "clip regression: the unprotected 31.25 ms injection flips the choice");
+        check(!clipped.choose(3, 7, 5).lookup, "clip regression: 2.10 preserves MTP T3 under the same injection");
+        DraftPolicy changed(3);
+        changed.set_cost_clip(2.10);
+        changed.observe(false, 3, 2, 0, 10.0);  // real-ms bootstrap, never clipped against a unitless prior
+        check(changed.cost_ms(3) == 10.0, "clip: first sample bootstraps without clipping");
+        for (int i = 0; i < 22; ++i) changed.observe(false, 3, 2, 0, 20.0);
+        check(changed.cost_ms(3) >= 19.0 && changed.cost_ms(3) <= 20.0,
+              "clip: a sustained 2x cost is within 5% of its new value after 22 windows");
+    }
+    {
         DraftPolicy p(3);
         check(p.set_fixed_costs(" 8.2, 9.3, 10.4 "), "fixed costs: a complete positive profile is accepted");
         bool invalid = true;

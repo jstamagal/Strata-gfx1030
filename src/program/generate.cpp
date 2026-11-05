@@ -13610,6 +13610,24 @@ int main(int argc, char** argv) {
             }
             std::fprintf(stderr, "strata serve: STRATA_PL_POLICY_COSTS=%s: fixed window costs, acceptance still learned; no wall-clock cost feedback\n", pl_policy_costs);
         }
+        // STRATA_PL_POLICY_CLIP=factor (unset or 0: off): upper-tail winsorization before the cost EMA.
+        // 2.10 keeps the recorded window-269 choice below the 1.03 gate with >= 0.01 ratio headroom on the
+        // clean-prefix replays, including a +31.25 ms injected stall. A real sustained 2x change is not clipped.
+        const char* pl_policy_clip = std::getenv("STRATA_PL_POLICY_CLIP");
+        if (pipe && o.pipeline_windows >= 2 && pl_policy_clip != nullptr && pl_policy_clip[0] != '\0' &&
+            std::strcmp(pl_policy_clip, "0") != 0) {
+            char* end = nullptr;
+            const double factor = std::strtod(pl_policy_clip, &end);
+            if (pl_policy_costs != nullptr && pl_policy_costs[0] != '\0' && std::strcmp(pl_policy_costs, "0") != 0) {
+                std::fputs("strata serve: choose STRATA_PL_POLICY_COSTS or STRATA_PL_POLICY_CLIP, not both\n", stderr);
+                return 1;
+            }
+            if (end == pl_policy_clip || *end != '\0' || !policy.set_cost_clip(factor) || !policy_idle.set_cost_clip(factor)) {
+                std::fputs("strata serve: STRATA_PL_POLICY_CLIP needs a finite factor > 1 (0 disables it)\n", stderr);
+                return 1;
+            }
+            std::fprintf(stderr, "strata serve: STRATA_PL_POLICY_CLIP=%.6g: upper cost samples clipped before EMA; first samples and lower costs unchanged\n", factor);
+        }
         bool policy_is_df2 = use_df2;   // which drafter's costs `policy` holds (the engine's first drafter; swapped with policy_idle when a request uses the other one)
         struct DraftBandit { double tps[2] = {0, 0}; int n[2] = {0, 0}; int64_t reqs = 0; };   // [1] = DFlash2, [0] = MTP: decode tok/s of finished requests (--draft-rule learn)
         std::unordered_map<uint64_t, DraftBandit> bandit;
