@@ -1132,6 +1132,12 @@ The live settings are the best tested. A lower min-p accepts more drafts but pay
 loses 4.7% with the same accepted count: single pass, no trace, so a stall can't be excluded; the pipelined drafter
 never calls the `chain_rule_` it changes, so its live effect is indirect at best.
 
+**Correction (21:18, swarm run 3, nyira; checked against the per-case outputs):** the pooled numbers above are not
+verdicts for min-p 0.50 or SPEC_COST. Per case, SPEC_COST's loss is one json_patch outlier (+21.8% time with the same
+acceptance; median case +1.3%) and min-p 0.50's is one outlier too (median +0.3% while accepting more drafts). Only
+min-p 0.40 is slower across cases (median +3.4%). One pass, pre-RXP (eviction stalls possible). Both re-tested post-RXP
+with per-case medians and KFD eviction tags in window SW3 (insert 565).
+
 ## Window RXP: `--resident-experts` removes the stalls; ADOPTED (20:05-20:27)
 
 Main build-hip, harness IQ3_S config (rt drafter), traces on, interleaved. l = live, r = + `--resident-experts`

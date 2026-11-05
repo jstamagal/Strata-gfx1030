@@ -1,4 +1,4 @@
-# Swarm brief: make Qwen3.8 go zoom on 2x V620 (written 2026-11-04 15:15, updated 20:42 for run 3)
+# Swarm brief: make Qwen3.8 go zoom on 2x V620 (written 2026-11-04 15:15, updated 20:42 for run 3, 21:18 with run 3's verdicts)
 
 **Earlier swarm runs' reports (runs 1 and 2) are withheld on purpose.** What they proposed, and what the measurements
 said, is folded into section 2 ("Already proposed and judged"). Don't go looking for those reports, their chat or
@@ -119,9 +119,11 @@ rdna2-mmq opt-in prompt kernels, Q6 head-proxy auto, and a real bug fix (the gfx
 - **Drafting:**
   - DFlash2 drafter, serial or pipelined. DFlash+MTP.
   - MTP on card 0 (-11%). `--mtp-max-t 4` (-17%). `--mtp-max-t 2` (-6.1% at min-p 0.7).
-  - `--spec-min-p` 0.5 (-2.1%) and 0.4 (-4.1%). `--spec 5` on edits (303 vs 369).
-  - `STRATA_SPEC_COST=1`: -4.7% with the same acceptance (and the pipelined drafter never calls `chain_rule_`, the
-    rule it changes, so its effect on the live path is indirect at best).
+  - `--spec 5` on edits (303 vs 369). `--spec-min-p` 0.4: per-case median +3.4% slower (window 18).
+  - NOT dead, undetermined (run 3, nyira): `--spec-min-p` 0.5 and `STRATA_SPEC_COST=1`. Window 18's pooled -2.1% and
+    -4.7% each came from one outlier case with the same acceptance (per-case medians +0.3% and +1.3%), on the
+    pre-RXP config with eviction stalls. Re-test queued in window SW3. (The pipelined drafter never calls
+    `chain_rule_`, so SPEC_COST's effect on the live path is indirect at best.)
   - MTP chain cap 7->5 outputs (0 agent / -5.5% edits). `STRATA_PL_GUESS_T` 2 (-5-7%) and 1 (-23-26%).
   - `--mtp-q4` projections (neutral). All-native-Q4_0 MTP experts (+4.3% acceptance, -4.5% speed).
   - Smaller draft vocab (16-24K) instead of the English vocab: offline, no gain.
@@ -141,7 +143,7 @@ rdna2-mmq opt-in prompt kernels, Q6 head-proxy auto, and a real bug fix (the gfx
 - **Too small to keep:** `STRATA_PL_UNDO_KEEP_GDN` (exact, ~0.05 ms, hidden under the fresh chain); cutting the doomed
   guessed window's tail (~0.6%); 16-row split lookup with cost-aware admission (+0.4% edits, parked opt-in).
 
-### Already proposed and judged (swarm runs 1-2 + coordinator checks)
+### Already proposed and judged (swarm runs 1-3 + coordinator checks)
 
 | idea | verdict |
 |---|---|
@@ -157,10 +159,22 @@ rdna2-mmq opt-in prompt kernels, Q6 head-proxy auto, and a real bug fix (the gfx
 | Per-kernel-class decode profile | **Done** (numbers in section 2). |
 | GDN rollback snapshot writes in `gdn_core.cuh` | **Dead:** `src/split/`, not the live binary. PlSnap (card 0's GDN state copied once per speculative window) remains; ping-pong parity is a medium build, low rank. |
 | PLE demand/prefetch inversion; compact raw PLE transport | **Low / parked** (reader wait 0.03-0.27 ms; ~0.3% ceiling). |
-| IQ expert kernel cliff from 4 to 5 rows (`LDS_NT=4`) | **Unpriced:** needs a live route-group multiplicity histogram first. |
+| IQ expert kernel cliff from 4 to 5 rows (`LDS_NT=4`) | **Wrong kernel for this pack** (run 3, doc): the live fused path keeps `native_gu_fused_kernel` up to 20 entries; `LDS_NT` belongs to the non-fused mode. Both live expert kernels still work in groups of 4 entries (a 5th is another pass over the weights, not necessarily another DRAM read): price with a live per-expert multiplicity count, which `STRATA_ROUTE_STATS` does not give (it counts first hits). |
 | `STRATA_DRAFT_CONTEXT=1` disables the 2-bit head proxy | **Open** code road: proxy base plus dynamic exact rows. |
 | Guessed-window survival is overconfident (predicted 0.45 -> observed ~0.27) | **Open:** a policy calibration, split by fresh/guessed window and drafter. |
 | Cursor-following lookup for edits | Open, edits-only, small; nobody owns it. |
+| HC down/up reads are ~27% of the stage, so the HC kernels are the lever (run 3, maggie) | **Narrowed** (doc, from the kernel's own bench): `STRATA_HC_DOWN2=1` (two rows share one activation read, bitwise) is flat at 1-4 rows and -17-22% of that kernel at 5-8. So edits only, and that kernel's time, not the stage. The 3.31 ms is a profile-mode number with fusions altered, not a live critical-path share. Window SW3 runs DOWN2 on agent + edit24. `STRATA_HC_REQ8` changes the numbers and sits behind a `multi_gpu` guard: KING's call. |
+| THP `shrink_underused=1` keeps splitting huge pages inside GPU-registered ranges (run 3, pablo) | **Queued** (window SW3 T): the box has it on, 97% of 7.1M lifetime THP splits are that path; the mostly-unwritten 3.09 GiB KV host copy (sized for 524K cells) is the likely target. Decider: KFD SVM evictions under pressure, 1 vs 0. |
+| Right-size `--max-context` to shrink the KV host copy (run 3, pablo/effie) | **Parked behind SW3 T and PGR's mlock arm:** context length is a product choice; pinning or not-splitting the range keeps 524K. |
+| Reboot for a bigger `vm_fragment_size` (GPU page fragments) | **Dead** (run 3, doc): the boot log says 9-bit (2 MiB) already. Host hugetlb does not touch VRAM reads. |
+| "The experts already run at the bandwidth floor" / "1-2 ms of guaranteed headroom" | **Neither holds** (run 3, gruff): every roofline closure charged all 48 layers to one stage, mixed logical bytes with DRAM traffic, or used peak bandwidth as measured. |
+| The live config silently runs split 24 | **False** (run 3, kaje withdrew it): 25/23. |
+| `STRATA_GDN_CHUNKED` (the chunked GDN recurrence, 1.81x on an RTX 5090) | **A port, not a flag** (run 3, tuck corrected): the CUDA code is `#if !defined(__HIPCC__)`, the HIP chunked path targets gfx11/12, and the CUDA scan exceeds gfx1030's LDS per workgroup. Build lane. |
+| Dispatch census | **Exists and is discarded** (run 3, kaje): `STRATA_DISPATCH_REPORT=<path>` writes it at exit. SW3 sets it on a baseline arm. |
+| Shorter GDN register lifetimes (load and use k, then q) | **Open build lane** (run 3, gruff), gated on compiler VGPR/spill evidence before any engine run. |
+| Signed IQ codebook (precomputed signed grid entries instead of sign-mask XOR/add) | **Open build lane** (run 3, gruff/pip): the CPU check found the integer tables exact for every IQ3_XXS and IQ3_S combination; a GPU microbench on the live formats comes first, within the current LDS budget. |
+| Cold first prompt chunk (~1 s extra on the first 4096 tokens after a load) | **Measuring** (run 3, nyira; window SW3 F): may be eviction recovery, not cold caches. Prewarming before READY changes what the harness compares, so it isn't a speed win by itself. |
+| The agent harness measures task speed | **It measures capped decode** (run 3, nyira/cantsbee): 1200-token cap, most cases end on `length`. Kept as the stress bench; SW3's reader reports finish_reason; a completion fixture is still to build. |
 | Offline drafter scores (teacher-forced replay of captured steps) | **Picks direction, not small margins:** it ranked the IQ2_XXS drafter well above s2gptq-a; the engine has them level. Deep-chain drift is invisible to it. |
 
 ### In flight (the coordinator is running these: think about them, don't work on them)
@@ -184,7 +198,10 @@ rdna2-mmq opt-in prompt kernels, Q6 head-proxy auto, and a real bug fix (the gfx
   - Ruled out as the cause: shared HW queues (an eviction stops every queue anyway). KFD sysfs
     (`/sys/class/kfd/kfd/proc/<pid>/queues`): the engine holds 5 compute + 1 SDMA queues per card; the idle picture
     reader holds 3 compute + 1 SDMA on card 0, which is why 5+ queues oversubscribe. Without the reader, 6 queues fit
-    (window HWQ3, running).
+    (window HWQ3: 4 stays; 3 and 2 cost ~2%, 6 without the reader costs 4-6%).
+- **Window SW3 (queued, run 3's zero-build checks):** THP `shrink_underused` 1 vs 0 under pressure; `--spec-min-p`
+  0.5 / 0.4, `STRATA_SPEC_COST=1` and `STRATA_HC_DOWN2=1` against live on agent + edit24 with per-case medians and
+  eviction tags; the dispatch census; the cold first prompt chunk.
 - **Stock vs modded:** upstream's newest Strata built with main's options, same config, same env (fork-only knobs
   included as no-ops), vs main. Queued.
 - **MTP drafter weights** (branch `basalt38/mtp-quant`): corpus-calibrated GPTQ builds, QAT of the S2 expert scales
