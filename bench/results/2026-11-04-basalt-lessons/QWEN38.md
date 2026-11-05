@@ -1595,3 +1595,30 @@ repeat. Argmax agreement / KL(ref || run):
 - Decision is KING's: speed vs this quality drop. Not switched.
 - Longshot: a mixed pack (IQ2_XS base with IQ3_S promotions where sensitivity is highest, in the KING quant-method
   spirit) could buy much of the speed for less of the KL.
+
+## Window T1DIET: removing ~70 tiny launches saves ~0.12 ms per T=1 window; the profiler overstated gaps (04:20-05:09)
+
+Branch basalt38/t1-diet 6738da922, STRATA_T1_DIET bits:
+- 2: HC norm inside the wide down launch.
+- 4: one-row QSA layers take the batched path, unlocking the existing indexer-pair, norm+RoPE and gate+quant fusions.
+- 8: DPP reductions in route_plan.
+
+All parity tests passed bitwise (norm fold 720 direct reads plus captured-graph replays, route_plan 600 cases + 20000
+fused, qsa_fuse, node_fuse). Every arm's text is identical to main in every case, agent and edit24, 2 passes. Stage
+medians, delta vs the branch with the flag off (us):
+
+| bits | s0 T1 / T2 / T3 | s1 T1 / T2 / T3 | edit24 tok/s vs off (per-case) |
+|---|---|---|---|
+| 2 | -23 / -35 / **+107** | -14 / -17 / ... | +0.04% |
+| 4 | -74 / -14 / 0 | -82 / -6 / ... | +0.18% (17 of 24 faster) |
+| 8 | -20 / -35 / -28 | -21 / -20 / ... | +0.32% (24 of 24 faster) |
+| all | -112 / -52 / +84 | -125 / -48 / +38 | +0.14% |
+
+- Agent tok/s moved within its noise: the off arm read +1.2% vs main with identical code.
+- Bit 2 loses at T=3. Its own bench also shows the folded read slower at T=3-4 with combine.
+- route_plan bench per layer: GEMV + route_plan 13.35 -> 12.32 us with bit 8; the fused projection 11.53 -> 10.52 us.
+- **The lesson.** About 70 launches removed per card bought ~0.12 ms, ~1.6 us each, not the ~3-4 us gaps the profiler
+  showed. So the 558-kernel window carries roughly 0.9 ms of launch/gap overhead, an upper bound for any persistent or
+  megakernel rewrite. The bulk of the window is bandwidth-bound matvec time: mixer 2.3 ms, HC 1.6, experts 1.4, head 1.0.
+  Bytes (quant level, int8 HC, the head screen) and per-kernel GB/s are the levers. Window T1PMC measures the GB/s.
+- Bits 4 and 8 are exact and slightly positive, so they are merge candidates for a later bundle. Bit 2 is dropped.
