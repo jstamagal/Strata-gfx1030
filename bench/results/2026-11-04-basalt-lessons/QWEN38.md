@@ -1131,3 +1131,31 @@ Main build-hip, harness IQ3_S config (rt drafter), one pass each, agent unless n
 The live settings are the best tested. A lower min-p accepts more drafts but pays for more drafted rows. SPEC_COST
 loses 4.7% with the same accepted count: single pass, no trace, so a stall can't be excluded; the pipelined drafter
 never calls the `chain_rule_` it changes, so its live effect is indirect at best.
+
+## Window RXP: `--resident-experts` removes the stalls; ADOPTED (20:05-20:27)
+
+Main build-hip, harness IQ3_S config (rt drafter), traces on, interleaved. l = live, r = + `--resident-experts`
+(no 46.84 GiB hipHostRegister'd expert arena; all 24576 expert pairs VRAM-resident either way). pl / pr = the same
+under `compact_memory` every 10 s. Quiet sets: agent x2 + edit x1; provoked: agent x3 + edit x2.
+
+| set | live tok/s, gaps > 300 ms | resident-experts tok/s, gaps |
+|---|---|---|
+| agent quiet | 144.3, 3 (2680 ms) | 147.8 (+2.5%), 0 |
+| agent compaction | 139.0, 8 (8416 ms) | 148.0 (+6.5%), 0 |
+| edit quiet | 368.5, 0 | 355.4 (-3.6%), 1 (365 ms: the whole difference in a 1-arm set) |
+| edit compaction | 320.1, 2 (2954 ms) | 367.8 (+14.9%), 0 |
+
+- **Gaps: live 13 (14.05 s) vs resident-experts 1 (0.37 s) over 9 arms each.** Compaction no longer hurts at all.
+- Memory per arm: live MemAvailable floor 1.0-1.8 GiB, strata RSS 81 GiB; resident 44.5-71.1 GiB available, RSS
+  31-58 GiB. thp_fault_fallback ~13-17k per live arm vs 59-524. KFD userptr EVICT lines inside each arm's span: live
+  13901 / 68 / 119421 / 121537 / 57933, resident 66-196 (the ~66 every teardown fires).
+- Cost: engine load 52-67 s vs 34-45 s (+15-25 s, one-time per start). The log notes "exchange rotation unavailable"
+  (a no-op at full residency).
+- Text identical; gates OK; no #267 in either set (none expected at this request count).
+- **ADOPTED 20:28:** `--resident-experts` added to `strata-sc117-IQ3_S-qwen-abliterated.json` (gitignored live
+  config; revert = delete that one line). Stock Strata parses the same flag, so the queued stock-vs-modded window
+  (it snapshots the live config) stays same-flags for both binaries. The harness copy qwen-iq3s.json stays as it is
+  for today's comparability.
+- Mechanism (open): the registered arena is tied to the stalls even on a quiet box, although few evictions sat inside
+  decode spans in EVP. What touches the arena during fully resident decode (adaptive swap/exchange, SDMA) is with the
+  parked-graph agent, plus whether #267 itself goes away (edit24 repro arm with the flag).
