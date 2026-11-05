@@ -2041,3 +2041,29 @@ Throughput:
 - Merge set for the live engine: hc-int8 v2 (hcj env) + t1-diet 12 + the bimodal clip guard (STRATA_PL_POLICY_CLIP=2.10).
   It goes on its own branch and is validated in a window before the live switch. Merging into main now would trip the
   drift gates of the queued branch windows.
+
+## Window PRPORT: GDN #3226 and argmax #26812 are small clean wins; head-NT #25362 is slower and hung the GPU once (13:28-14:22)
+
+Branch basalt38/pr-port 053c2834a. Arms:
+- m: main; o: branch, all off;
+- g: STRATA_GDN_PR3226; n: STRATA_HEAD_NT25362; r: STRATA_ARGMAX_PR26812;
+- a: all.
+
+Two mirrored passes; every agent load was fast-state (hit/miss ~1885-1899/997-1000).
+
+The window ended GATE FAIL on two reader artifacts. Texts were byte-checked by hand, and main pass 1 vs pass 2 are
+identical:
+- the "runtime fault/eviction marker" regex `KFD.*evict` matches the benign "KFD at READY ... evicted 0 / 0 / 0 ms"
+  line on every load;
+- the "text/token/finish/draft work differs" check counts draft-work changes from the load state as differences.
+
+| arm | agent vs m | edit vs m | stage vs off (s0 T1/T3, s1 T1/T3) | notes |
+|---|---|---|---|---|
+| g (GDN #3226) | **+0.15%** (6/6 cases faster) | **+0.07%** (24/24 faster) | +1/-18, -11/-32 us | text identical |
+| r (argmax #26812) | **+0.16%** (6/6 faster) | 0.00% | +1/+10, **-44/-62** us | text identical |
+| n (head NT #25362) | **-0.76%** (0/6 faster) | -0.19% | +13/+32, **+169/+162** us | edit text differs 3/24; **GPU hang** in n_agent_2 (verify window never finished, 0 KFD evictions) |
+| a (all) | -0.45% | -0.08% | -2/-28, +114/+92 us | n's damage |
+
+- g and r are small, real, text-identical wins: ~+0.15% each on agent, card-1 stages down to -62 us. They are the next
+  merge candidates on top of live-1105 (g + r, without n).
+- n is dead as ported: slower on card 1, changes edit text, and hung the GPU once.
