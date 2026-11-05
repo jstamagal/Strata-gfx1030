@@ -1,4 +1,4 @@
-# Swarm brief: make Qwen3.8 go zoom on 2x V620 (written 2026-11-04 15:15, updated 20:25 for run 3)
+# Swarm brief: make Qwen3.8 go zoom on 2x V620 (written 2026-11-04 15:15, updated 20:30 for run 3)
 
 **Earlier swarm runs' reports (runs 1 and 2) are withheld on purpose.** What they proposed, and what the measurements
 said, is folded into section 2 ("Already proposed and judged"). Don't go looking for those reports, their chat or
@@ -30,8 +30,9 @@ mechanism and one deciding measurement beats a safe idea that's already in the j
 - **PCIe:** card 0 Gen4 x8, card 1 Gen4 x4 (permanently x4 in its slot).
 - **KING's board shorthand, use it exactly:** `#1 |0 |1 |2 #0 |3` (#1 = last GPU, #0 = first GPU, | = M.2).
 - **Power** is KING's dial, not yours: PF1 260 W, sclk 2650, mclk 1075. Don't change power, voltage or VRAM clocks.
-- **Memory:** a loaded engine leaves ~2 GB of RAM available. THP is "always", compaction_proactiveness 20. Every
-  engine load sets off system-wide direct reclaim of up to ~240 ms per episode.
+- **Memory:** with `--resident-experts` (live since 20:28) a loaded engine leaves 44-71 GiB available; before, ~1-2
+  GB. THP is "always", compaction_proactiveness 20. Engine loads with the old arena set off system-wide direct
+  reclaim of up to ~240 ms per episode.
 
 ## 2. Where things stand (IQ3_S pack, the daily driver)
 
@@ -45,6 +46,7 @@ Live config: `~/Strata_donttouch/strata-sc117-IQ3_S-qwen-abliterated.json`. Pack
 - **Residency:** `STRATA_KV_PF_SLOTS=1`. Card 1 caches all 11776 of its experts, card 0 all 12800 of its experts, and
   both stages run the zero-doorbell verify graph (4 graphs: even/odd verifier per stage).
 - **Picture reader:** the config's `"vision"` section starts `strata-vision` on card 0 (idle in every benchmark).
+- **`--resident-experts`** (adopted 20:28): no host copy of the experts.
 
 | workload (harness below) | today |
 |---|---|
@@ -101,6 +103,7 @@ Other packs, at their best configs:
 | IQ3_S 4096-token prompt chunks | +2.9% prompt / +4.6% gen at 120K |
 | `STRATA_KV_PF_SLOTS=1` | +4.6% agent, +5-10% gen after a long prompt, -3% on a 120K cold prompt |
 | MTP drafter `q38-s2-gptq-a` | +2.0% agent (6/6 cases more accepted, sign test p 0.031); edits neutral on 24 cases (22971.5 vs 22973.5 accepted) |
+| `--resident-experts` (adopted 20:28) | no 46.84 GiB hipHostRegister'd host arena: decode stalls 13 (14 s) -> 1 (0.4 s) over 9 arms; under forced compaction +6.5% agent, +14.9% edit; RAM available 1-2 GiB -> 44-71 GiB; engine load +15-25 s |
 | rocBLAS tuning table | prompt GEMMs |
 | LACT mclk pin, MRRS 4096, ASPM off | neutral, kept |
 
@@ -150,7 +153,7 @@ rdna2-mmq opt-in prompt kernels, Q6 head-proxy auto, and a real bug fix (the gfx
 | Missing early PLE flag in the pipelined `pl_launch` | **Falsified** (window EPF). |
 | `STRATA_VERIFY_COHERENT=1` | **Cut:** CLR's hipHostMalloc already maps that memory coherent. `STRATA_DOORBELL_STORE=1`: 3 gaps in 8 arms, suggestive only. |
 | Shared hardware queues (`GPU_MAX_HW_QUEUES=4` with more streams than queues per card) | **Live lead**, see the #267 entry in flight. More queues oversubscribe (above). |
-| `--resident-experts` complement mode | **Speed-neutral** (agent 148.8/148.2 vs 148.8/148.9; prompt same; text 6/6) and it creates NO 46.84 GiB host arena. Window RXP (running) checks memory, reclaim and stalls. |
+| `--resident-experts` complement mode | **ADOPTED** (window RXP, see Adopted). The registered arena is tied to the stalls even on a quiet box. What touches it during fully resident decode is still open (adaptive swap/exchange with `STRATA_EXCHANGE_ROTATE=1`, SDMA?), and so is whether #267 goes away with it. |
 | Per-kernel-class decode profile | **Done** (numbers in section 2). |
 | GDN rollback snapshot writes in `gdn_core.cuh` | **Dead:** `src/split/`, not the live binary. PlSnap (card 0's GDN state copied once per speculative window) remains; ping-pong parity is a medium build, low rank. |
 | PLE demand/prefetch inversion; compact raw PLE transport | **Low / parked** (reader wait 0.03-0.27 ms; ~0.3% ceiling). |
@@ -177,8 +180,8 @@ rdna2-mmq opt-in prompt kernels, Q6 head-proxy auto, and a real bug fix (the gfx
   - Stall facts: stall rate tracks host load (0.24 gaps per arm on a quiet morning, ~1.0 during both swarm runs, 0.07
     after); 43% of gaps start within the first second of a request and only in requests 1-4 (those follow a
     conversation-cache park that allocates new memory); the conversation cache off changes nothing on a quiet box.
-- **Window RXP** (running): `--resident-experts` vs live, quiet and under forced compaction, with MemAvailable, RSS,
-  direct reclaim and evictions per arm.
+- **After RXP:** with the arena gone (now live), the remaining question is #267 itself. The repro arm runs edit24
+  repeated with the flag on.
 - **Stock vs modded:** upstream's newest Strata built with main's options, same config, same env (fork-only knobs
   included as no-ops), vs main. Queued.
 - **MTP drafter weights** (branch `basalt38/mtp-quant`): corpus-calibrated GPTQ builds, QAT of the S2 expert scales
