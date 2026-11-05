@@ -1313,8 +1313,10 @@ Built in one slot with main's options (gdn-life quad2c 186 VGPRs; iq-signed iq2s
 - **GDNLIFE** (basalt38/gdn-life 928b78907: in-place v_fma state update in gdn_rec_quad2c_kernel, 220 -> 186 VGPRs):
   bitwise (rec_head 32 PASS; stage-bench y/state hashes identical). Recurrence + norm -3.4% / -4.2% / -4.9% at
   T 4096 / 16384 / 32768 (control kernel within 0.5%). 36K prompt on the engine: main 2698.5, branch 2673.2 tok/s
-  (-0.94%, one slow load; main spread 1.54%): neutral. The kernel is ~3.4 ms of a ~1300 ms 4096-token chunk, so the
-  saving is ~0.01% of the prompt; "GDN recurrence ~10% of prompt" in the brief was all of GDN. Parked, not merged.
+  (-0.94%, one slow load; main spread 1.54%): neutral. **Corrected 11-05 01:05 (sabyinyo, run 4):** the stage bench's
+  3.3 ms is ONE GDN layer at T=4096; 36 GDN layers make the ~127 ms "gdn recurrence" bucket (~10% of a chunk), so the
+  brief's 10% was right and the kernel saving is ~0.4% of the prompt, below this A/B's 1.5% spread (not "~0.01%").
+  Parked, not merged.
 - **IQSIGNED** (basalt38/iq-signed 6edc7415f: IQ3_XXS gate/up on a 16 KiB signed codebook in LDS, STRATA_IQ_SIGNED_CB):
   bitwise (lab parity 594 comparisons, 0 differ, synthetic + real rows; decode_expert_lab hash same off/on).
   Microbench on layer 0's real experts, the dispatch's kernel: T=1 gate/up 33.3 -> 34.5 us (+3.7%: the table fill),
@@ -1368,3 +1370,18 @@ Main binary, copy of the live config, per-case medians over 3 passes, text vs b 
 - min-p 0.5 / 0.4 and SPEC_COST: neutral; live 0.7 stays. Run 3's "undetermined" verdicts are now determined: dead.
 - HC_DOWN2: exact, edit24 +0.43% with every case faster, agent flat. Goes into the live config with the IMMUNE
   adoption (one config change), not before.
+
+## The 36K prompt runs its two stages one after the other (found 11-05 01:05 from SW3's timing arms, ab/sw3_f_*)
+
+Post-RXP, STRATA_PREFILL_TIMING=1, 36K prompt: per 4096-token chunk "GPU timeline" 1264-1324 ms, wall 1283-1343 ms;
+the request: GPU timeline 12441 ms, wall 12507 ms, harness 13.9 s (2620 tok/s; untimed live 2708).
+- The chunk timeline holds every layer of both cards: its "gdn recurrence" is 127 ms = 36 GDN layers x the stage
+  bench's 3.3 ms per layer at T=4096 (card 0 alone has ~19). So it is card 0 + card 1 summed, and the wall equals the
+  sum: **the stages do not overlap on the prompt.** A pipelined read could approach the slower card's half.
+- Why: with the live STRATA_PREFILL_PIPE=283 (a b/a calibrated while experts streamed), pipeline_chunk's cost model
+  (k*r + n + (S-1)*(r + c)) keeps the 4096 cap, so planned_C is not below the cap and the read is not "pipe chunked".
+  At b/a 64 it picks ~1536-token chunks and the pipelined path.
+- Post-RXP phase shares (per chunk): gemm gate/up 20.5%, qsa attn 12.7%, gdn recurrence 9.9%, qsa proj 9.9%,
+  gdn 8.7%, gemm down 8.2%, gdn out proj 5.3%, hc read down+silu 5.2%, hc read up 4.5%, dequant 3.6%, hc write 2.7%.
+- Window PFX (insert 5658) decides it: live vs b/a 32/64/128 vs --prefill 2048/3072, two mirrored passes, then L and
+  b/a 64 with timing (folded GPU time vs wall = the overlap).
