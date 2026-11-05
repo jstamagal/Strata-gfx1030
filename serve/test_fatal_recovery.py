@@ -101,6 +101,10 @@ class FatalRecovery(unittest.TestCase):
         e=self.engine('fatal')
         self.feed(e,['ERR verify: an earlier window never finished on the GPU (#267); restart the engine\n','DONE 0 1 0 1 error\n'],0)
         self.feed(e,['ERR verify batch: an earlier window never finished on the GPU (#267)\n'],2)
+    def test_the_window_never_finished_is_fatal(self):   # verify.cpp Verifier::done, the 20 s graph-completion timeout
+        e=self.engine('fatal')
+        self.feed(e,['ERR verify: the window never finished; its GPU waits were released and the GPU finished (#267)\n','DONE 0 1 0 1 error\n'],0)
+        self.feed(e,['ERR verify batch: the window never finished (#267)\n'],2)
     def test_generate_batched_refuses_a_dead_engine(self):
         e=self.engine('fatal');e.close()
         with self.assertRaises(EngineDied):list(e.generate_batched([1],8,{},threading.Event()))
