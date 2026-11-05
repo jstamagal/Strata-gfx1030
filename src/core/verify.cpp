@@ -1674,15 +1674,17 @@ bool Verifier::record_window(int T, cudaStream_t cs, std::string& err) {
         auto gr_read_group = [&](int half, bool apply, float* inj_prev, float* inj_out) {
             strata::dispatch::notef("hc read: weights Q8_0 copies=%ld (0 = bf16 rows), half=%ld, qfuse=%ld", (long) (wd[half]->hc_q8 != nullptr), (long) half, (long) (qcnt_ != nullptr));
             FusedGrArgs fa[kFusedGrWideT];
+            // STRATA_HC_REQ8 on a layer split: the int8 decode copies (both matrices, or neither); `data` is the BF16 rows
+            const bool i8 = wd[half]->dec_i8 != nullptr && wu[half]->dec_i8 != nullptr;
             for (int t = tb; t < te; ++t) {
                 FusedGrArgs& a = fa[t - tb];
                 a.R = Rt(t); a.R_out = Rt(t); a.apply = apply;
                 a.bo_prev = bo_ + t * N; a.inj_prev = inj_prev + t * HC;
-                a.w_norm = (const float*) wn[half]->data; a.w_down = (const uint16_t*) wd[half]->data;
-                a.w_up = (const uint16_t*) wu[half]->data; a.w_inject = (const uint16_t*) wi[half]->data;
+                a.w_norm = (const float*) wn[half]->data; a.w_down = (const uint16_t*) (i8 ? wd[half]->dec_i8 : wd[half]->data);
+                a.w_up = (const uint16_t*) (i8 ? wu[half]->dec_i8 : wu[half]->data); a.w_inject = (const uint16_t*) wi[half]->data;
                 a.q8_down = (const uint8_t*) wd[half]->hc_q8; a.q8_up = (const uint8_t*) wu[half]->hc_q8;
                 a.q8_inject = (const uint8_t*) wi[half]->hc_q8;
-                a.s_down = wd[half]->q8_scale; a.s_up = wu[half]->q8_scale;
+                a.s_down = i8 ? wd[half]->dec_i8_scale : wd[half]->q8_scale; a.s_up = i8 ? wu[half]->dec_i8_scale : wu[half]->q8_scale;
                 a.eps = EPS; a.lo = lo_ + t * g.hc_lr; a.rs = rs_ + t * HC;
                 a.inject_out = inj_out + t * HC; a.mixed = mixed_ + t * N;
                 if (half == 0 && cmb_def_[grp]) {   // STRATA_NODE_FUSE: the previous layer's combine (post below)
@@ -2677,6 +2679,7 @@ bool Verifier::record_window(int T, cudaStream_t cs, std::string& err) {
                     const WeightRef* w = next.get(name);
                     if (!w) continue;
                     if (w->hc_q8) add(w->hc_q8, (uint64_t) ((w->ne0 + 31) / 32) * 34 * w->ne1);
+                    else if (w->dec_i8) add(w->dec_i8, (uint64_t) w->elements);   // STRATA_HC_REQ8 (layer split): the rows the window reads
                     else add(w->data, w->bytes);
                 }
                 static const uint64_t budget = [] {

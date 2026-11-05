@@ -99,6 +99,11 @@ struct WeightRef {
     /// STRATA_HC_Q8 (experiment): non-null when `data` holds int8 codes [ne1][ne0] of a BF16 hyper-connection
     /// projection quantized Q8_0-style (one fp32 scale per 32 contiguous values, `q8_scale[ne1][ne0 / 32]`).
     const float* q8_scale = nullptr;
+    /// STRATA_HC_REQ8 on a layer split: a SECOND copy of a BF16 hyper-connection down / up projection, int8 codes
+    /// [ne1][ne0] and one fp32 scale per 32 values ([ne1][ne0 / 32], the q8_scale rule), on this stage's card, read by the
+    /// verify window only; `data` keeps the BF16 rows for the prompt path (WeightTable::make_hc_i8_copies).
+    const void* dec_i8 = nullptr;
+    const float* dec_i8_scale = nullptr;
 };
 
 struct LoadReport {
@@ -145,6 +150,11 @@ public:
     bool load_hc_q8(const std::string& pack_dir, uint64_t& bytes, std::string& err);
     /// The tensor names `load_hc_q8` converts, for the loader's skip set.
     static void hc_q8_names(int64_t n_layers, std::set<std::string>& out);
+    /// STRATA_HC_REQ8 on a layer split: the decode copies (`dec_i8`, `dec_i8_scale`) of layers [lb, le)'s hyper-connection
+    /// down / up projections, quantized from the BF16 rows this table holds (load_hc_q8's rule), in one allocation on the
+    /// current device.  The BF16 rows stay.  Every such projection in the range must be resident BF16.  `bytes` = the
+    /// allocation, `n` = the matrices.
+    bool make_hc_i8_copies(int64_t lb, int64_t le, uint64_t& bytes, int& n, std::string& err);
     const std::map<std::string, WeightRef>& all() const { return table_; }
     const LoadReport& report() const { return report_; }
 
