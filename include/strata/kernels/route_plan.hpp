@@ -13,6 +13,10 @@ namespace strata::kernels {
 // (native_route_fused); anything else, or unset: off
 bool route_plan_enabled();
 int route_plan_mode();
+// STRATA_T1_DIET (8; HIP gfx10+): both launches above with DPP wave reductions and the residency loaded ahead (the
+// same ids, weights and plan bytes).  route_plan_fast_tune (tests): 1 / 0 forces it on / off, -1 the environment again
+bool route_plan_fast();
+void route_plan_fast_tune(int on);
 
 // logits [n_tok][512] -> ids / weights [n_tok][10], exactly native_router_top10_multi's (native_router_top10's for one
 // token), then resident_plan(ids, n_tok * 10, 10, res_layer, n_expert, cache_base, slot_off, blob, plan, capx,

@@ -12,6 +12,11 @@
 // 128  the n-gram block's post-projection steps for the window in one pass (STRATA_DF_PLE=1's path)
 // 256  the head's hyper-connection read for the window's tokens in one launch set (STRATA_HEAD_MIX_MULTI=1's path),
 //      with STRATA_QFUSE also writing the head projection's q8_1 input
+// STRATA_T1_DIET (opt-in, off by default; HIP): more of the same, chiefly for the one-row (T=1) window.  =1 is every
+// bit; any other value a bit mask:
+//   2  the hyper-connection read's split register norm made by its wide down launch (1-4 tokens; fused_gr.cu)
+//   4  a one-row window's QSA layer takes the batched forms (STRATA_IDX_PAIR's pair, the norm + RoPE x3, the gate q8_1)
+//   8  the routing top-10 + plan with DPP wave reductions and the residency loads ahead (route_plan.cu)
 #include <cstdlib>
 
 namespace strata::kernels {
@@ -26,4 +31,14 @@ inline int node_fuse_mask() {
     return m;
 }
 inline bool node_fuse(int bit) { return (node_fuse_mask() & bit) != 0; }
+enum : int { kT1NormDown = 2, kT1QsaRow = 4, kT1Route = 8 };
+inline int t1_diet_mask() {
+    static const int m = [] {
+        const char* v = std::getenv("STRATA_T1_DIET");
+        const int n = v != nullptr ? std::atoi(v) : 0;
+        return n == 1 ? 0x7fffffff : n < 0 ? 0 : n;
+    }();
+    return m;
+}
+inline bool t1_diet(int bit) { return (t1_diet_mask() & bit) != 0; }
 }  // namespace strata::kernels

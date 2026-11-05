@@ -62,8 +62,8 @@ void bf16_gemv_fp32_mmvf_multi(const float* x, int64_t ldx, const uint16_t* w, f
                                int64_t n_in, int64_t n_out, int n_tok, void* stream);
 /// STRATA_IDX_PAIR (HIP): bf16_gemv_fp32_mmvf_multi(x, ldx, w, y, ldy, n_in, n_out, n_tok) and
 /// bf16_gemv_fp32_mmvf_multi(x, ldx, w2, y2, ldy2, n_in, n_out2, n_tok) in ONE launch, every output bitwise the two
-/// calls'.  False (nothing launched) off HIP, with STRATA_MMVF_ROWS=1, for one row, or when the input width does not
-/// take the 256-thread block (2,560 does).
+/// calls'.  False (nothing launched) off HIP, with STRATA_MMVF_ROWS=1, or when the input width does not take the
+/// 256-thread block (2,560 does).  One row (STRATA_T1_DIET's one-row QSA layer) repeats bf16_f32_mmvf_kernel<256>.
 bool bf16_gemv_fp32_mmvf_multi_pair(const float* x, int64_t ldx, const uint16_t* w, float* y, int64_t ldy, int64_t n_out,
                                     const uint16_t* w2, float* y2, int64_t ldy2, int64_t n_out2, int64_t n_in, int n_tok,
                                     void* stream);

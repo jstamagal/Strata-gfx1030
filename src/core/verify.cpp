@@ -788,6 +788,7 @@ Verifier::~Verifier() {
         if (e) cudaEventDestroy(e);
     if (arena_) cudaFree(arena_);
     if (route_done_) cudaFree(route_done_);
+    if (nrm_sync_) cudaFree(nrm_sync_);
     if (head_wide_scratch_) cudaFree(head_wide_scratch_);
     if (head_screen_scratch_) cudaFree(head_screen_scratch_);
     if (h_head_keep_) cudaFreeHost(h_head_keep_);
@@ -1156,6 +1157,17 @@ bool Verifier::init(const WeightTable& wt, const ModelGeometry& g, SessionState&
         if (cudaMalloc((void**) &route_done_, 256) != cudaSuccess) { (void) cudaGetLastError(); route_done_ = nullptr; }
         else cudaMemset(route_done_, 0, 256);
     }
+    // STRATA_T1_DIET (2): the hyper-connection reads' norm made by their down launch - one zeroed ticket block per call
+    // site (layer x half x token group, then the head's), never reset (fused_gr.hpp)
+    if (strata::kernels::t1_diet(strata::kernels::kT1NormDown)) {
+        const size_t bytes = (size_t) (g.n_layers * 4 + 2) * strata::kernels::kFusedGrNrmSyncBytes;
+        if (cudaMalloc((void**) &nrm_sync_, bytes) != cudaSuccess) { (void) cudaGetLastError(); nrm_sync_ = nullptr; }
+        else if (cudaMemset(nrm_sync_, 0, bytes) != cudaSuccess || cudaDeviceSynchronize() != cudaSuccess) {
+            (void) cudaGetLastError();
+            cudaFree(nrm_sync_);
+            nrm_sync_ = nullptr;
+        }
+    }
     // STRATA_HEAD_WIDE=1 / STRATA_HEAD_SAMPLE=1 (opt-in, the last stage only): their own small allocations, so the
     // arena above is the same bytes with them off.  A failed allocation leaves the switch off for this verifier.
     if (le_ == g.n_layers && head_ != nullptr && head_->loaded()) {
@@ -1412,6 +1424,11 @@ bool Verifier::init(const WeightTable& wt, const ModelGeometry& g, SessionState&
         }
         if (!ok2) { cudaGetLastError(); all_resident_ = false; device_plan_ = false; }
     }
+    if (strata::kernels::t1_diet_mask() != 0)   // STRATA_T1_DIET: what this verifier takes
+        std::fprintf(stderr, "strata verify: STRATA_T1_DIET %#x: HC norm in the down launch %s, one-row QSA batched %s, DPP routing %s\n",
+                     (unsigned) strata::kernels::t1_diet_mask(), nrm_sync_ != nullptr ? "on" : "off",
+                     strata::kernels::t1_diet(strata::kernels::kT1QsaRow) ? "on" : "off",
+                     strata::kernels::route_plan_fast() ? "on" : "off");
     std::fprintf(stderr, "strata verify: window up to %d tokens, %.1f MiB of device buffers%s\n", max_t,
                  (double) count.used / 1048576.0,
                  all_resident_ ? " (100% VRAM resident: zero-doorbell graph)" : "");
@@ -1710,8 +1727,12 @@ bool Verifier::record_window(int T, cudaStream_t cs, std::string& err) {
             }
             if (half == 0) cmb_def_[grp] = false;
             if (strata::kernels::fused_gr_read_persist(fa, n, cs)) return false;   // STRATA_HC_PERSIST=1; q8_mixed is never set there
+            // STRATA_T1_DIET (2): this call site's ticket block (layer, half, token group)
+            void* nsync = nrm_sync_ != nullptr ? (void*) (nrm_sync_ + (size_t) ((l * 2 + half) * 2 + grp) *
+                                                                          strata::kernels::kFusedGrNrmSyncBytes)
+                                               : nullptr;
             return fused_gr_read_multi(fa, n, xn_ + (size_t) tb * HC * N, cs, (prof_on_ && grp == 0) ? prof_ : nullptr,
-                                (int) (l * kProfPer + (half == 0 ? 27 : 30)));
+                                (int) (l * kProfPer + (half == 0 ? 27 : 30)), nsync);
         };
         const bool q8_attn = gr_read_group(0, pending, inj2_, inj_);   // true: xq_ holds mixed's q8_1 (STRATA_QFUSE)
         {   // measurement only: STRATA_DUMMY_NODES=k adds k empty kernel nodes per layer (what one node costs in a window)
@@ -1972,7 +1993,12 @@ bool Verifier::record_window(int T, cudaStream_t cs, std::string& err) {
                     const char* e = std::getenv("STRATA_DF_QB_Q4");
                     return e == nullptr || std::atoi(e) != 0;
                 }();
-                const bool qb = dec_batch && n > 1 && native_qsa_enabled() && native_rope_enabled() && (!st.kv_q4 || qb_q4);
+                // STRATA_T1_DIET (4): a one-row window takes the batched forms too (at one row each is the per-row call's
+                // launch, so the same bits), and with them the one-launch forms they unlock: STRATA_IDX_PAIR's pair,
+                // STRATA_NODE_FUSE's norm + RoPE x3 and STRATA_QSA_GATE_Q8's gate (three to four launches fewer)
+                const bool qsa_row = n == 1 && !batch_rec_ && strata::kernels::t1_diet(strata::kernels::kT1QsaRow);
+                const bool qb = dec_batch && (n > 1 || qsa_row) && native_qsa_enabled() && native_rope_enabled() &&
+                                (!st.kv_q4 || qb_q4);
                 if (!q8_attn) quant_in(xm, (int) N);
                 // STRATA_DF_BRANCH: the query side (q and its norm/RoPE/rotation on side 0, the indexer query on side 1)
                 // beside the K/V side; the indexer query joins before the block scores, the query before attention
@@ -2853,6 +2879,10 @@ bool Verifier::record_window(int T, cudaStream_t cs, std::string& err) {
         // S25 (STRATA_HC_Q8=1): the final mixer from the GGUF's Q8_0 projections too, through the same multi read
         // (no pending write, no inject)
         const bool mix_q8 = hd->hc_q8 != nullptr && hu->hc_q8 != nullptr && head_ != nullptr && head_->loaded();
+        // STRATA_T1_DIET (2): the head read's own ticket block (its down launch has no inject rows: another grid)
+        void* head_nsync = nrm_sync_ != nullptr && h0 == 0 ? (void*) (nrm_sync_ + (size_t) (g.n_layers * 4) *
+                                                                                    strata::kernels::kFusedGrNrmSyncBytes)
+                                                           : nullptr;
         // STRATA_NODE_FUSE: the window's head read as one launch set (STRATA_HEAD_MIX_MULTI's path), which with
         // STRATA_QFUSE also writes the q8_1 image the head projection reads
         const bool head_mix_fuse = strata::kernels::node_fuse(strata::kernels::kNodeFuseHeadMix);
@@ -2872,7 +2902,7 @@ bool Verifier::record_window(int T, cudaStream_t cs, std::string& err) {
                 a.mixed = head_mixed_ + t * N;
                 if (qcnt_ != nullptr) { a.q8_cnt = qcnt_; a.q8_mixed = xq_ + (size_t) (t - h0) * (N / 32) * 36; }
             }
-            q8_head = fused_gr_read_multi(fa, HT, xn_ + (size_t) h0 * HC * N, cs);
+            q8_head = fused_gr_read_multi(fa, HT, xn_ + (size_t) h0 * HC * N, cs, nullptr, 0, head_nsync);
         }
         else if (fuse_head_gr) {
             FusedGrArgs fa[kFusedGrMaxT];
@@ -2894,7 +2924,7 @@ bool Verifier::record_window(int T, cudaStream_t cs, std::string& err) {
                     a.q8_mixed = xq_ + (size_t) (t - h0) * (N / 32) * 36;
                 }
             }
-            q8_head = fused_gr_read_multi(fa, HT, xn_ + (size_t) h0 * HC * N, cs);
+            q8_head = fused_gr_read_multi(fa, HT, xn_ + (size_t) h0 * HC * N, cs, nullptr, 0, head_nsync);
         } else if ((head_mix_multi_enabled() || head_mix_fuse) && head_ != nullptr && head_->loaded()) {
             // the final mixer, the window's tokens in one read (fused_gr_read_multi without the pending write: the
             // last layer's write was done above; its sums are gr_read's)
@@ -2911,7 +2941,7 @@ bool Verifier::record_window(int T, cudaStream_t cs, std::string& err) {
                 a.lo = lo_ + t * g.hc_lr; a.rs = rs_ + t * HC; a.mixed = head_mixed_ + t * N;
                 if (qcnt_ != nullptr) { a.q8_cnt = qcnt_; a.q8_mixed = xq_ + (size_t) (t - h0) * (N / 32) * 36; }
             }
-            q8_head = fused_gr_read_multi(fa, HT, xn_ + (size_t) h0 * HC * N, cs);
+            q8_head = fused_gr_read_multi(fa, HT, xn_ + (size_t) h0 * HC * N, cs, nullptr, 0, head_nsync);
         } else {
             for (int t = h0; t < h0 + HT; ++t) {
                 BlockBuffers bb = ss.block;

@@ -81,8 +81,13 @@ constexpr int kFusedGrMaxT = 8;
 /// strictly its own, so the slices are bitwise the one read); `a` and `xn_scratch` hold up to kFusedGrWideT tokens.
 constexpr int kFusedGrWideT = kWindowMaxT;
 /// Returns true when it also wrote the q8_1 images (every token's q8_mixed set and this read supports it).
+/// `nrm_sync` (STRATA_T1_DIET (2); null = off): kFusedGrNrmSyncBytes of zeroed device memory owned by ONE call site
+/// whose reads all have the same w_inject presence and never overlap (the verifier's: one per layer, half and token
+/// group, one for the head).  Where the read's down launch is the wide row kernel's exact-T form (1-4 tokens), that
+/// launch also makes the split register norm (one launch fewer, every output the same bits); elsewhere it is unused.
 bool fused_gr_read_multi(const FusedGrArgs* a, int n_tok, float* xn_scratch, void* stream,
-                         unsigned long long* stamp_buf = nullptr, int stamp_i0 = 0);
+                         unsigned long long* stamp_buf = nullptr, int stamp_i0 = 0, void* nrm_sync = nullptr);
+constexpr int kFusedGrNrmSyncBytes = 256;
 /// The bench only: the AMD latency-hidden kernels on (1) or off (0); -1 = STRATA_GR_FAST.
 void fused_gr_set_fast(int on);
 /// The bench only: STRATA_HC_WIDE's bit mask (1 = the one-block-per-row down, 2 = the 8-lanes-a-row up); -1 = the

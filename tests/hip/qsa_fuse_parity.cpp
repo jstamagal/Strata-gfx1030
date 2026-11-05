@@ -1,8 +1,8 @@
 // tests/hip/qsa_fuse_parity.cpp - two fused launches of a QSA layer's decode window against the pairs of launches they
 // replace, bit for bit: STRATA_QSA_GATE_Q8 (the output gate and the q8_1 quantization of its result:
 // native_gate_quantize_q8_1 against native_qsa_gate_apply + native_quantize_q8_1) and STRATA_IDX_PAIR (two BF16
-// projections of the same rows: bf16_gemv_fp32_mmvf_multi_pair against two bf16_gemv_fp32_mmvf_multi calls), for
-// 1 to 8 tokens.  GPU, synthetic, no model.
+// projections of the same rows: bf16_gemv_fp32_mmvf_multi_pair against two bf16_gemv_fp32_mmvf_multi calls, which at
+// one token are bf16_gemv_fp32_mmvf's), for 1 to 8 tokens.  GPU, synthetic, no model.
 #include <hip/hip_runtime.h>
 #include "strata/kernels/bf16_gemv.hpp"
 #include "strata/kernels/native_mmvq.hpp"
@@ -90,7 +90,7 @@ int main() {
         float *r1, *r2, *p1, *p2;
         CHECK(hipMalloc((void**) &r1, b1)); CHECK(hipMalloc((void**) &p1, b1));
         CHECK(hipMalloc((void**) &r2, b2)); CHECK(hipMalloc((void**) &p2, b2));
-        for (int nt = 2; nt <= 8; ++nt) {
+        for (int nt = 1; nt <= 8; ++nt) {   // one row: STRATA_T1_DIET (4)'s one-row QSA layer
             for (float* p : {r1, p1}) CHECK(hipMemsetAsync(p, 0x5a, b1, stream));
             for (float* p : {r2, p2}) CHECK(hipMemsetAsync(p, 0x5a, b2, stream));
             bf16_gemv_fp32_mmvf_multi(dx, ldx, dw1, r1, ld1, n_in, no1, nt, stream);
@@ -104,7 +104,7 @@ int main() {
         }
         hipFree((void*) dw1); hipFree((void*) dw2); hipFree((void*) dx); hipFree(r1); hipFree(r2); hipFree(p1); hipFree(p2);
     }
-    std::printf("two BF16 projections in one launch: %d cases of 2-8 tokens, %s\n", pair_cases, pair_bad ? "DIFFERENT" : "bitwise equal");
+    std::printf("two BF16 projections in one launch: %d cases of 1-8 tokens, %s\n", pair_cases, pair_bad ? "DIFFERENT" : "bitwise equal");
     bad += pair_bad;
     std::printf("%s\n", bad ? "FAILED" : "PASSED");
     return bad ? 1 : 0;

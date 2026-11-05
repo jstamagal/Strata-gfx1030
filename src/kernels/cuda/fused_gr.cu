@@ -1771,6 +1771,152 @@ __global__ void __launch_bounds__(THREADS) gr_down_rows2_kernel(GrMulti m) {
     }
 }
 
+#if defined(__HIPCC__)
+// STRATA_T1_DIET (2): the split register norm folded into the wide down launch (one launch and its gap fewer a read).
+// The launch's blocks each take a ticket from the call site's 64-bit counter (the verifier owns one per call site and
+// never resets it; every launch there has the same grid, so ticket / gridDim.x numbers the launch).  The first
+// n_tok * HC tickets of a launch each run one (token, stream) unit of gr_norm_split_fast_kernel /
+// gr_norm_split_fast_cmb_kernel line for line (gr_norm_unit: the same elements, operations and order, so rs, xn and
+// the combine's bo are those kernels' bits), then store the launch's number in the unit's flag.  Every block loads its
+// row's weights first, waits for all of the launch's flags, then runs gr_down_rows_kernel<MAX_T, true>'s body.  A
+// ticket is only ever taken by a running block, so a unit never waits on a block that is not resident.
+struct NrmSync {
+    unsigned long long ticket;   // tickets taken over every launch at this call site
+    unsigned pad[30];            // the flags on their own cache line
+    unsigned flag[32];           // unit u: the number (+1) of the last launch whose unit u is done
+};
+static_assert(sizeof(NrmSync) == kFusedGrNrmSyncBytes, "one NrmSync per call site");
+static_assert(4 * HC <= 32, "the flags hold up to four tokens' units");
+template <bool CMB>
+__device__ __forceinline__ void gr_norm_unit(const GrMulti& m, int tok, int c, float* part, float* s_rs) {
+    const FusedGrArgs& a = m.a[tok];
+    float* xn = m.xn + (size_t) tok * D;
+    const int t = threadIdx.x, lane = t & 31, warp = t >> 5;
+    const float gw = a.apply ? 2.0f * sigmoidf_(a.inj_prev[c] / (float) HC) : 0.0f;
+    constexpr int KS = 3;
+    int k0 = (c * N - 4 * t + THREADS * 4 - 1) / (THREADS * 4);
+    if (k0 < 0) k0 = 0;
+    float4 r[KS], g[KS];
+    bool ok[KS];
+#pragma unroll
+    for (int j = 0; j < KS; ++j) {
+        const int i = t * 4 + (k0 + j) * THREADS * 4;
+        ok[j] = i < (c + 1) * N;
+        if (ok[j]) {
+            r[j] = *reinterpret_cast<const float4*>(a.R + i);
+            g[j] = *reinterpret_cast<const float4*>(a.w_norm + i);
+            if (a.apply) {
+                if constexpr (CMB) {
+                    const float4 b = gr_cmb_k10(a, i - c * N);
+                    if (c == 0) *reinterpret_cast<float4*>(const_cast<float*>(a.bo_prev) + (i - c * N)) = b;
+                    r[j].x = fmaf(b.x, gw, r[j].x); r[j].y = fmaf(b.y, gw, r[j].y);
+                    r[j].z = fmaf(b.z, gw, r[j].z); r[j].w = fmaf(b.w, gw, r[j].w);
+                } else {
+                    const float4 b = *reinterpret_cast<const float4*>(a.bo_prev + (i - c * N));
+                    r[j].x = fmaf(b.x, gw, r[j].x); r[j].y = fmaf(b.y, gw, r[j].y);
+                    r[j].z = fmaf(b.z, gw, r[j].z); r[j].w = fmaf(b.w, gw, r[j].w);
+                }
+            }
+        }
+    }
+    float ss = 0.0f;
+#pragma unroll
+    for (int j = 0; j < KS; ++j) {
+        if (ok[j]) {
+            const float sq = r[j].x * r[j].x + r[j].y * r[j].y + r[j].z * r[j].z + r[j].w * r[j].w;
+            ss += sq;
+            r[j] = make_float4(r[j].x * g[j].x, r[j].y * g[j].y, r[j].z * g[j].z, r[j].w * g[j].w);
+        }
+    }
+    const float v = warp_sum(ss);
+    if (lane == 0) part[warp] = v;
+    __syncthreads();
+    if (t == 0) {
+        float s = 0.0f;
+        for (int w = 0; w < WARPS; ++w) s += part[w];
+        *s_rs = rsqrtf(s / (float) N + a.eps);
+        a.rs[c] = *s_rs;
+    }
+    __syncthreads();
+    const float rs = *s_rs;
+#pragma unroll
+    for (int j = 0; j < KS; ++j)
+        if (ok[j])
+            *reinterpret_cast<float4*>(xn + t * 4 + (k0 + j) * THREADS * 4) =
+                make_float4(r[j].x * rs, r[j].y * rs, r[j].z * rs, r[j].w * rs);
+}
+template <int MAX_T, bool CMB>
+__global__ void __launch_bounds__(THREADS) gr_down_rows_nrm_kernel(GrMulti m, NrmSync* sync) {
+    static_assert(MAX_T >= 1 && MAX_T * HC <= 32, "gr_down_rows_nrm_kernel: up to 8 tokens' units");
+    __shared__ float part[MAX_T][ROW_STEPS][32];
+    __shared__ float npart[WARPS];
+    __shared__ float n_rs;
+    __shared__ unsigned s_unit, s_epoch;
+    const int t = threadIdx.x, lane = t & 31, h = t >> 5;
+    constexpr int T = MAX_T;
+    const bool inject = blockIdx.x >= LR;
+    const int row = inject ? (int) blockIdx.x - LR : (int) blockIdx.x;
+    const uint16_t* wrow = (inject ? m.a[0].w_inject : m.a[0].w_down) + (size_t) row * D;
+    const uint4* w4 = reinterpret_cast<const uint4*>(wrow) + h * (H_TILE / 8);
+    uint4 wv[HQ];
+#pragma unroll
+    for (int q = 0; q < HQ; ++q) wv[q] = __ldg(w4 + lane + 32 * q);   // in flight while the norm runs
+    if (t == 0) {
+        const unsigned long long tk = atomicAdd(&sync->ticket, 1ull);
+        const unsigned long long grid = gridDim.x, launch = tk / grid;
+        s_unit = (unsigned) (tk - launch * grid);
+        s_epoch = (unsigned) launch + 1u;   // the flags start at 0
+    }
+    __syncthreads();
+    const unsigned unit = s_unit, epoch = s_epoch;
+    constexpr unsigned UNITS = (unsigned) (MAX_T * HC);
+    if (unit < UNITS) {
+        gr_norm_unit<CMB>(m, (int) (unit / HC), (int) (unit % HC), npart, &n_rs);
+        __threadfence();   // every thread's xn / rs / bo stores land before the unit is published
+        __syncthreads();
+        if (t == 0) __scoped_atomic_store_n(&sync->flag[unit], epoch, __ATOMIC_RELEASE, __MEMORY_SCOPE_DEVICE);
+    }
+    if (h == 0) {   // wave 0 waits for every unit of this launch
+        for (;;) {
+            const bool ok = (unsigned) lane >= UNITS ||
+                            __scoped_atomic_load_n(&sync->flag[lane], __ATOMIC_RELAXED, __MEMORY_SCOPE_DEVICE) == epoch;
+            if (__all(ok)) break;
+            __builtin_amdgcn_s_sleep(2);
+        }
+    }
+    __syncthreads();
+    __threadfence();   // acquire: this wave's xn loads below see the units' stores
+    // ---- gr_down_rows_kernel<MAX_T, true>'s body
+    auto token = [&](int k) {
+        const float4* x4 = reinterpret_cast<const float4*>(m.xn + (size_t) k * D + (size_t) h * H_TILE);
+        float4 xa[HQ], xb[HQ];
+#pragma unroll
+        for (int q = 0; q < HQ; ++q) {
+            const int j = lane + 32 * q;
+            xa[q] = x4[2 * j];
+            xb[q] = x4[2 * j + 1];
+        }
+#pragma unroll
+        for (int q = 0; q < HQ; ++q) part[k][h * HQ + q][lane] = dot8u(unpack8(wv[q]), xa[q], xb[q]);
+    };
+#pragma unroll
+    for (int k = 0; k < MAX_T; ++k) token(k);
+    __syncthreads();
+    if (h >= T) return;
+    float acc = 0.0f;
+#pragma unroll
+    for (int s = 0; s < ROW_STEPS; ++s) acc += part[h][s][lane];
+    const float sum = warp_sum(acc);
+    if (lane != 0) return;
+    if (inject) {
+        m.a[h].inject_out[row] = sum;
+    } else {
+        const float x = sum / (float) HC;
+        m.a[h].lo[row] = x / (1.0f + __expf(-x));
+    }
+}
+#endif   // __HIPCC__
+
 // The up kernels' epilogue, one thread per (token, stream, column) with the block's 32 columns on a warp's 32 lanes:
 // the pending write, R_out and the gated value of every element, from loads and stores that are contiguous across a
 // warp (the default kernels do them on lane k of each row's warp for token k: one 4-byte access per lane and row).
@@ -1956,13 +2102,37 @@ static int gr_r2() {
     static const int v = [] { const char* e = std::getenv("STRATA_GR_R2"); return e != nullptr ? std::atoi(e) : 2; }();
     return v == 1 || v == 2 || v == 4 ? v : 0;
 }
-void launch_multi(const GrMulti& m, int variant, cudaStream_t st, unsigned long long* stamp_buf, int stamp_i0) {
+// STRATA_T1_DIET (2) (the verifier passes a call site's NrmSync only then): the split register norm made by the down
+// launch, where that launch is the wide row kernel's exact-T form for the whole read (1-4 tokens, bf16 weights, no
+// STRATA_HC_DOWN2 / STRATA_HC_WIDE8 / token chunks, no profile stamp between the two); launch_multi's own conditions
+bool nrm_fold_ok(const GrMulti& m, int variant, const void* nrm_sync, const unsigned long long* stamp_buf) {
+#if defined(__HIPCC__)
+    const int n_tok = m.T;
+    if (nrm_sync == nullptr || stamp_buf != nullptr || n_tok < 1 || n_tok > 4 || variant < kHcSplit || !norm_fast_on() ||
+        m.a[0].s_down != nullptr || (hc_wide() & 1) == 0)
+        return false;
+    static const bool no_multi_gr = [] { const char* v = std::getenv("STRATA_NO_MULTI_GR"); return v != nullptr && v[0] != '\0' && v[0] != '0'; }();
+    if (no_multi_gr) return false;   // the generic-T kernels
+    static const int down2_min = [] { const char* v = std::getenv("STRATA_HC_DOWN2_MIN"); return v != nullptr ? std::atoi(v) : 5; }();
+    if (hc_down2() && n_tok >= down2_min) return false;   // the two-row down
+    int tv = 2560;
+    return n_tok <= down_chunk(variant >= kHcStaged, &tv);   // one launch, no STRATA_HC_WIDE8
+#else
+    (void) m; (void) variant; (void) nrm_sync; (void) stamp_buf;
+    return false;
+#endif
+}
+void launch_multi(const GrMulti& m, int variant, cudaStream_t st, unsigned long long* stamp_buf, int stamp_i0,
+                  void* nrm_sync = nullptr) {
     const int n_tok = m.T;
     const bool q8w = m.a[0].s_down != nullptr;   // STRATA_HC_REQ8: w_down / w_up hold int8 codes
+    const bool nrm_fold = nrm_fold_ok(m, variant, nrm_sync, stamp_buf);   // STRATA_T1_DIET (2)
 #if STRATA_GR_FAST_BUILD
     // gfx906: the latency-hidden norm/up (STRATA_GR_FAST=0: off) - the same sums in the same order as the kernels
     // they replace (gr_parity checks the multi-token read against single-token calls bitwise)
     const bool fast = gr_fast();
+    if (nrm_fold) {
+    } else
     if (variant >= kHcSplit) {
         if (norm_fast_on() && m.a[0].cmb_parts != nullptr) gr_norm_split_fast_cmb_kernel<<<dim3((unsigned) n_tok, HC), THREADS, 0, st>>>(m);
         else if (norm_fast_on()) gr_norm_split_fast_kernel<<<dim3((unsigned) n_tok, HC), THREADS, 0, st>>>(m);
@@ -1970,6 +2140,8 @@ void launch_multi(const GrMulti& m, int variant, cudaStream_t st, unsigned long 
     } else if (fast) gr_norm_fast_kernel<<<n_tok, THREADS, 0, st>>>(m);
     else gr_norm_multi_kernel<<<n_tok, THREADS, 0, st>>>(m);
 #else
+    if (nrm_fold) {
+    } else
     if (variant >= kHcSplit) {
         if (norm_fast_on() && m.a[0].cmb_parts != nullptr) gr_norm_split_fast_cmb_kernel<<<dim3((unsigned) n_tok, HC), THREADS, 0, st>>>(m);
         else if (norm_fast_on()) gr_norm_split_fast_kernel<<<dim3((unsigned) n_tok, HC), THREADS, 0, st>>>(m);
@@ -2028,6 +2200,19 @@ void launch_multi(const GrMulti& m, int variant, cudaStream_t st, unsigned long 
             // up to 4 tokens: every token's loads issued together (66-104 registers); more: a token at a time
             // (fused_gr_bench on gfx1030, cold weights, 5 / 6 tokens: 27.0 / 28.7 us against 30.9 / 36.8 us)
             const unsigned rows = (unsigned) (LR + (c.a[0].w_inject != nullptr ? HC : 0));
+#if defined(__HIPCC__)
+            if (nrm_fold) {   // STRATA_T1_DIET (2): the norm above, made by this launch
+                NrmSync* ns = static_cast<NrmSync*>(nrm_sync);
+                const bool cm = m.a[0].cmb_parts != nullptr;
+                switch (ct) {
+                    case 1: if (cm) gr_down_rows_nrm_kernel<1, true><<<rows, THREADS, 0, st>>>(c, ns); else gr_down_rows_nrm_kernel<1, false><<<rows, THREADS, 0, st>>>(c, ns); break;
+                    case 2: if (cm) gr_down_rows_nrm_kernel<2, true><<<rows, THREADS, 0, st>>>(c, ns); else gr_down_rows_nrm_kernel<2, false><<<rows, THREADS, 0, st>>>(c, ns); break;
+                    case 3: if (cm) gr_down_rows_nrm_kernel<3, true><<<rows, THREADS, 0, st>>>(c, ns); else gr_down_rows_nrm_kernel<3, false><<<rows, THREADS, 0, st>>>(c, ns); break;
+                    default: if (cm) gr_down_rows_nrm_kernel<4, true><<<rows, THREADS, 0, st>>>(c, ns); else gr_down_rows_nrm_kernel<4, false><<<rows, THREADS, 0, st>>>(c, ns); break;
+                }
+                continue;
+            }
+#endif
             switch (exact_t ? ct : 0) {
                 case 1: gr_down_rows_kernel<1, true><<<rows, THREADS, 0, st>>>(c); break;
                 case 2: gr_down_rows_kernel<2, true><<<rows, THREADS, 0, st>>>(c); break;
@@ -3223,7 +3408,7 @@ static bool gr_up_pf_dispatch(int pf, int n_tok, const GrMulti& m, const float* 
 // One read of at most kFusedGrMaxT tokens: the kernels below are built for that many (the instantiations, the shared
 // memory, the by-value launch argument), whatever the window is.
 static bool fused_gr_read_multi_slice(const FusedGrArgs* a, int n_tok, float* xn_scratch, void* stream,
-                                      unsigned long long* stamp_buf, int stamp_i0) {
+                                      unsigned long long* stamp_buf, int stamp_i0, void* nrm_sync = nullptr) {
     if (n_tok < 1 || n_tok > kFusedGrMaxT || xn_scratch == nullptr) {
         std::fprintf(stderr, "fused_gr_read_multi: invalid arguments\n");
         std::exit(1);
@@ -3405,7 +3590,7 @@ static bool fused_gr_read_multi_slice(const FusedGrArgs* a, int n_tok, float* xn
     }
 #endif
     // the default read (STRATA_GR_V3 unset): v1, or the bitwise-equal v2 / v3 this card's check accepted
-    launch_multi(m, fused_gr_variant(), st, stamp_buf, stamp_i0);
+    launch_multi(m, fused_gr_variant(), st, stamp_buf, stamp_i0, nrm_sync);
     const cudaError_t e = cudaGetLastError();
     if (e != cudaSuccess) {
         std::fprintf(stderr, "fused_gr_read_multi: %s\n", cudaGetErrorString(e));
@@ -3451,8 +3636,8 @@ void fused_gr_v3_print_resources() {
 #endif
 }
 bool fused_gr_read_multi(const FusedGrArgs* a, int n_tok, float* xn_scratch, void* stream, unsigned long long* stamp_buf,
-                         int stamp_i0) {
-    if (n_tok <= kFusedGrMaxT) return fused_gr_read_multi_slice(a, n_tok, xn_scratch, stream, stamp_buf, stamp_i0);
+                         int stamp_i0, void* nrm_sync) {
+    if (n_tok <= kFusedGrMaxT) return fused_gr_read_multi_slice(a, n_tok, xn_scratch, stream, stamp_buf, stamp_i0, nrm_sync);
     if (n_tok > kFusedGrWideT || a == nullptr || xn_scratch == nullptr) {
         std::fprintf(stderr, "fused_gr_read_multi: invalid arguments (%d tokens)\n", n_tok);
         std::exit(1);
