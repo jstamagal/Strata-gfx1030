@@ -1063,7 +1063,7 @@ text equals live 9/9, and draft counts equal the mtpq worktree binary's mtpqi_iq
 runs; one 1343 ms gap (ntv_br_live_edit). The branch is merge-ready, but it only matters once a native-format drafter
 is adopted. Not merged yet: AB3 runs on the branch binary and decides that.
 
-## #267-class hang during a PROMPT read (mtpq edit24 capture, 19:30)
+## #267-class hang in decode (mtpq edit24 capture, 19:30; first misread as a prompt read)
 
 ab/mtpq_cap_edit24 (mtpq branch binary 563dbb2f with the capture hook, harness IQ3_S config, rt): request 4
 (wedit_json_config_2, 1690-token prompt) hung reading its prompt: "no progress for 60 s ... waiting for the GPU
