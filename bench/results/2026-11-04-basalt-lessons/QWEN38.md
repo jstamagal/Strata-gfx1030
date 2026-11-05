@@ -1112,3 +1112,22 @@ livebr / iq2g on the mtpq branch binary. Per-case paired accepted tokens (mean o
   "verify: the window never finished; its GPU waits were released but the GPU did not finish within 5 s", releases
   finished in 3/0/1/0 ms, engine exit 1, restarted. That's 2 #267-class failures in ~216 edit24 requests within 30 min:
   edit24 is a usable repro set (handed to the parked-graph agent).
+
+## Audit window 18: draft confidence x chain length (19:54-20:05)
+
+Main build-hip, harness IQ3_S config (rt drafter), one pass each, agent unless noted (config-audit/runs/w18_*).
+
+| arm | tok/s | drafts accepted / drafted |
+|---|---|---|
+| mtp-max-t 3, min-p 0.70 (live) | 148.1 | 4030 / 4760 |
+| mtp-max-t 3, min-p 0.50 | 145.0 (-2.1%) | 4230 / 5437 |
+| mtp-max-t 3, min-p 0.40 | 142.1 (-4.1%) | 4258 / 5749 |
+| mtp-max-t 2, min-p 0.70 | 139.1 (-6.1%) | 3349 / 3959 |
+| mtp-max-t 2, min-p 0.50 | 135.1 | 3496 / 4344 |
+| mtp-max-t 3, min-p 0.70, STRATA_SPEC_COST=1 | 141.1 (-4.7%) | 4030 / 4798 |
+| edits, --spec 8 (live) | 368.6 | 3104 / 3265 |
+| edits, --spec 5 | 303.3 | 2798 / 2997 |
+
+The live settings are the best tested. A lower min-p accepts more drafts but pays for more drafted rows. SPEC_COST
+loses 4.7% with the same accepted count: single pass, no trace, so a stall can't be excluded; the pipelined drafter
+never calls the `chain_rule_` it changes, so its live effect is indirect at best.
