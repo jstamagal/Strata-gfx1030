@@ -1325,3 +1325,22 @@ Built in one slot with main's options (gdn-life quad2c 186 VGPRs; iq-signed iq2s
   501-514. Instruction-count work on these kernels can't buy engine speed. Decode speed now comes from fewer expert
   bytes per accepted token (smaller expert quants, longer accepted windows, fewer distinct experts per window) or from
   the non-expert part of the window.
+
+## Window PIN: STRATA_HOST_IMMUNE=1 removes every KFD queue eviction under pressure (11-04 23:2x - 11-05 00:23)
+
+basalt38/pinned-host 02a104984 (on parked-graph). edit24 under compact_memory every 10 s + the page-cache streamer,
+6 passes, interleaved, a copy of the live config (resident experts), KFD events as root per arm:
+
+| arm | edit24 tok/s | KFD queue evictions (node events: SVM / USERPTR / TTM) |
+|---|---|---|
+| main | 311.5 | 5604 / 369 / 0 |
+| branch, HOST_IMMUNE=0 | 309.6 | 4464 / 396 / 0 |
+| **branch, HOST_IMMUNE=1** | **312.3** | **0 / 0 / 0** |
+
+- Per engine process: main and branch-off 200-310 episodes per pass (longest up to 1299 ms); immune 0 in every pass.
+- Text identical in every case that completed. Main's pass 5 hit **#267** (two edit24 cases lost, engine restarted);
+  its own KFD log shows only short evictions before it (longest 6 ms in that engine life): this #267 is not explained
+  by a long eviction, so a third #267 trigger, or a lost-event gap in the logger, remains open.
+- Next: window IMMUNE (insert 5657), the quiet adoption check (agent, edit24, 36K prompt) before HOST_IMMUNE goes
+  live; staging copies instead of pin-in-place could cost prompt H2D bandwidth.
+- Output: strata-ab/windowpin.out, arms ab/pin_*.
