@@ -1,4 +1,4 @@
-# Swarm brief: make Qwen3.8 go zoom on 2x V620 (written 2026-11-04 15:15, updated 20:29 for run 3)
+# Swarm brief: make Qwen3.8 go zoom on 2x V620 (written 2026-11-04 15:15, updated 20:42 for run 3)
 
 **Earlier swarm runs' reports (runs 1 and 2) are withheld on purpose.** What they proposed, and what the measurements
 said, is folded into section 2 ("Already proposed and judged"). Don't go looking for those reports, their chat or
@@ -146,7 +146,7 @@ rdna2-mmq opt-in prompt kernels, Q6 head-proxy auto, and a real bug fix (the gfx
 | idea | verdict |
 |---|---|
 | Memory reclaim / compaction causes the decode stalls | **Partly true, refined.** Window STALL (quiet box): during natural stalls no strata thread was off-CPU >=200 ms and reclaim was zero. Window EVP: forcing `compact_memory` every 10 s gives 5 stalls of 386-508 ms in 3 agent arms (quiet: 0), but only 1 of 5 sits next to a KFD userptr eviction, and the eviction-fence / full-restore path never fired in 40 min. Compaction stalls the pipeline some other way, and it is not the whole story (natural stalls on a quiet box). |
-| KFD userptr eviction of the 46.84 GiB registered expert arena | **Mostly not it** (EVP above). kcompactd does evict userptr while an engine loads; rarely during decode. |
+| KFD userptr eviction of the 46.84 GiB registered expert arena | **Wrong path, right idea:** the arena is an SVM range, not a userptr; SVM evictions ARE the stalls (see in flight, ROOT CAUSE). |
 | A host round-trip per MTP draft step (the `--spec-min-p` gate in `draft_first`) | **Not on the live path.** `--pipeline-windows 2` drafts with `chain_launch`; min-p is applied afterwards in `t_rule`. |
 | Pipeline depth 3 | **Low priority.** Card 0 is already 82-97% in flight. |
 | A full 2-wide verify tree | **About break-even** offline (~0.18 extra tokens per window for ~3 extra rows, before GDN branch state). Live form: the leaf fork (not started). |
@@ -165,23 +165,26 @@ rdna2-mmq opt-in prompt kernels, Q6 head-proxy auto, and a real bug fix (the gfx
 
 ### In flight (the coordinator is running these: think about them, don't work on them)
 
-- **#267 and the decode stalls: the parked verify graph.** Two #267-class failures in ~216 edit24 requests today,
-  one on main's binary. Both in decode. In the clearer dump, the stage 1 odd verifier sat "IN FLIGHT ... flags served
-  1, plan (A) 0, copies (B) 0; window event PENDING" while the host idled 93 s; releasing the GPU waits let the GPU
-  finish in 6 ms. The engine's own phase label said "reading the prompt", which was stale (a second bug).
-  - Working hypothesis, being tested by an agent reading the code: each card has more streams than its 4 HW queues,
-    so ROCclr maps several streams onto one in-order queue. A zero-doorbell graph parked on device, waiting for a host
-    flag, then blocks other work behind it on that queue: a deadlock if the host waits on that work (#267), a stall if
-    the flag arrives later anyway (longer when compaction slows the host).
-  - KFD sysfs (`/sys/class/kfd/kfd/proc/<pid>/queues`): the engine holds 5 compute + 1 SDMA queues per card; the idle
-    picture reader holds 3 compute + 1 SDMA on card 0. That is why 5+ queues oversubscribe.
-  - Window HWQ3 (queued): 3 and 2 queues vs 4 with the reader; then without the reader (the engine run is identical),
-    4 vs 6 vs 5.
-  - Stall facts: stall rate tracks host load (0.24 gaps per arm on a quiet morning, ~1.0 during both swarm runs, 0.07
-    after); 43% of gaps start within the first second of a request and only in requests 1-4 (those follow a
-    conversation-cache park that allocates new memory); the conversation cache off changes nothing on a quiet box.
-- **After RXP:** with the arena gone (now live), the remaining question is #267 itself. The repro arm runs edit24
-  repeated with the flag on.
+- **#267 and the decode stalls: ROOT CAUSE FOUND (20:40, ledger section "ROOT CAUSE").** They are KFD queue evictions.
+  gfx1030 has no XNACK, so when the kernel changes a page of GPU-mapped host memory (compaction, reclaim/swap, THP
+  split or collapse, a free), KFD evicts every queue of the process on both cards (`svm_range_evict` ->
+  `kgd2kfd_quiesce_mm`). The restore retries every ~2.5 ms and fails while pages keep moving. Short evictions are the
+  0.3-4 s stalls; 20+ s ones are #267. libhsakmt registers every `hipHostRegister` range as an unpinned **SVM** range
+  (HSA_USE_SVM default), so the userptr probes used earlier today could not see it. KFD's own event stream showed 189
+  SVM-triggered and 12 userptr evictions in 70 s, and a serving engine frozen 7.7% of the time.
+  - The 46.84 GiB arena was the biggest registered range and also kept RAM at 1-2 GiB, which kept compaction and
+    reclaim busy. `--resident-experts` (adopted) removed it.
+  - What still registers host memory: the KV host copy (`kv_host_alloc`, ~3.09 GiB), ROCclr's pinned-in-place copy
+    buffers (copies over 64 KiB, 32 MiB chunks; a 59.2 MiB one is unmapped at every request end), small heap ranges.
+    Open questions: which Strata copy makes the 59.2 MiB buffer, and whether any registration can be truly pinned.
+  - Branch `basalt38/parked-graph`: an own-process KFD event watcher, #267 deadlines that count only time the GPU
+    could run (the engine waits out an eviction instead of dying), mlock of registered ranges. Window PGR (queued,
+    ~2.5-3 h): edit24 under compaction plus page-cache pressure on main, main + resident, and the branch; diagnostics
+    with `HSA_SVM_HOST_UNREGISTER_DEBUG=1`, mlock, and a hugetlb-backed arena.
+  - Ruled out as the cause: shared HW queues (an eviction stops every queue anyway). KFD sysfs
+    (`/sys/class/kfd/kfd/proc/<pid>/queues`): the engine holds 5 compute + 1 SDMA queues per card; the idle picture
+    reader holds 3 compute + 1 SDMA on card 0, which is why 5+ queues oversubscribe. Without the reader, 6 queues fit
+    (window HWQ3, running).
 - **Stock vs modded:** upstream's newest Strata built with main's options, same config, same env (fork-only knobs
   included as no-ops), vs main. Queued.
 - **MTP drafter weights** (branch `basalt38/mtp-quant`): corpus-calibrated GPTQ builds, QAT of the S2 expert scales
