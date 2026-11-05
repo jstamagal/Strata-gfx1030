@@ -13597,6 +13597,19 @@ int main(int argc, char** argv) {
         strata::spec::SuffixDrafter sfx(std::max(1, o.suffix_draft), 64, (size_t) o.max_context + 4096);
         strata::spec::DraftPolicy policy(S);   // MTP or lookup window, learned over the whole process
         strata::spec::DraftPolicy policy_idle(S);   // --draft auto: the other drafter's learned costs; swapped in with it when a request uses the other drafter
+        // STRATA_PL_POLICY_COSTS=ms1,...,msS (unset or 0: unchanged). The pipeline's verdict intervals include
+        // rollback, PLE/driver stalls and overlap, not just this width's work. Feeding them back can flip a
+        // lookup choice and keep the process on a different schedule. A fixed profile removes that timer input;
+        // it does not fix the underlying stall or promise that the chosen profile is fastest.
+        const char* pl_policy_costs = std::getenv("STRATA_PL_POLICY_COSTS");
+        if (pipe && o.pipeline_windows >= 2 && pl_policy_costs != nullptr && pl_policy_costs[0] != '\0' &&
+            std::strcmp(pl_policy_costs, "0") != 0) {
+            if (!policy.set_fixed_costs(pl_policy_costs) || !policy_idle.set_fixed_costs(pl_policy_costs)) {
+                std::fprintf(stderr, "strata serve: STRATA_PL_POLICY_COSTS needs exactly %d comma-separated positive finite costs (ms, T1..T%d)\n", S, S);
+                return 1;
+            }
+            std::fprintf(stderr, "strata serve: STRATA_PL_POLICY_COSTS=%s: fixed window costs, acceptance still learned; no wall-clock cost feedback\n", pl_policy_costs);
+        }
         bool policy_is_df2 = use_df2;   // which drafter's costs `policy` holds (the engine's first drafter; swapped with policy_idle when a request uses the other one)
         struct DraftBandit { double tps[2] = {0, 0}; int n[2] = {0, 0}; int64_t reqs = 0; };   // [1] = DFlash2, [0] = MTP: decode tok/s of finished requests (--draft-rule learn)
         std::unordered_map<uint64_t, DraftBandit> bandit;
@@ -17766,6 +17779,8 @@ int main(int argc, char** argv) {
                     float p_on = 0.0f;     // the chain's estimate that the window before is accepted whole, tok[0] its bonus
                     // launched: on stage 0; finished: done on every front stage (all but the last); s1: on the last
                     bool ready = false, launched = false, finished = false, s1 = false, s1_done = false;
+                    bool s1_served = false;  // trace: all host service supplied, not GPU completion
+                    uint32_t served = 0;     // same, per front stage (S0)
                     int fr = 0;            // front stages done
                     bool fl = false;       // in flight on front stage `fr`
                     uint32_t com = 0;      // the front stages this window was committed on speculatively (bit per stage)
@@ -17945,7 +17960,12 @@ int main(int argc, char** argv) {
                     // undo restores everything it wrote).  STRATA_PIPELINE_DOOM_SKIP=0: served in full.
                     static const bool doom_skip = [] { const char* e = pipe_dbg_env("STRATA_PIPELINE_DOOM_SKIP"); return e == nullptr || std::atoi(e) != 0; }();
                     const bool skip = doom_skip && doomed && &w == &D;
-                    if (v.service(skip ? nullptr : &drive_pool_split, SDf(w), err) < 0) return false;
+                    const int served = v.service(skip ? nullptr : &drive_pool_split, SDf(w), err);
+                    if (served < 0) return false;
+                    if (pl_trace_path != nullptr && served > 0 && (w.served & (1u << w.fr)) == 0) {
+                        w.served |= 1u << w.fr;
+                        tre("S0", w.seq, w.fr, w.spec);   // resident path: PLE rows arrived and flag 1 raised
+                    }
                     if (v.done(err)) {
                         if (!v.pl_finish(nullptr, err)) return false;
                         w.fl = false;
@@ -18128,6 +18148,11 @@ int main(int argc, char** argv) {
                     const int match = sfx.last_match();
                     if (k <= 0 || (!resynced && pl_sbuf[0] != chain0[0])) return;
                     const strata::spec::DraftPolicy::Pick pk = policy.choose(w.T, std::min(k, std::min(S, 8) - 1), match);
+                    tre("PK", w.seq, w.T, pk.lookup ? pk.t : 0);   // original MTP width, selected lookup width (0: kept MTP)
+                    if (pl_trace_path != nullptr) {
+                        auto us = [](double ms) { return (int) std::min((double) std::numeric_limits<int>::max(), 1000.0 * ms); };
+                        tre("PC", w.seq, us(policy.cost_ms(w.T)), us(policy.cost_ms(std::min(S, 8))));   // costs in us
+                    }
                     if (!pk.lookup && !resynced) return;
                     const int rows = lookup_rows(w.p, resynced ? std::min(std::min(S, 8), k + 1) : pk.t);
                     if (rows <= 0) return;
@@ -18229,6 +18254,10 @@ int main(int argc, char** argv) {
                         strata::core::Verifier& v = V1(A);
                         const int served = v.service(&drive_pool_split, SDf(A), err);
                         if (served < 0) return die(err);
+                        if (pl_trace_path != nullptr && served > 0 && !A.s1_served) {
+                            A.s1_served = true;
+                            tre("S1", A.seq, A.T);
+                        }
                         if (served > 0 && !ajob && !pl_adapt_thr.joinable() && !exch_wait && o.adapt_every > 0 &&
                             ((rounds + 1) % o.adapt_iv(rounds)) == 0) tier_rank_start();
                         if (v.done(err)) {
