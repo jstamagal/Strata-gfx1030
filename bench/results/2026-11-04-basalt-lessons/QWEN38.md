@@ -1026,8 +1026,8 @@ mtpq branch binary 563dbb2f, harness IQ3_S config, only `--mtp` differs; agent x
   vs live), and the replay is teacher-forced on live's chain states, so deep-chain drift (edit runs 7.2 tok/round) is
   invisible. Settling it: a 24-case edit set from llama.cpp and forgecode files (mtpq agent), capture plus an engine
   A/B of rt vs s2gptq-a, appended after the corpus capture. The adoption stays until that reads.
-- q4n is the best drafter here (+2.5% agent, -0.3% edit) but takes +675 MiB on card 1: blocked by the no-VRAM-growth
-  rule. q4g's pass-2 dips look like stalls (single-pass drops of 2.6% and 6.1%).
+- q4n is the best drafter here (+2.5% agent, -0.3% edit) and takes +675 MiB on card 1 (held back until 11-05 by a
+  misread "no VRAM growth" rule that KING never made; in AB3 now). q4g's pass-2 dips look like stalls (single-pass drops of 2.6% and 6.1%).
 - KING's quant pushes the expert cache below full residency (11705 of 11776 slots on CUDA1, so only 2 zero-doorbell
   graphs) and changes the text: every mtpq drafter beats it.
 - The IQ2_XXS drafter A/B (mtpqi_*) started 18:58.
@@ -1249,8 +1249,8 @@ reads 4.911 vs the GPU's own 4.913 on the same steps). Gated E[L] at p >= 0.7 vs
 | s2-gptq-c1 (QAT base) | +2.3% | +2.1% | +1.8% | 675 |
 | s2-gptq-c | +1.0% | +1.1% | +1.8% | 675 |
 | iq2xxs-gptq-a / -c / rtngu-c | +2.8 / +2.4 / +2.8% | +2.4 / +3.8 / +2.6% | +3.1 / +3.1 / +3.2% | 637.5 |
-| q2q4-c | +3.3% | +2.3% | +2.5% | 900 (over the VRAM rule) |
-| q4_0-gptq-c | +3.8% | +3.1% | +4.1% | 1350 (over the VRAM rule) |
+| q2q4-c | +3.3% | +2.3% | +2.5% | 900 (in AB3) |
+| q4_0-gptq-c | +3.8% | +3.1% | +4.1% | 1350 (in AB3) |
 
 - **Offline over-predicts the engine.** Same 24 edit cases: offline s2gptq-a +0.9%, iq2g-a +3.1%; engine -0.01% and
   -0.17% accepted (inside the same-drafter floor). On agent the order flips at gate 0.7 (offline iq2g >> s2gptq,

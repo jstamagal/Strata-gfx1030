@@ -126,7 +126,7 @@ Live knobs measured as keepers today: `STRATA_SH_STREAM=1` (off costs 12.5%), `S
 rdna2-mmq opt-in prompt kernels, Q6 head-proxy auto, and a real bug fix (the gfx103x MMVQ ROW/SET dispatchers ran the
 8-column kernel for 9-16 columns, corrupting any >8-row window).
 
-### Tested and dead (don't re-propose without a new argument)
+### Already measured (the numbers; a new angle on any of them is welcome)
 
 - **Drafting:**
   - DFlash2 drafter, serial or pipelined. DFlash+MTP.
@@ -146,8 +146,8 @@ rdna2-mmq opt-in prompt kernels, Q6 head-proxy auto, and a real bug fix (the gfx
   - MTP chain cap 7->5 outputs (0 agent / -5.5% edits). `STRATA_PL_GUESS_T` 2 (-5-7%) and 1 (-23-26%).
   - `--mtp-q4` projections (neutral). All-native-Q4_0 MTP experts (+4.3% acceptance, -4.5% speed).
   - Smaller draft vocab (16-24K) instead of the English vocab: offline, no gain.
-  - Drafters that need more VRAM on card 1 (q4n +2.5%, q4g +0.9%, 1514 MiB): blocked by KING's rule, "don't push VRAM
-    past where it is now, yet". The IQ2_XXS gate/up drafter (637.5 MiB of experts): +1.1% agent, level on edits;
+  - Drafters that need more VRAM on card 1 (q4n +2.5%, q4g +0.9%, 1514 MiB): NOT blocked (an earlier brief misread a
+    remark about VRAM tuning settings as a VRAM-allocation rule); re-measured with resident experts in AB3. The IQ2_XXS gate/up drafter (637.5 MiB of experts): +1.1% agent, level on edits;
     behind s2gptq-a. KING's own MTP quant: -3.7% (card 1 loses residency, text changes).
 - **CPU placement:** `--pool-workers` 4/8/12/15; CCD placement; whole-process taskset. Decode hits the expert cache
   ~99-100% of the time, so the CPU barely matters.
@@ -267,8 +267,8 @@ Measured caveats on THIS engine:
 - Strata's IQ3_S expert kernel is **faster than Q4_0** at every row count on gfx1030 (T=1 70 vs 77 us, T=8 147 vs 219).
 - A uniform Q4_0 main pack (~63 GiB of experts) cannot be fully resident.
 - Unsloth's map uses Q8_0 down-experts and Q5_0 hyper-connection tensors only because llama.cpp's K-quants need
-  rows that are multiples of 256 (these are 640 and 320). Mirroring the map copies that accident. Every new weight
-  set must be new files built from BF16 on disk, never a load-time conversion.
+  rows that are multiples of 256 (these are 640 and 320). Mirroring the map copies that accident. Load-time
+  conversion is fine as an experiment; a quality number goes next to the speed number.
 
 ## 4. Data map: where everything is
 
