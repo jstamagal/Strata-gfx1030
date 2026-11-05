@@ -461,8 +461,9 @@ bool bf16_gemv_fp32_mmvf_multi_pair(const float* x, int64_t ldx, const uint16_t*
                                     void* stream) {
 #if defined(__HIPCC__)
     static const bool rows = [] { const char* v = std::getenv("STRATA_MMVF_ROWS"); return v && v[0] == '1'; }();
-    // only where both calls would take bf16_f32_mmvf_multi_kernel at the 256-thread block (2 to 8 rows of 2,560-wide input)
-    if (rows || n_tok < 2 || n_tok > 8 || n_in <= 0 || (n_in & 1) != 0 || (ldx & 1) != 0 || n_out <= 0 || n_out2 <= 0 ||
+    // only where both calls would take bf16_f32_mmvf_multi_kernel at the 256-thread block (2 to 8 rows of 2,560-wide input),
+    // or (one row: STRATA_T1_DIET's one-row QSA layer) bf16_f32_mmvf_kernel<256>, whose arithmetic NT = 1 repeats
+    if (rows || n_tok < 1 || n_tok > 8 || n_in <= 0 || (n_in & 1) != 0 || (ldx & 1) != 0 || n_out <= 0 || n_out2 <= 0 ||
         n_out + n_out2 > 65535 || x == nullptr || w == nullptr || y == nullptr || w2 == nullptr || y2 == nullptr ||
         stream == nullptr || (reinterpret_cast<uintptr_t>(x) & 7u) != 0 || (reinterpret_cast<uintptr_t>(w) & 3u) != 0 ||
         (reinterpret_cast<uintptr_t>(w2) & 3u) != 0 || mmvf_block_size(n_in) != 256)
@@ -472,6 +473,7 @@ bool bf16_gemv_fp32_mmvf_multi_pair(const float* x, int64_t ldx, const uint16_t*
 #define STRATA_MMVF_P(NT_) case NT_: bf16_f32_mmvf_pair_kernel<256, NT_><<<grid, 256, 0, st>>>( \
         x, ldx, w, y, ldy, (int) n_out, w2, y2, ldy2, (int) n_in); break
     switch (n_tok) {
+        STRATA_MMVF_P(1);
         STRATA_MMVF_P(2); STRATA_MMVF_P(3); STRATA_MMVF_P(4); STRATA_MMVF_P(5); STRATA_MMVF_P(6); STRATA_MMVF_P(7);
         default: bf16_f32_mmvf_pair_kernel<256, 8><<<grid, 256, 0, st>>>(x, ldx, w, y, ldy, (int) n_out, w2, y2, ldy2, (int) n_in); break;
     }
