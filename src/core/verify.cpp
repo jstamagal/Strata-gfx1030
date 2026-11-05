@@ -1697,6 +1697,7 @@ bool Verifier::record_window(int T, cudaStream_t cs, std::string& err) {
                 a.q8_down = (const uint8_t*) wd[half]->hc_q8; a.q8_up = (const uint8_t*) wu[half]->hc_q8;
                 a.q8_inject = (const uint8_t*) wi[half]->hc_q8;
                 a.s_down = i8 ? wd[half]->dec_i8_scale : wd[half]->q8_scale; a.s_up = i8 ? wu[half]->dec_i8_scale : wu[half]->q8_scale;
+                a.s16 = i8 && wd[half]->dec_i8_s16;   // STRATA_HC_REQ8=2 (both matrices made together)
                 a.eps = EPS; a.lo = lo_ + t * g.hc_lr; a.rs = rs_ + t * HC;
                 a.inject_out = inj_out + t * HC; a.mixed = mixed_ + t * N;
                 if (half == 0 && cmb_def_[grp]) {   // STRATA_NODE_FUSE: the previous layer's combine (post below)

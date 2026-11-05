@@ -3,13 +3,18 @@
 // the int8 multi kernels it replaces and against the bf16 read, through fused_gr_read_multi on the current card:
 //
 //   PARITY  int8 wide vs int8 multi: lo, rs, inject, mixed, the in-place R and the q8_1 image of mixed, bit for bit, 1-8
-//           tokens, with and without the pending write, the inject rows and the q8_1 image, DOWN2 off and on.  Not bitwise:
-//           the max |difference| / rms of the output is printed and the run fails.
-//   ERROR   int8 wide vs bf16 wide (the same tokens): relative RMS, mean and max relative error per output.  Relative error
+//           tokens, with and without the pending write, the inject rows and the q8_1 image, DOWN2 off and on, for the wide
+//           kernels' variants (down rows a block R = STRATA_HC_I8_ROWS 1 / 2 / 4, up rows in flight U = STRATA_HC_I8_UPR
+//           1 / 2 / 4 / 8), both int8 layouts (fp32 scale per 32; STRATA_HC_REQ8=2's fp16 per 16).  Not bitwise: the
+//           max |difference| / rms of the output is printed and the run fails.  Also
+//           (printed, not a failure: the single-GPU STRATA_HC_REQ8 path, not the split's) the single-token int8 read
+//           (fused_gr_read) against the int8 multi read at one token.
+//   ERROR   int8 wide vs bf16 wide (the same tokens), each layout: relative RMS, mean and max relative error per output.  Relative error
 //           of an element = |int8 - bf16| / max(|bf16|, 1% of the output's RMS) (the floor keeps near-zero values honest).
 //   TIME    cold weights (the read rotates over `sets` copies, as the engine reads another layer every call: 32 x 7.4 MB
 //           int8 / 13.2 MB bf16 is past the 128 MB Infinity Cache): the read (events) and the down / up stages (median
-//           GPU stamps, each with one ~1-2 us stamp kernel), us and GB/s of the stage's weight bytes, per arm and T.
+//           GPU stamps, each with one ~1-2 us stamp kernel), us and GB/s of the stage's weight bytes, per arm and T; then
+//           per T the fastest R for down and U for up (BEST) and the STRATA_HC_I8_ROWS / STRATA_HC_I8_UPR they spell.
 //
 //     build-hip/hc_i8_bench [iters 300] [sets 32] [T list 1,2,3,8] [--pack DIR --layer L]
 // With --pack the weights are layer L's hc_attn projections and norm from a Strata pack (its raw bf16 rows), else
@@ -61,27 +66,36 @@ struct Host {   // one layer's weights on the host
     std::vector<uint16_t> wd, wu, wi;   // bf16 [LR][D], [D][LR], [HC][D]
     std::vector<float> wn;              // f32 [D]
     std::vector<int8_t> qd, qu;         // int8 codes, as the engine makes them
-    std::vector<float> sd, su;          // their scales
+    std::vector<float> sd, su;          // their scales (one fp32 per 32)
+    std::vector<int8_t> qd16, qu16;     // STRATA_HC_REQ8=2's codes
+    std::vector<uint16_t> sd16, su16;   // and scales (one fp16 per 16)
 };
 struct Dev {
     uint16_t *wd, *wu, *wi;
     float* wn;
     int8_t *qd, *qu;
     float *sd, *su;
+    int8_t *qd16, *qu16;
+    uint16_t *sd16, *su16;
 };
 Dev upload(const Host& h) {
-    return {dev_copy(h.wd), dev_copy(h.wu), dev_copy(h.wi), dev_copy(h.wn), dev_copy(h.qd), dev_copy(h.qu), dev_copy(h.sd), dev_copy(h.su)};
+    return {dev_copy(h.wd), dev_copy(h.wu), dev_copy(h.wi), dev_copy(h.wn), dev_copy(h.qd), dev_copy(h.qu), dev_copy(h.sd), dev_copy(h.su),
+            dev_copy(h.qd16), dev_copy(h.qu16), dev_copy(h.sd16), dev_copy(h.su16)};
 }
 void quantize(Host& h) {
-    auto one = [](const std::vector<uint16_t>& w, std::vector<int8_t>& q, std::vector<float>& s) {
+    auto one = [](const std::vector<uint16_t>& w, std::vector<int8_t>& q, std::vector<float>& s, std::vector<int8_t>& q16,
+                  std::vector<uint16_t>& s16) {
         std::vector<float> f(w.size());
         for (size_t i = 0; i < w.size(); ++i) f[i] = f32(w[i]);
         q.resize(w.size());
         s.resize(w.size() / 32);
         strata::core::hc_req8_quantize(f.data(), f.size(), q.data(), s.data());
+        q16.resize(w.size());
+        s16.resize(w.size() / 16);
+        strata::core::hc_req8_quantize16(f.data(), f.size(), q16.data(), s16.data());
     };
-    one(h.wd, h.qd, h.sd);
-    one(h.wu, h.qu, h.su);
+    one(h.wd, h.qd, h.sd, h.qd16, h.sd16);
+    one(h.wu, h.qu, h.su, h.qu16, h.su16);
 }
 // layer L's blk.L.hc_attn_{down,up,inject,norm}.weight from <pack>/index.txt + dense.bin (raw 16-bit bf16 rows, f32 norm)
 bool load_pack(const std::string& pack, int layer, Host& h) {
@@ -132,34 +146,43 @@ struct Bufs {
     uint8_t* q8;
     unsigned* cnt;
 };
-void make_args(K::FusedGrArgs* a, int T, const Bufs& b, const Dev& w, bool i8, bool apply, bool inject, bool qfuse) {
+// lay: 0 = the bf16 rows, 1 = int8 + fp32/32 (STRATA_HC_REQ8=1), 2 = int8 + fp16/16 (STRATA_HC_REQ8=2)
+void make_args(K::FusedGrArgs* a, int T, const Bufs& b, const Dev& w, int lay, bool apply, bool inject, bool qfuse) {
     for (int t = 0; t < T; ++t) {
         K::FusedGrArgs& x = a[t];
         x = K::FusedGrArgs();
         x.R = b.R + (size_t) t * D; x.R_out = b.R + (size_t) t * D; x.apply = apply;
         x.bo_prev = b.bo + (size_t) t * N; x.inj_prev = b.inj + (size_t) t * HC;
         x.w_norm = w.wn;
-        x.w_down = i8 ? (const uint16_t*) w.qd : w.wd;
-        x.w_up = i8 ? (const uint16_t*) w.qu : w.wu;
+        x.w_down = lay == 1 ? (const uint16_t*) w.qd : lay == 2 ? (const uint16_t*) w.qd16 : w.wd;
+        x.w_up = lay == 1 ? (const uint16_t*) w.qu : lay == 2 ? (const uint16_t*) w.qu16 : w.wu;
         x.w_inject = inject ? w.wi : nullptr;
-        if (i8) { x.s_down = w.sd; x.s_up = w.su; }
+        if (lay == 1) { x.s_down = w.sd; x.s_up = w.su; }
+        if (lay == 2) { x.s_down = (const float*) w.sd16; x.s_up = (const float*) w.su16; x.s16 = true; }
         x.lo = b.lo + (size_t) t * LR; x.rs = b.rs + (size_t) t * HC;
         x.inject_out = b.io + (size_t) t * HC; x.mixed = b.mix + (size_t) t * N;
         if (qfuse) { x.q8_mixed = b.q8 + (size_t) t * Q8ROW; x.q8_cnt = b.cnt; }
     }
 }
-// the kernels' configuration: 0 = the multi kernels (STRATA_HC_WIDE=0), 1 = the live wide set (WIDE=3, WIDE8, UP_TSUM)
-void configure(int wide, int down2) {
+// the kernels' configuration: 0 = the multi kernels (STRATA_HC_WIDE=0), 1 = the live wide set (WIDE=3, WIDE8, UP_TSUM);
+// rows / upr: the int8 wide kernels' variants (0 = STRATA_HC_I8_ROWS / STRATA_HC_I8_UPR or the default)
+void configure(int wide, int down2, int rows = 0, int upr = 0) {
     K::fused_gr_set_wide(wide ? 3 : 0);
     K::fused_gr_set_wide8(wide ? 1 : 0);
     K::fused_gr_set_up_tsum(wide ? 1 : 0);
     K::fused_gr_set_down2(down2);
+    K::fused_gr_set_i8_rows(0, rows);
+    K::fused_gr_set_i8_upr(0, upr);
 }
+// the int8 wide variants the parity check covers: every R and every U
+struct Var { int rows, upr; };
+constexpr Var kVars[] = {{1, 1}, {2, 2}, {4, 4}, {2, 8}};
 struct Out {   // one read's outputs: R, lo, rs, inject, mixed (floats), then the q8_1 image (bytes)
     std::vector<float> f;
     std::vector<uint8_t> q;
     size_t o_lo, o_rs, o_io, o_mix;
 };
+Out collect(int T, const Bufs& b);   // the outputs of the read just run
 Out run_once(const K::FusedGrArgs* a, int T, const Bufs& b, const std::vector<float>& R0, cudaStream_t s) {
     CK(cudaMemcpy(b.R, R0.data(), R0.size() * 4, cudaMemcpyHostToDevice));
     CK(cudaMemset(b.lo, 0xff, (size_t) TM * LR * 4));
@@ -170,6 +193,22 @@ Out run_once(const K::FusedGrArgs* a, int T, const Bufs& b, const std::vector<fl
     K::fused_gr_read_multi(a, T, b.xn, s);
     CK(cudaStreamSynchronize(s));
     CK(cudaGetLastError());
+    return collect(T, b);
+}
+// the single-token read (fused_gr_read: gr_down_kernel + gr_up_kernel), one token, its outputs as run_once's (no q8_1 image)
+Out run_single(const K::FusedGrArgs& a, const Bufs& b, const std::vector<float>& R0, cudaStream_t s) {
+    CK(cudaMemcpy(b.R, R0.data(), R0.size() * 4, cudaMemcpyHostToDevice));
+    CK(cudaMemset(b.lo, 0xff, (size_t) TM * LR * 4));
+    CK(cudaMemset(b.rs, 0xff, (size_t) TM * HC * 4));
+    CK(cudaMemset(b.io, 0xff, (size_t) TM * HC * 4));
+    CK(cudaMemset(b.mix, 0xff, (size_t) TM * N * 4));
+    CK(cudaMemset(b.q8, 0xff, (size_t) TM * Q8ROW));
+    K::fused_gr_read(a, s);
+    CK(cudaStreamSynchronize(s));
+    CK(cudaGetLastError());
+    return collect(1, b);
+}
+Out collect(int T, const Bufs& b) {
     Out o;
     o.o_lo = (size_t) T * D; o.o_rs = o.o_lo + (size_t) T * LR; o.o_io = o.o_rs + (size_t) T * HC; o.o_mix = o.o_io + (size_t) T * HC;
     o.f.resize(o.o_mix + (size_t) T * N);
@@ -273,8 +312,11 @@ int main(int argc, char** argv) {
     cudaStream_t s;
     CK(cudaStreamCreate(&s));
 
-    // ---- PARITY: int8 wide vs int8 multi; ERROR: int8 wide vs bf16 wide
+    // ---- PARITY: int8 wide vs int8 multi; ERROR: int8 wide vs bf16 wide; both int8 layouts
     int failures = 0, cases = 0;
+    int single_cases = 0, single_diff = 0;
+    static const char* const lay_name[3] = {"bf16", "int8", "int8s16"};
+    for (int lay = 1; lay <= 2; ++lay) {
     double worst_rel_rms[4] = {0, 0, 0, 0}, worst_max_rel[4] = {0, 0, 0, 0}, sum_mean_rel[4] = {0, 0, 0, 0};
     int n_err = 0;
     for (int T = 1; T <= TM; ++T)
@@ -285,24 +327,37 @@ int main(int argc, char** argv) {
                         if (down2 && T < 5) continue;   // DOWN2 runs from 5 tokens
                         K::FusedGrArgs a[TM];
                         configure(0, 0);
-                        make_args(a, T, b, w0, true, apply, inject, qfuse);
+                        make_args(a, T, b, w0, lay, apply, inject, qfuse);
                         const Out multi = run_once(a, T, b, R, s);
-                        configure(1, down2);
-                        const Out wide = run_once(a, T, b, R, s);
-                        ++cases;
-                        const bool fsame = std::memcmp(multi.f.data(), wide.f.data(), multi.f.size() * 4) == 0;
-                        const bool qsame = !qfuse || multi.q == wide.q;
-                        if (!fsame || !qsame) {
-                            ++failures;
-                            const Err e = err_of(wide.f.data(), multi.f.data(), multi.f.size());
-                            size_t qd = 0;
-                            for (size_t i = 0; qfuse && i < multi.q.size(); ++i) qd += multi.q[i] != wide.q[i];
-                            std::printf("PARITY DIFFERS int8 wide vs int8 multi: T %d apply %d inject %d qfuse %d down2 %d | floats %s "
-                                        "(max |d| %.3g, rel rms %.3g) | q8_1 image %zu bytes differ\n", T, apply, inject, qfuse, down2,
-                                        fsame ? "same" : "differ", e.max_abs, e.rel_rms, qd);
+                        if (T == 1 && !qfuse && !down2) {   // the single-token int8 read (single-GPU STRATA_HC_REQ8)
+                            const Out one = run_single(a[0], b, R, s);
+                            ++single_cases;
+                            if (std::memcmp(multi.f.data(), one.f.data(), multi.f.size() * 4) != 0) {
+                                ++single_diff;
+                                const Err e = err_of(one.f.data(), multi.f.data(), multi.f.size());
+                                std::printf("PARITY single-token DIFFERS %s single-token vs multi: apply %d inject %d (max |d| %.3g, "
+                                            "rel rms %.3g)\n", lay_name[lay], apply, inject, e.max_abs, e.rel_rms);
+                            }
+                        }
+                        Out wide;
+                        for (const Var& v : kVars) {
+                            configure(1, down2, v.rows, v.upr);
+                            wide = run_once(a, T, b, R, s);
+                            ++cases;
+                            const bool fsame = std::memcmp(multi.f.data(), wide.f.data(), multi.f.size() * 4) == 0;
+                            const bool qsame = !qfuse || multi.q == wide.q;
+                            if (!fsame || !qsame) {
+                                ++failures;
+                                const Err e = err_of(wide.f.data(), multi.f.data(), multi.f.size());
+                                size_t qd = 0;
+                                for (size_t i = 0; qfuse && i < multi.q.size(); ++i) qd += multi.q[i] != wide.q[i];
+                                std::printf("PARITY DIFFERS %s wide (R %d U %d) vs multi: T %d apply %d inject %d qfuse %d down2 %d | "
+                                            "floats %s (max |d| %.3g, rel rms %.3g) | q8_1 image %zu bytes differ\n", lay_name[lay], v.rows,
+                                            v.upr, T, apply, inject, qfuse, down2, fsame ? "same" : "differ", e.max_abs, e.rel_rms, qd);
+                            }
                         }
                         if (qfuse || down2) continue;   // the error table: one row per (T, apply, inject)
-                        make_args(a, T, b, w0, false, apply, inject, false);
+                        make_args(a, T, b, w0, 0, apply, inject, false);
                         const Out ref = run_once(a, T, b, R, s);   // bf16, the same wide kernels
                         const Err el = err_of(wide.f.data() + wide.o_lo, ref.f.data() + ref.o_lo, (size_t) T * LR);
                         const Err em = err_of(wide.f.data() + wide.o_mix, ref.f.data() + ref.o_mix, (size_t) T * N);
@@ -315,17 +370,20 @@ int main(int argc, char** argv) {
                             sum_mean_rel[k] += all[k].mean_rel;
                         }
                         ++n_err;
-                        std::printf("ERROR int8 vs bf16 T %d apply %d inject %d | lo rel rms %.4f mean %.4f max %.3f | mixed rel rms %.4f "
-                                    "mean %.4f max %.3f | R max |d| %.3g | inject max |d| %.3g\n", T, apply, inject, el.rel_rms,
+                        std::printf("ERROR %s vs bf16 T %d apply %d inject %d | lo rel rms %.4f mean %.4f max %.3f | mixed rel rms %.4f "
+                                    "mean %.4f max %.3f | R max |d| %.3g | inject max |d| %.3g\n", lay_name[lay], T, apply, inject, el.rel_rms,
                                     el.mean_rel, el.max_rel, em.rel_rms, em.mean_rel, em.max_rel, er.max_abs, ei.max_abs);
                     }
-    std::printf("PARITY int8 wide vs int8 multi: %d of %d cases bitwise equal (lo, rs, inject, mixed, R, q8_1 image)\n",
-                cases - failures, cases);
     if (n_err)
-        std::printf("ERROR SUMMARY int8 vs bf16 over %d cases: lo rel rms <= %.4f, mean rel %.4f, max rel %.3f | mixed rel rms <= %.4f, "
+        std::printf("ERROR SUMMARY %s vs bf16 over %d cases: lo rel rms <= %.4f, mean rel %.4f, max rel %.3f | mixed rel rms <= %.4f, "
                     "mean rel %.4f, max rel %.3f | R (the pending write, weight-free) max rel %.3g | inject (bf16 rows) max rel %.3g\n",
-                    n_err, worst_rel_rms[0], sum_mean_rel[0] / n_err, worst_max_rel[0], worst_rel_rms[1], sum_mean_rel[1] / n_err,
-                    worst_max_rel[1], worst_max_rel[2], worst_max_rel[3]);
+                    lay_name[lay], n_err, worst_rel_rms[0], sum_mean_rel[0] / n_err, worst_max_rel[0], worst_rel_rms[1],
+                    sum_mean_rel[1] / n_err, worst_max_rel[1], worst_max_rel[2], worst_max_rel[3]);
+    }
+    std::printf("PARITY int8 wide vs int8 multi: %d of %d cases bitwise equal (lo, rs, inject, mixed, R, q8_1 image; variants "
+                "R/U 1/1 2/2 4/4 2/8; layouts fp32/32 and fp16/16)\n", cases - failures, cases);
+    std::printf("PARITY single-token int8 read vs int8 multi (one token, not a failure): %d of %d cases bitwise equal\n",
+                single_cases - single_diff, single_cases);
 
     // ---- TIME: cold weights, per arm and T
     std::vector<Dev> cold((size_t) sets);
@@ -340,15 +398,19 @@ int main(int argc, char** argv) {
     const double inj_b = (double) HC * D * 2;
     const double down_b[2] = {(double) LR * D * 2 + inj_b, (double) LR * D + (double) LR * D / 32 * 4 + inj_b};
     const double up_b[2] = {(double) D * LR * 2, (double) D * LR + (double) D * LR / 32 * 4};
-    struct ArmDef { const char* name; bool i8; int wide; int down2; };
-    const ArmDef arms[] = {{"bf16-wide", false, 1, 0}, {"bf16-wide+down2", false, 1, 1}, {"int8-wide", true, 1, 0},
-                           {"int8-wide+down2", true, 1, 1}, {"int8-multi", true, 0, 0}};
+    struct ArmDef { const char* name; int lay; int wide; int down2; int rows, upr; };
+    const ArmDef arms[] = {{"bf16-wide", 0, 1, 0, 0, 0}, {"bf16-wide+down2", 0, 1, 1, 0, 0},
+                           {"int8-wide R1 U1", 1, 1, 1, 1, 1}, {"int8-wide R2 U2", 1, 1, 1, 2, 2},
+                           {"int8-wide R4 U4", 1, 1, 1, 4, 4}, {"int8-wide R2 U8", 1, 1, 1, 2, 8},
+                           {"int8s16 R2 U4", 2, 1, 1, 2, 4}, {"int8-multi", 1, 0, 0, 0, 0}};
     std::vector<K::FusedGrArgs> as((size_t) sets * TM);
+    struct Best { double us = 1e30; int v = 0; };
+    std::vector<Best> best_dn((size_t) TM + 1), best_up((size_t) TM + 1);
     for (const int T : Ts)
         for (const ArmDef& arm : arms) {
-            if (arm.down2 && T < 5) continue;
-            configure(arm.wide, arm.down2);
-            for (int c = 0; c < sets; ++c) make_args(&as[(size_t) c * TM], T, b, cold[(size_t) c], arm.i8, true, true, true);
+            if (!arm.lay && arm.down2 && T < 5) continue;   // (DOWN2 runs from 5 tokens; the int8 arms ignore it: it is the bf16 read's)
+            configure(arm.wide, arm.down2, arm.rows, arm.upr);
+            for (int c = 0; c < sets; ++c) make_args(&as[(size_t) c * TM], T, b, cold[(size_t) c], arm.lay, true, true, true);
             CK(cudaMemcpy(b.R, R.data(), R.size() * 4, cudaMemcpyHostToDevice));
             for (int rep = 0; rep < 2; ++rep) {
                 for (int i = 0; i < iters; ++i) {
@@ -373,8 +435,25 @@ int main(int argc, char** argv) {
             }
             const double dn = med(dv), up = med(uv);
             std::printf("TIME T %d %-16s | read %6.1f us | norm %5.1f  down %5.1f us %5.0f GB/s  up %5.1f us %5.0f GB/s (stamps, median)\n",
-                        T, arm.name, 1e3 * ms / iters, med(nv), dn, down_b[arm.i8] / (dn * 1e3), up, up_b[arm.i8] / (up * 1e3));
+                        T, arm.name, 1e3 * ms / iters, med(nv), dn, down_b[arm.lay != 0] / (dn * 1e3), up, up_b[arm.lay != 0] / (up * 1e3));
+            if (arm.lay == 1 && arm.wide) {
+                if (dn < best_dn[(size_t) T].us) best_dn[(size_t) T] = {dn, arm.rows};
+                if (up < best_up[(size_t) T].us) best_up[(size_t) T] = {up, arm.upr};
+            }
         }
+    {
+        // the fastest variant per measured T; the unmeasured counts keep the defaults (2,2,2,2,4,4,4,4 / 4)
+        int rows[TM] = {2, 2, 2, 2, 4, 4, 4, 4}, upr[TM] = {4, 4, 4, 4, 4, 4, 4, 4};
+        for (const int T : Ts) {
+            std::printf("BEST T %d | down R %d %5.1f us %5.0f GB/s | up U %d %5.1f us %5.0f GB/s\n", T, best_dn[(size_t) T].v,
+                        best_dn[(size_t) T].us, down_b[1] / (best_dn[(size_t) T].us * 1e3), best_up[(size_t) T].v, best_up[(size_t) T].us,
+                        up_b[1] / (best_up[(size_t) T].us * 1e3));
+            rows[T - 1] = best_dn[(size_t) T].v;
+            upr[T - 1] = best_up[(size_t) T].v;
+        }
+        std::printf("BEST STRATA_HC_I8_ROWS=%d,%d,%d,%d,%d,%d,%d,%d STRATA_HC_I8_UPR=%d,%d,%d,%d,%d,%d,%d,%d\n", rows[0], rows[1],
+                    rows[2], rows[3], rows[4], rows[5], rows[6], rows[7], upr[0], upr[1], upr[2], upr[3], upr[4], upr[5], upr[6], upr[7]);
+    }
     std::printf("hc_i8_bench: weight bytes a layer half, down + inject / up: bf16 %.2f / %.2f MB, int8 %.2f / %.2f MB\n",
                 down_b[0] / 1e6, up_b[0] / 1e6, down_b[1] / 1e6, up_b[1] / 1e6);
     std::printf("hc_i8_bench: %s\n", failures ? "PARITY FAILED" : "PARITY OK");

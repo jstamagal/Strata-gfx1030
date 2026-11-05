@@ -594,7 +594,7 @@ bool WeightTable::load_hc_q8(const std::string& pack_dir, uint64_t& bytes, std::
     return true;
 }
 
-bool WeightTable::make_hc_i8_copies(int64_t lb, int64_t le, uint64_t& bytes, int& n, std::string& err) {
+bool WeightTable::make_hc_i8_copies(int64_t lb, int64_t le, uint64_t& bytes, int& n, std::string& err, bool s16) {
     bytes = 0;
     n = 0;
     std::vector<WeightRef*> todo;
@@ -613,7 +613,7 @@ bool WeightTable::make_hc_i8_copies(int64_t lb, int64_t le, uint64_t& bytes, int
     }
     if (todo.empty()) return true;
     auto al = [](uint64_t b) { return (b + 255) & ~(uint64_t) 255; };
-    uint64_t total = 0;
+    uint64_t total = 0;   // the codes, and one fp32 scale per 32 values or (s16) one fp16 per 16: the same bytes
     for (const WeightRef* w : todo) total += al((uint64_t) w->elements) + al((uint64_t) w->elements / 32 * 4);
     uint8_t* dev = nullptr;
     if (cudaMalloc((void**) &dev, total) != cudaSuccess) {
@@ -628,6 +628,7 @@ bool WeightTable::make_hc_i8_copies(int64_t lb, int64_t le, uint64_t& bytes, int
     std::vector<float> src;
     std::vector<int8_t> q;
     std::vector<float> sc;
+    std::vector<uint16_t> sh;
     uint64_t at = 0;
     for (WeightRef* w : todo) {
         const size_t ne = (size_t) w->elements;
@@ -642,19 +643,29 @@ bool WeightTable::make_hc_i8_copies(int64_t lb, int64_t le, uint64_t& bytes, int
             std::memcpy(&src[i], &b, 4);
         }
         q.resize(ne);
-        sc.resize(ne / 32);
-        hc_req8_quantize(src.data(), ne, q.data(), sc.data());
+        const void* shost = nullptr;
+        if (s16) {
+            sh.resize(ne / 16);
+            hc_req8_quantize16(src.data(), ne, q.data(), sh.data());
+            shost = sh.data();
+        } else {
+            sc.resize(ne / 32);
+            hc_req8_quantize(src.data(), ne, q.data(), sc.data());
+            shost = sc.data();
+        }
+        const size_t sbytes = ne / 32 * 4;   // (= ne / 16 * 2)
         uint8_t* codes = dev + at;
         at += al(ne);
         float* scales = (float*) (dev + at);
-        at += al(sc.size() * 4);
+        at += al(sbytes);
         if (cudaMemcpy(codes, q.data(), ne, cudaMemcpyHostToDevice) != cudaSuccess ||
-            cudaMemcpy(scales, sc.data(), sc.size() * 4, cudaMemcpyHostToDevice) != cudaSuccess) {
+            cudaMemcpy(scales, shost, sbytes, cudaMemcpyHostToDevice) != cudaSuccess) {
             err = "STRATA_HC_REQ8 (layer split): upload failed";
             return false;
         }
         w->dec_i8 = codes;
         w->dec_i8_scale = scales;
+        w->dec_i8_s16 = s16;
         ++n;
     }
     bytes = total;

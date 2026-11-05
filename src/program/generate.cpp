@@ -4891,6 +4891,9 @@ int main(int argc, char** argv) {
     // On a layer split the BF16 rows stay (the prompt path reads them): each stage adds an int8 copy of ITS layers'
     // projections for the verify window once the split is known (make_hc_i8_copies, below) - decode-only int8.
     const bool hc_req8_env = std::getenv("STRATA_HC_REQ8") != nullptr && std::atoi(std::getenv("STRATA_HC_REQ8")) != 0;
+    // STRATA_HC_REQ8=2 (the layer split's copies only): one fp16 scale per 16 values instead of one fp32 per 32 - the same
+    // bytes, ~16% less weight error (hc_req8_quantize16); a single GPU runs =1's form either way
+    const bool hc_req8_s16 = hc_req8_env && std::atoi(std::getenv("STRATA_HC_REQ8")) == 2;
     const bool hc_req8_split = hc_req8_env && multi_gpu;
     const bool hc_q8 = hc_req8_env && !multi_gpu;
     if (hc_q8) strata::core::WeightTable::hc_q8_names(g.n_layers, skip);
@@ -6399,7 +6402,8 @@ int main(int argc, char** argv) {
 
     // ---- STRATA_HC_REQ8=1 on a layer split (opt-in, changes the output): every stage keeps its layers' BF16
     // hyper-connection rows (the prompt path reads them) and adds an int8 + fp32/32 copy of their down / up projections
-    // on its own card, which the verify window reads (fused_gr's int8 wide kernels: 0.5625x the bytes).  Made here, once
+    // on its own card, which the verify window reads (fused_gr's int8 wide kernels: 0.5625x the bytes); =2 the same with
+    // one fp16 scale per 16 values.  Made here, once
     // the split is known and before the sessions and the expert caches are sized, so the caches see the VRAM it takes.
     if (hc_req8_split) {
         auto make_i8 = [&](strata::core::WeightTable& t, int dev, int64_t lb, int64_t le) -> bool {
@@ -6407,16 +6411,16 @@ int main(int argc, char** argv) {
             const auto t0 = std::chrono::steady_clock::now();
             uint64_t bytes = 0;
             int n = 0;
-            if (!t.make_hc_i8_copies(lb, le, bytes, n, err)) {
+            if (!t.make_hc_i8_copies(lb, le, bytes, n, err, hc_req8_s16)) {
                 std::fprintf(stderr, "strata generate: CUDA%d: %s\n", dev, err.c_str());
                 return false;
             }
             size_t fb = 0, tb = 0;
             cudaMemGetInfo(&fb, &tb);
             std::fprintf(stderr, "strata generate: STRATA_HC_REQ8 on a layer split: CUDA%d layers %lld-%lld: %d hyper-connection "
-                                 "projections get an int8 + fp32/32 copy for the verify window (%llu MiB; the BF16 rows stay "
+                                 "projections get an int8 + %s copy for the verify window (%llu MiB; the BF16 rows stay "
                                  "for the prompt path) in %.1f s; %.2f GiB free\n",
-                         dev, (long long) lb, (long long) le - 1, n, (unsigned long long) (bytes >> 20),
+                         dev, (long long) lb, (long long) le - 1, n, hc_req8_s16 ? "fp16/16" : "fp32/32", (unsigned long long) (bytes >> 20),
                          std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count(),
                          (double) fb / 1073741824.0);
             if (n != 4 * (int) (le - lb)) {

@@ -104,6 +104,7 @@ struct WeightRef {
     /// verify window only; `data` keeps the BF16 rows for the prompt path (WeightTable::make_hc_i8_copies).
     const void* dec_i8 = nullptr;
     const float* dec_i8_scale = nullptr;
+    bool dec_i8_s16 = false;   ///< STRATA_HC_REQ8=2: dec_i8_scale holds fp16 scales, one per 16 values
 };
 
 struct LoadReport {
@@ -153,8 +154,8 @@ public:
     /// STRATA_HC_REQ8 on a layer split: the decode copies (`dec_i8`, `dec_i8_scale`) of layers [lb, le)'s hyper-connection
     /// down / up projections, quantized from the BF16 rows this table holds (load_hc_q8's rule), in one allocation on the
     /// current device.  The BF16 rows stay.  Every such projection in the range must be resident BF16.  `bytes` = the
-    /// allocation, `n` = the matrices.
-    bool make_hc_i8_copies(int64_t lb, int64_t le, uint64_t& bytes, int& n, std::string& err);
+    /// allocation, `n` = the matrices.  `s16` (STRATA_HC_REQ8=2): one fp16 scale per 16 values (hc_req8_quantize16).
+    bool make_hc_i8_copies(int64_t lb, int64_t le, uint64_t& bytes, int& n, std::string& err, bool s16 = false);
     const std::map<std::string, WeightRef>& all() const { return table_; }
     const LoadReport& report() const { return report_; }
 
