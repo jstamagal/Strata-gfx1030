@@ -1031,3 +1031,18 @@ mtpq branch binary 563dbb2f, harness IQ3_S config, only `--mtp` differs; agent x
 - KING's quant pushes the expert cache below full residency (11705 of 11776 slots on CUDA1, so only 2 zero-doorbell
   graphs) and changes the text: every mtpq drafter beats it.
 - The IQ2_XXS drafter A/B (mtpqi_*) started 18:58.
+
+## Window mtpqi: IQ2_XXS gate/up drafter (18:58-19:11)
+
+mtpq branch binary 563dbb2f (all arms), harness IQ3_S config, only `--mtp` differs; agent x2 + edit x2.
+
+| drafter | loaded MiB / CUDA1 free | agent tok/s (vs live) | held-out agent | edit tok/s (3-case, one draw) |
+|---|---|---|---|---|
+| live rt | 839 / 1712 | 148.90 | 147.88 | 368.18 |
+| s2gptq-a | 839 / 1712 | 151.82 (+2.0%) | 150.01 (+1.4%) | 366.08 (-0.6%) |
+| iq2g (q38-native-iq2xxs-gptq-a) | 802 / 1750 | 150.50 (+1.1%) | 149.08 (+0.8%) | 370.48 (+0.6%) |
+
+Text identical everywhere, gates OK, no gaps. On agent, iq2g sits between live and s2gptq-a; its offline +2.8% did not carry
+over in full. It frees 38 MiB on card 1. Edit differences on 3 cases are single draws (see the AB2 correction). The
+24-case edit A/B (live / s2gptq on main, livebr / iq2g on the branch, per-case paired accepted tokens with a sign test)
+and its capture are appended to insert 54.
