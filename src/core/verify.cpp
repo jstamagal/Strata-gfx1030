@@ -1424,6 +1424,11 @@ bool Verifier::init(const WeightTable& wt, const ModelGeometry& g, SessionState&
         }
         if (!ok2) { cudaGetLastError(); all_resident_ = false; device_plan_ = false; }
     }
+    if (strata::kernels::t1_diet_mask() != 0)   // STRATA_T1_DIET: what this verifier takes
+        std::fprintf(stderr, "strata verify: STRATA_T1_DIET %#x: HC norm in the down launch %s, one-row QSA batched %s, DPP routing %s\n",
+                     (unsigned) strata::kernels::t1_diet_mask(), nrm_sync_ != nullptr ? "on" : "off",
+                     strata::kernels::t1_diet(strata::kernels::kT1QsaRow) ? "on" : "off",
+                     strata::kernels::route_plan_fast() ? "on" : "off");
     std::fprintf(stderr, "strata verify: window up to %d tokens, %.1f MiB of device buffers%s\n", max_t,
                  (double) count.used / 1048576.0,
                  all_resident_ ? " (100% VRAM resident: zero-doorbell graph)" : "");
