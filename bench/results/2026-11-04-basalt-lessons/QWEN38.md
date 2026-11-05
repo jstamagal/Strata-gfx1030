@@ -1062,3 +1062,21 @@ Branch mtp/native-experts 31398223c built in the slot (binary 0bf25b59; 11/11 ct
 text equals live 9/9, and draft counts equal the mtpq worktree binary's mtpqi_iq2g runs 9/9. Gates OK on all six
 runs; one 1343 ms gap (ntv_br_live_edit). The branch is merge-ready, but it only matters once a native-format drafter
 is adopted. Not merged yet: AB3 runs on the branch binary and decides that.
+
+## #267-class hang during a PROMPT read (mtpq edit24 capture, 19:30)
+
+ab/mtpq_cap_edit24 (mtpq branch binary 563dbb2f with the capture hook, harness IQ3_S config, rt): request 4
+(wedit_json_config_2, 1690-token prompt) hung reading its prompt: "no progress for 60 s ... waiting for the GPU
+(attention, router) at layer 3 of the prompt chunk from token 1024", and the engine stopped itself (exit -6); the
+server restarted it, and the other 23 cases completed. Stall report: stage 1 odd verifier "IN FLIGHT T=3 pos 1910 ...
+GPU rang 0, flags served 1 A 0 B 0; window event PENDING", host idle 93 s; on release "the GPU finished in 6 ms". So a
+zero-doorbell verify graph sat on card 1 waiting for host flags (plan, copies = 0) while the host waited for prefill
+work stuck behind it. The previous request's trace has every L1 matched by an F1. Main's binary ran the same prompts in
+the same order (mtpqe_live_edit24_p1) without hanging, so it is not deterministic. Same "GPU finished in 0 ms"
+signature as the natural #267 deaths.
+- Working hypothesis (inference, under test): more streams than the 4 HW queues per card means ROCclr maps several
+  streams onto one in-order queue. A parked zero-doorbell graph blocks other streams' work behind it on that queue:
+  a deadlock if the host waits on that work (#267), a stall if the flag comes later anyway (longer under compaction).
+- An Opus xhigh agent (background subagent in this session) is reading the code: graph enqueue vs flag timing, which
+  streams exist per card, ROCclr's stream-to-queue mapping. It delivers a fix branch (basalt38/parked-graph), an
+  in-slot builder, and a staged repro plus A/B window. The capture's 23 good cases are usable offline.
