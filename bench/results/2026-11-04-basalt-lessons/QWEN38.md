@@ -1235,3 +1235,28 @@ graphs, the fork 4 (even/odd verifier per stage).
   move greedy argmax on long agent outputs; edits are copy-dominated and survive. Not a correctness verdict either way.
 - Accepted drafts are similar (agent 4251 vs 4108 of ~4800): the speed is the verify/compute path, not acceptance.
 - Output: ~/inbox/agents/claude/strata-ab/windowstock.out, arms ab/st_*.
+
+## MTP drafter quant: corpus-calibrated builds scored; offline replay over-predicts (mtpq agent, 21:41)
+
+Branch basalt38/mtp-quant: table bench/results/2026-11-04-mtpq/offline/corpuscal-table.txt (78c7ffbe6), scorer depth
+cap fix a985414d6 (52 edit24 rows had reached depth 8-14 although no chain drafts more than --spec 8; capped, live
+reads 4.911 vs the GPU's own 4.913 on the same steps). Gated E[L] at p >= 0.7 vs live, agent B / edit / edit24:
+
+| drafter | agent B | edit | edit24 | MiB |
+|---|---|---|---|---|
+| bf16 (ceiling) | +3.6% | +2.0% | +3.7% | - |
+| s2-gptq-a (live) | +0.7% | +0.7% | +0.9% | 675 |
+| s2-gptq-c1 (QAT base) | +2.3% | +2.1% | +1.8% | 675 |
+| s2-gptq-c | +1.0% | +1.1% | +1.8% | 675 |
+| iq2xxs-gptq-a / -c / rtngu-c | +2.8 / +2.4 / +2.8% | +2.4 / +3.8 / +2.6% | +3.1 / +3.1 / +3.2% | 637.5 |
+| q2q4-c | +3.3% | +2.3% | +2.5% | 900 (over the VRAM rule) |
+| q4_0-gptq-c | +3.8% | +3.1% | +4.1% | 1350 (over the VRAM rule) |
+
+- **Offline over-predicts the engine.** Same 24 edit cases: offline s2gptq-a +0.9%, iq2g-a +3.1%; engine -0.01% and
+  -0.17% accepted (inside the same-drafter floor). On agent the order flips at gate 0.7 (offline iq2g >> s2gptq,
+  engine s2gptq +2.0% vs iq2g +1.6% tok/round); gate 0.4 orders them right. The gate itself matches the GPU (78.9% vs
+  78.6% of steps >= 0.7; mean conf 0.861 vs 0.859): the gap is method (teacher-forced per-step vs timing, late chains).
+- **So: offline differences under ~3% don't pick a drafter; the engine's paired counts do.** BF16 is only +3.6% / +3.7%
+  offline and the engine sees roughly half: the whole drafter-quant road at today's VRAM is worth ~2% at most.
+- Calibration source isn't the lever (corpus vs agent-A builds about level, lower KL). Per-route S2 quality is: QAT
+  (insert 56, running) then AB3 on agent + edit24.
