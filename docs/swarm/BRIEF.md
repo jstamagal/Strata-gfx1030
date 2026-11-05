@@ -145,7 +145,7 @@ rdna2-mmq opt-in prompt kernels, Q6 head-proxy auto, and a real bug fix (the gfx
 
 | idea | verdict |
 |---|---|
-| Memory reclaim / compaction causes the decode stalls | **Partly true, refined.** Window STALL (quiet box): during natural stalls no strata thread was off-CPU >=200 ms and reclaim was zero. Window EVP: forcing `compact_memory` every 10 s gives 5 stalls of 386-508 ms in 3 agent arms (quiet: 0), but only 1 of 5 sits next to a KFD userptr eviction, and the eviction-fence / full-restore path never fired in 40 min. Compaction stalls the pipeline some other way, and it is not the whole story (natural stalls on a quiet box). |
+| Memory reclaim / compaction causes the decode stalls | **TRUE, through KFD SVM evictions** (ROOT CAUSE in flight). Window STALL saw no off-CPU host thread because the host isn't what stops: the GPU queues are evicted. EVP: forced compaction gives 5 stalls in 3 arms vs 0 quiet; RXP: without the arena, 0. |
 | KFD userptr eviction of the 46.84 GiB registered expert arena | **Wrong path, right idea:** the arena is an SVM range, not a userptr; SVM evictions ARE the stalls (see in flight, ROOT CAUSE). |
 | A host round-trip per MTP draft step (the `--spec-min-p` gate in `draft_first`) | **Not on the live path.** `--pipeline-windows 2` drafts with `chain_launch`; min-p is applied afterwards in `t_rule`. |
 | Pipeline depth 3 | **Low priority.** Card 0 is already 82-97% in flight. |
