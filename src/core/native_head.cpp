@@ -6,6 +6,7 @@
 #include "strata/kernels/head_screen.hpp"
 #include "strata/kernels/head_dump.hpp"
 #include "strata/platform/memory.hpp"
+#include "strata/platform/host_immune.hpp"
 
 #include <cuda_runtime.h>
 #include <climits>
@@ -258,6 +259,10 @@ bool NativeEmbed::load(const std::vector<std::string>& shards, int64_t n_embd, i
         }
         cudaError_t host_err = cudaHostAlloc(&host_, bytes_, cudaHostAllocMapped | cudaHostAllocPortable);
         if (host_err != cudaSuccess) {
+            if (strata::platform::host_immune()) {
+                err = "native embedding: GTT host allocation failed; STRATA_HOST_IMMUNE does not grow VRAM on failure";
+                return false;
+            }
             // Under WSL2 the driver's pinned/mapped host budget (~1 GiB) can be spent by the GPU contexts
             // themselves (three cards). The table is only gathered from, so keep it in the current device's VRAM
             // instead: it costs its size there and reads faster than over PCIe.
@@ -284,6 +289,10 @@ bool NativeEmbed::load(const std::vector<std::string>& shards, int64_t n_embd, i
             // device-to-device copy into it does not land: tests/hip/mapped_alias). The table is only gathered from,
             // so without an alias it goes into VRAM like the unpinnable case above, instead of failing the start.
             if (cudaHostGetDevicePointer(&d, host_, 0) != cudaSuccess || d == nullptr) {
+                if (strata::platform::host_immune()) {
+                    err = "native embedding: GTT host mapping failed; STRATA_HOST_IMMUNE does not grow VRAM on failure";
+                    return false;
+                }
                 cudaGetLastError();
                 d = nullptr;
                 if (cudaMalloc(&d, bytes_) != cudaSuccess ||

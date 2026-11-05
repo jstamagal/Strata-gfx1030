@@ -12,6 +12,7 @@
 #include "strata/artifact/gguf_reader.hpp"
 
 #include "strata/core/pinned.hpp"
+#include "strata/core/pin_budget.hpp"
 #include "strata/platform/memory.hpp"
 #include "strata/kernels/elementwise.hpp"
 #include "strata/kernels/quantize_act.hpp"
@@ -3942,7 +3943,7 @@ bool FileExpertSource::pin_cache_complement(
                         if (offsets[i] < got && offsets[i] + b > got) { w = offsets[i]; break; }
                     }
                     if (w > 0) {
-                        if (cudaHostRegister(arena, (size_t) w, cudaHostRegisterMapped | cudaHostRegisterPortable) ==
+                        if (strata::core::host_register_locked(arena, (size_t) w, cudaHostRegisterMapped | cudaHostRegisterPortable) ==
                             cudaSuccess) {
                             void* alias = nullptr;
                             if (cudaHostGetDevicePointer(&alias, arena, 0) == cudaSuccess && alias != nullptr) {
@@ -3985,7 +3986,7 @@ bool FileExpertSource::pin_cache_complement(
                             if (offsets[i] < want && offsets[i] + b > want) { w = offsets[i]; break; }
                         }
                         if (w == 0) break;
-                        if (cudaHostRegister(arena, (size_t) w, cudaHostRegisterMapped | cudaHostRegisterPortable) ==
+                        if (strata::core::host_register_locked(arena, (size_t) w, cudaHostRegisterMapped | cudaHostRegisterPortable) ==
                             cudaSuccess) {
                             void* alias = nullptr;
                             if (cudaHostGetDevicePointer(&alias, arena, 0) == cudaSuccess && alias != nullptr) {

@@ -1,6 +1,7 @@
 #include "strata/core/conversation_snapshot.hpp"
 #include "conversation_checked.hpp"
 #include "conversation_copy.hpp"
+#include "strata/platform/host_immune.hpp"
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -11,6 +12,7 @@
 #include <future>
 #include <limits>
 #include <mutex>
+#include <map>
 
 namespace strata::core {
 namespace {
@@ -43,6 +45,44 @@ bool copy(void* dst, const void* src, size_t bytes, std::string& error, bool que
     if (status == cudaSuccess) return true;
     error = std::string("conversation snapshot running-state copy: ") + cudaGetErrorString(status);
     return false;
+}
+
+struct HostCheckpoint {
+    std::mutex mu;
+    void* ptr = nullptr;
+    size_t bytes = 0;
+};
+struct HostCheckpoints {
+    std::mutex mu;
+    std::map<int, std::unique_ptr<HostCheckpoint>> devices;
+};
+HostCheckpoint& host_checkpoint() {
+    // Keep the mappings through process teardown, independent of destruction
+    // order and short-lived stage threads. One buffer per active device.
+    static auto* all = new HostCheckpoints;
+    int dev = -1;
+    if (cudaGetDevice(&dev) != cudaSuccess) dev = -1;
+    std::lock_guard<std::mutex> lock(all->mu);
+    auto& p = all->devices[dev];
+    if (!p) p = std::make_unique<HostCheckpoint>();
+    return *p;
+}
+
+bool checkpoint_host_copy(void* dst, const void* src, size_t bytes, bool save, std::string& error) {
+    if (!strata::platform::host_immune() || !bytes) return copy(dst, src, bytes, error);
+    auto& b = host_checkpoint();
+    std::lock_guard<std::mutex> lock(b.mu);
+    if (!b.ptr || bytes > b.bytes) return fail(error, "persistent host buffer was not reserved at load");
+    // copy() completes its private stream before return. Never reuse a DMA
+    // source early, and never expose the ordinary checkpoint vector to HIP.
+    if (save) {
+        if (!copy(b.ptr, src, bytes, error)) return false;
+        std::memcpy(dst, b.ptr, bytes);
+    } else {
+        std::memcpy(b.ptr, src, bytes);
+        if (!copy(dst, b.ptr, bytes, error)) return false;
+    }
+    return true;
 }
 
 // The session's carve (#216): `qsa_states` keeps global ordinals and holds the owned ones
@@ -109,6 +149,22 @@ bool metadata_bytes(const ConversationCheckpoint& c, size_t& total) {
     return true;
 }
 } // namespace
+
+bool conversation_host_prepare(size_t bytes) {
+    if (!strata::platform::host_immune() || !bytes) return true;
+    auto& b = host_checkpoint();
+    std::lock_guard<std::mutex> lock(b.mu);
+    if (b.bytes >= bytes) return true;
+    // Session creation only. Later sessions can have a larger layer carve;
+    // retain an old mapping rather than unmapping underneath other work.
+    void* p = nullptr;
+    if (cudaMallocHost(&p, bytes) != cudaSuccess) return false;
+    b.ptr = p;
+    b.bytes = bytes;
+    std::fprintf(stderr, "strata: STRATA_HOST_IMMUNE: reserved %.3f MiB checkpoint host buffer\n",
+                 (double) bytes / 1048576.0);
+    return true;
+}
 
 bool conversation_state_sizes(const ModelGeometry& g, ConversationStateSizes& z, std::string& error) {
     z = {};
@@ -360,7 +416,7 @@ bool checkpoint_save(ConversationCheckpoint& c, const SessionState& ss, const Mo
             staged = true;
         }
     }
-    if (!staged && !copy(c.gdn.data(), ss.gdn_state, c.gdn.size(), error)) return false;
+    if (!staged && !checkpoint_host_copy(c.gdn.data(), ss.gdn_state, c.gdn.size(), true, error)) return false;
     const auto s0 = std::chrono::steady_clock::now();
     const bool ok = [&] {
         // STRATA_CKPT_GATHER=1: the small vectors through one device gather and one copy (else one copy each)
@@ -410,7 +466,8 @@ bool conversation_checkpoint_restore(const ConversationCheckpoint& c, SessionSta
     ConversationStateSizes z;
     if (!conversation_session_sizes(g, ss, z, error)) return false;
     if (!sync(error)) return false;   // the copies below no longer ride the legacy stream's implicit ordering
-    if (!copy(ss.gdn_state, hit != nullptr ? hit->p : (const void*) c.gdn.data(), c.gdn.size(), error) ||
+    if (!(hit != nullptr ? copy(ss.gdn_state, hit->p, c.gdn.size(), error)
+                        : checkpoint_host_copy(ss.gdn_state, c.gdn.data(), c.gdn.size(), false, error)) ||
         !copy(ss.ple_hist, c.ple.data(), c.ple.size(), error)) return false;
     for (size_t j = 0; j < owned_qsa(ss); ++j) {
         const auto& st = owned(ss, j);
