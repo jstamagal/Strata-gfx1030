@@ -1280,3 +1280,29 @@ Report: ~/inbox/agents/claude/astra-pinned/REPORT.md (ROCm 10.3.0a20261023 rocm-
 - Queued: one build slot with gdnlife / iqsigned / pinnedhost (insert 566), then window PIN: main vs branch
   HOST_IMMUNE 0/1, edit24 under compact_memory + page-cache pressure, 6 passes, KFD SVM/USERPTR/TTM counts, text
   identity. PGR (insert 57) trimmed to its quiet phase B: its arena arms test the pre-RXP config.
+
+## Window SW3: run 3's zero-build checks (21:51-23:03; three arms contaminated, re-run queued as SW3B)
+
+Main build-hip, a copy of the live config (resident experts, s2gptq-a, vision), KFD events logged as root on every arm.
+**Contamination:** an idle llama-cli (LFM3-1.7B, KING's shell) held GPU queues 22:16:57-22:35:50. Arms
+sw3_s_p50_edit_1, sw3_s_d2_edit_1 and sw3_s_d2_agent_2 overlapped it: card 1 ran ~330-440 ms per window instead of
+~18 (13.5-15.5 tok/s requests), two **#267s with no KFD eviction** (longest 18 ms). Inference: a second process's
+queues oversubscribe the HWS runlist (same collapse as GPU_MAX_HW_QUEUES > 4): a second #267 mechanism, and Strata
+needs the GPUs to itself even when the other process is idle. gpu-guard.sh now kills foreign GPU processes during
+queue windows. Per-case medians over 3 passes below survive one bad pass; pooled numbers for those sets don't.
+
+- **T: THP shrink_underused 1 vs 0 (pablo) is DEAD.** edit24 under compact_memory + page-cache pressure, 3 arms each:
+  307.3 vs 306.4 tok/s, gaps 3 / 3, KFD episodes 918 vs 1085, frozen 5.1 s vs 11.3 s (longest 279 vs 1245 ms),
+  splits went UP with 0 (split_page 70 vs 1196). The box setting stays.
+- **S, agent (per-case median vs live, 3 passes):** min-p 0.5 +0.35%, min-p 0.4 -0.01%, SPEC_COST +0.25%: all
+  neutral. Window 18's pooled losses were eviction noise, but there is no gain either: live 0.7 stays.
+- **S, edit24:** min-p 0.5 -0.34% (16 of 24 cases slower). DOWN2 +0.27% (18 of 24 faster, worst -18.3% in the
+  contaminated pass); agent DOWN2 -0.51%. The fused_gr_bench -17-22% on that kernel at 5-8 rows is ~0.3% of an edit
+  window: below adoption value; SW3B re-measures its contaminated passes.
+- **F: the cold first prompt chunk is gone** (nyira's item): chunk 1 is 1310-1328 ms vs 1280-1340 steady, GEMM warm-up
+  on GPU 0 127-147 ms (6892 ms pre-RXP). The old 1 s was the pre-RXP load's eviction recovery. 36K with timing on:
+  2572-2623 tok/s.
+- **Dispatch census written** (kaje): ab/sw3_s_b_agent_1/dispatch.json and ab/sw3_s_b_edit_1/dispatch.json.
+- Quiet arms still see short KFD evictions post-RXP (12-30 episodes per agent arm, mostly < 10 ms; a few 400-700 ms,
+  mixed SVM and USERPTR): what window PIN's HOST_IMMUNE arm targets.
+- Text identical to live in every clean arm. Output: strata-ab/windowsw3.out.
