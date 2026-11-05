@@ -1826,3 +1826,43 @@ Each server load of the same binary, config and prompts lands in one of two disc
 - Every window from here reads arms within a state (by pipeline hit/miss), not pooled.
 - Root cause is being chased CPU-only on branch basalt38/bimodal (Sol xhigh). If the fast state can be pinned, the
   win is ~+2% on agent prompts for every load that would have landed slow.
+
+## Scope BIMODAL: the two load states are the draft policy learning from wall-clock stalls (CPU replay, 08:40)
+
+The cause is DraftPolicy (src/spec/draft_policy.cpp), called from the `pick_lookup` lambda in generate.cpp.
+- It learns a per-width round cost by EMA (weight 0.1) from the time since the previous verdict, which includes
+  waits and rollback.
+- It picks MTP T3 or lookup T8 by expected committed tokens per ms, with a 3% margin.
+- It survives across requests.
+
+What happens, prp2_m_agent_1 (slow) vs prp2_m_agent_2 (fast), same binary, config and text:
+- At window 263 (first measured request) the host sees card 0 finish after 40.8 ms instead of 9.6 ms. T3 is charged
+  52.6 instead of 21.4 ms.
+- At window 269 (568 tokens in), the slow load picks lookup T8 and the fast one keeps MTP T3. From there the window
+  partition differs; the text does not.
+- The same first split at window 269 shows up in prp2_o_agent_1, prp2_x_agent_1 and all three t4_*_agent_2 loads.
+
+CPU replay through the real DraftPolicy/SuffixDrafter:
+
+| replay | learned T3 | learned T8 | choice at 269 |
+|---|---:|---:|---|
+| slow | 20.23 ms | 24.88 ms | lookup T8 |
+| fast | 17.94 ms | 24.92 ms | MTP T3 |
+| slow minus 31.25 ms at window 263 only | | | MTP T3 |
+| fast plus 31.25 ms at window 263 only | | | lookup T8 |
+
+- Slow agent loads verify 151 T8 windows vs 42 in fast loads. json_parallel_tool_plan is faster in the slow state.
+- Edit24 is already lookup-dominated: 3380 vs 3379 T8 windows.
+- hit/plc/miss are pipeline-speculation counters, not expert-cache counters.
+  - hit: B launched, A fully accepted, B's first token right.
+  - plc: B not launched.
+  - miss: B launched, but A was cut short or B's guess was wrong.
+- What causes the 31 ms stall is unknown: host polling, PLE reader or driver. The traces can't tell.
+
+Branch basalt38/bimodal a84e09112, compile-only:
+- `STRATA_PL_POLICY_COSTS=<ms per width>` freezes the costs.
+- New trace markers: PK/PC (choice and compared costs) and S0/S1 (host service done).
+- 42 CPU policy checks pass.
+- Next: a robust mode that clips stall samples, then window BIMODAL (main / unset / fixed / clip, agent x3
+  mirrored + edit24).
+- If a pinned policy holds the fast schedule, it is worth about +2% agent on every load that would have gone slow.
