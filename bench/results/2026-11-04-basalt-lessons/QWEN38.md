@@ -1371,7 +1371,7 @@ Main binary, copy of the live config, per-case medians over 3 passes, text vs b 
 - HC_DOWN2: exact, edit24 +0.43% with every case faster, agent flat. Goes into the live config with the IMMUNE
   adoption (one config change), not before.
 
-## The 36K prompt's two stages: overlapped, card 0 the bottleneck, ~1.2 s drain (11-05 01:25, SW3 timing arms ab/sw3_f_*)
+## The 36K prompt's two stages: overlapped, card 0 the bottleneck, ~1.2 s drain (11-05 01:15, SW3 timing arms ab/sw3_f_*)
 
 Corrected the same hour: a 01:05 entry here claimed the stages don't overlap; wrong. Stage 0 hands each chunk to stage
 1 on an async thread (prefill.cpp, next_run_ = std::async) and waits only for stage 1's *previous* chunk. The
@@ -1390,7 +1390,7 @@ stage 0's whole request (card 0, 25 layers).
   gdn 8.7%, gemm down 8.2%, gdn out proj 5.3%, hc read down+silu 5.2%, hc read up 4.5%, dequant 3.6%, hc write 2.7%.
 - Window PFX (insert 5658) reshaped: live vs split 24 vs b/a 64, two mirrored passes, timed L and split 24.
 
-## Bonus-root misses: the drafter's runner-up catches 41% on agent (mtpq agent, offline, 11-05 01:40, fafe57aea)
+## Bonus-root misses: the drafter's runner-up catches 41% on agent (mtpq agent, offline, 11-05 01:24, fafe57aea)
 
 ~70% of decode misses are "bonus-root": A accepted whole, B's guessed row 0 wrong (699 of 997 in sw3_s_b_agent_1).
 From captures (tools/mtp_bonus.py on basalt38/mtp-quant; bench/results/2026-11-04-mtpq/bonus/), runner-ups from the
