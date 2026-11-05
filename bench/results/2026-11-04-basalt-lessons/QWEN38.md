@@ -1344,3 +1344,10 @@ basalt38/pinned-host 02a104984 (on parked-graph). edit24 under compact_memory ev
 - Next: window IMMUNE (insert 5657), the quiet adoption check (agent, edit24, 36K prompt) before HOST_IMMUNE goes
   live; staging copies instead of pin-in-place could cost prompt H2D bandwidth.
 - Output: strata-ab/windowpin.out, arms ab/pin_*.
+
+## Window PGR (trimmed to phase B): the parked-graph branch costs nothing quiet (11-05 00:23-00:39)
+
+Harness config + --resident-experts, 2 loads each, interleaved: main (qmr) vs basalt38/parked-graph (qbr: KFD watcher,
+eviction-aware #267 deadlines, watchdog recheck). Agent 148.1 vs 148.6 tok/s, edit24 310.8 vs 311.2; 0 errors,
+0 restarts, 0 #267 on both; KFD 157/343 episodes (longest 297 ms) on main vs 110/232 (longest 49 ms) on the branch.
+No overhead: the branch can merge with pinned-host if window IMMUNE holds.
