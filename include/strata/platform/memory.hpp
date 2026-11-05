@@ -31,8 +31,10 @@ LockResult lock_resident_ranges(const std::vector<std::pair<void*, uint64_t>>& r
 void unlock_resident(void* p, uint64_t bytes);
 
 /// STRATA_MLOCK_REGISTERED=1 (Linux, opt-in; off by default and everywhere else).  On AMD, hipHostRegister of ordinary
-/// memory is a KFD userptr: the kernel's memory compaction may still move its pages, and every move stops all GPU
-/// queues of the process while the driver re-maps the registration (KFD's stats_*/evicted_ms counts it).  With the
+/// memory is a KFD SVM range (libhsakmt's default, HSA_USE_SVM) or, without SVM, a userptr: neither pins it.  The
+/// kernel's compaction and reclaim may still move or take its pages, and every such change stops all GPU queues of the
+/// process until the driver re-validates the range (KFD's stats_*/evicted_ms counts it; platform/kfd_watch.hpp
+/// watches it live).  With the
 /// switch on, every range is locked (mlock2 MLOCK_ONFAULT, so nothing is touched before the registration faults it
 /// in; plain mlock where that call is missing) just before it is registered; with vm.compact_unevictable_allowed=0
 /// compaction then leaves those pages alone.  Returns the bytes locked (0 when off or refused; a refusal is printed

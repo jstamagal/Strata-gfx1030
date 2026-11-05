@@ -71,6 +71,7 @@
 #include "strata/kernels/route_plan.hpp"
 #include "strata/kernels/sampler.hpp"
 #include "strata/core/progress.hpp"
+#include "strata/platform/kfd_watch.hpp"
 #include "strata/kernels/shared_expert.hpp"
 #include "strata/kernels/verify_kernels.hpp"
 #if defined(STRATA_HAVE_DFLASH2)
@@ -118,6 +119,15 @@ namespace {
 constexpr float EPS = 1e-6f;
 using Clock = std::chrono::steady_clock;
 double ms_since(Clock::time_point t) { return std::chrono::duration<double, std::milli>(Clock::now() - t).count(); }
+// #267's 20 s deadlines on AMD: time the kernel kept this process's GPU queues evicted (KFD) is not time the GPU had
+// (STRATA_KFD_EVICT_WAIT, platform/kfd_watch.hpp; wall time when the watcher is off or the switch is 0)
+bool past_limit(double since_ms, double now, double limit_ms) {
+    return strata::platform::kfd_deadline_passed(since_ms, now, limit_ms);
+}
+bool past_limit(Clock::time_point since, Clock::time_point now, double limit_ms) {
+    const auto ms = [](Clock::time_point t) { return std::chrono::duration<double, std::milli>(t.time_since_epoch()).count(); };
+    return strata::platform::kfd_deadline_passed(ms(since), ms(now), limit_ms);
+}
 const bool g_dbg = std::getenv("STRATA_VERIFY_DEBUG") != nullptr;
 inline bool g_lfuse() { static const bool on = [] { const char* v = std::getenv("STRATA_LFUSE"); return v != nullptr && v[0] == '1'; }(); return on; }
 // STRATA_ROUTE_RESIDENT=<margin logits> (+ STRATA_ROUTE_RESIDENT_RANKS=lo-hi, default 6-9): residency-biased routing.
@@ -589,8 +599,10 @@ int64_t trace_now_ns() {
     return std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now().time_since_epoch()).count();
 }
 std::string released_note(bool drained) {
-    return drained ? "; its GPU waits were released and the GPU finished (#267)"
-                   : "; its GPU waits were released but the GPU did not finish within 5 s (#267)";
+    const std::string k = strata::platform::kfd_summary();   // AMD: whether the kernel had the queues evicted
+    return std::string(drained ? "; its GPU waits were released and the GPU finished (#267)"
+                               : "; its GPU waits were released but the GPU did not finish within 5 s (#267)") +
+           (k.empty() ? "" : "; " + k);
 }
 // #267 test hook: STRATA_TEST_VERIFY_STALL=N withholds the last layer's flag in the N-th window (1-based), so the
 // GPU spins on a flag nobody raises - the bounded window wait and the release are then what ends it.  Unset: never.
@@ -3516,7 +3528,7 @@ bool Verifier::adapt_gate_wait(int32_t layer, std::string& err) {
         }
         strata_cpu_pause();
         if ((++spins & 1023u) != 0) continue;
-        if (Clock::now() - t0 > std::chrono::seconds(20)) {
+        if (past_limit(t0, Clock::now(), 20000.0)) {
             // the release drains the window's own streams, never the tier's copy stream: say so, and hand out the
             // gate's words and this window's GPU breadcrumbs (STRATA_VERIFY_TRACE) - the last landed layer is the
             // exact place the stream stopped, which the released window's error line alone never told (#2188's class)
@@ -3812,7 +3824,7 @@ bool Verifier::run(int T, const int32_t* tokens, int64_t pos0, PoolMultiFn pool,
                     return false;
                 }
             }
-            if (now - a > std::chrono::seconds(20)) {
+            if (past_limit(a, now, 20000.0)) {
                 // #267: the caller ends the engine; no spin kernel may outlive it
 #if defined(STRATA_VERIFY_HGL)
                 trace_ev("TIMEOUT", k, l, (int64_t) (launch_o ? launch_o->query() : cudaStreamQuery(cs_)));
@@ -5106,7 +5118,7 @@ bool Verifier::run_slot_rows(const int* rows, int S, const int32_t* tokens, cons
                     return false;
                 }
             }
-            if (now - a > std::chrono::seconds(20)) {
+            if (past_limit(a, now, 20000.0)) {
                 err = "verify batch: timed out at layer " + std::to_string(l) + released_note(release_gpu_waits(5000));
                 return false;
             }
@@ -5379,7 +5391,7 @@ int Verifier::batch_poll(PoolMultiFn pool, void* user, std::string& err) {
                 b_running_ = false;
                 return -1;
             }
-            if (now - last_ring() > std::chrono::seconds(20)) {
+            if (past_limit(last_ring(), now, 20000.0)) {
                 err = "verify batch: timed out at layer " + std::to_string(lb_ + k) +
                       released_note(release_gpu_waits(5000));
                 b_running_ = false;
@@ -5402,7 +5414,7 @@ int Verifier::batch_poll(PoolMultiFn pool, void* user, std::string& err) {
                 b_running_ = false;
                 return -1;
             }
-            if (now - last_ring() > std::chrono::seconds(20)) {
+            if (past_limit(last_ring(), now, 20000.0)) {
                 err = "verify batch: timed out at layer " + std::to_string(lb_ + b_k_) +
                       released_note(release_gpu_waits(5000));
                 b_running_ = false;
@@ -5637,6 +5649,7 @@ bool Verifier::pl_launch(int T, const int32_t* tokens, int64_t pos0, std::string
         return false;
     }
     if (pre_launch_ && !pre_launch_(cs_, err)) return false;
+    progress_at("verify window (pipelined): launching the window at position", pos0);
     const Clock::time_point t0 = Clock::now();
     last_batch_ = false;
     bool staged = pl_prestaged_ && last_t_ == T && last_pos0_ == pos0;
@@ -5712,6 +5725,7 @@ int Verifier::service(PoolMultiFn pool, void* user, std::string& err) {
         }
         *(volatile uint32_t*) h_flag_ = 1;
         fl_k_ = fl_total_;
+        progress_at("verify window (pipelined, zero-doorbell): its PLE rows are in, the GPU runs the layers from", lb_);
         progress_tick();
         return 1;
     }
@@ -5724,7 +5738,7 @@ int Verifier::service(PoolMultiFn pool, void* user, std::string& err) {
             const int r = ple_in();
             if (r < 0) return -1;
             if (r == 0) {
-                if (now_ms() - fl_ple_held_ms_ > 20000.0) {   // #267: no spin kernel may outlive the engine
+                if (past_limit(fl_ple_held_ms_, now_ms(), 20000.0)) {   // #267: no spin kernel may outlive the engine
                     trace_ev("TIMEOUT", fl_k_, l, 0);
                     err = "verify: the PLE rows of layer " + std::to_string(l) + " never landed" +
                           released_note(release_gpu_waits(5000));
@@ -5752,7 +5766,7 @@ int Verifier::service(PoolMultiFn pool, void* user, std::string& err) {
                 }
                 (void) cudaStreamQuery(cs_);
             }
-            if (now - fl_since_ms_ > 20000.0) {   // #267: no spin kernel may outlive the engine
+            if (past_limit(fl_since_ms_, now, 20000.0)) {   // #267: no spin kernel may outlive the engine
                 trace_ev("TIMEOUT", fl_k_, l, 0);
                 err = "verify: timed out at layer " + std::to_string(l) + released_note(release_gpu_waits(5000));
                 return -1;
@@ -5812,7 +5826,7 @@ bool Verifier::done(std::string& err) {
     if (q == cudaErrorNotReady) {
         const double now = now_ms();
         if (now - fl_flush_ms_ > 2.0) { fl_flush_ms_ = now; (void) cudaStreamQuery(cs_); }
-        if (now - fl_since_ms_ > 20000.0) {   // every layer served, and the graph still runs: #267 as above
+        if (past_limit(fl_since_ms_, now, 20000.0)) {   // every layer served, and the graph still runs: #267 as above
             err = "verify: the window never finished" + released_note(release_gpu_waits(5000));
         }
         return false;
