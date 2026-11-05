@@ -1306,3 +1306,22 @@ queue windows. Per-case medians over 3 passes below survive one bad pass; pooled
 - Quiet arms still see short KFD evictions post-RXP (12-30 episodes per agent arm, mostly < 10 ms; a few 400-700 ms,
   mixed SVM and USERPTR): what window PIN's HOST_IMMUNE arm targets.
 - Text identical to live in every clean arm. Output: strata-ab/windowsw3.out.
+
+## Windows GDNLIFE and IQSIGNED: two exact kernel lanes, both neutral at engine level (23:08-23:34)
+
+Built in one slot with main's options (gdn-life quad2c 186 VGPRs; iq-signed iq2s<18> 97 / fused<18> 102 VGPRs).
+- **GDNLIFE** (basalt38/gdn-life 928b78907: in-place v_fma state update in gdn_rec_quad2c_kernel, 220 -> 186 VGPRs):
+  bitwise (rec_head 32 PASS; stage-bench y/state hashes identical). Recurrence + norm -3.4% / -4.2% / -4.9% at
+  T 4096 / 16384 / 32768 (control kernel within 0.5%). 36K prompt on the engine: main 2698.5, branch 2673.2 tok/s
+  (-0.94%, one slow load; main spread 1.54%): neutral. The kernel is ~3.4 ms of a ~1300 ms 4096-token chunk, so the
+  saving is ~0.01% of the prompt; "GDN recurrence ~10% of prompt" in the brief was all of GDN. Parked, not merged.
+- **IQSIGNED** (basalt38/iq-signed 6edc7415f: IQ3_XXS gate/up on a 16 KiB signed codebook in LDS, STRATA_IQ_SIGNED_CB):
+  bitwise (lab parity 594 comparisons, 0 differ, synthetic + real rows; decode_expert_lab hash same off/on).
+  Microbench on layer 0's real experts, the dispatch's kernel: T=1 gate/up 33.3 -> 34.5 us (+3.7%: the table fill),
+  T=2 -1.6%, T 3-8 -4.4% to -6.0%; whole expert step -2% at T>=3. Engine (flag 0 vs 1, 3 agent / 2 edit24 passes):
+  agent per-case median +0.10%, edit24 +0.10%: neutral. Parked.
+- **The finding that matters: the decode expert kernels are at the memory roofline.** The same microbench reads
+  IQ3_XXS gate/up at 377 GB/s at T=1, 456 at T=3, 477-483 GB/s at T 4-8 (V620 peak 512 GB/s); with the signed table
+  501-514. Instruction-count work on these kernels can't buy engine speed. Decode speed now comes from fewer expert
+  bytes per accepted token (smaller expert quants, longer accepted windows, fewer distinct experts per window) or from
+  the non-expert part of the window.
