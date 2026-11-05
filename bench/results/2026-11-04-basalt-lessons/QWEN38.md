@@ -1922,9 +1922,41 @@ numbers below come from its output.
   - host F1 -> CL median 84.7 us (p95 286);
   - GPU tail -> next MTP round start median 182.9 us (p95 329), ~2% of a T1 round.
   - The device-wait chaining design goes to the two-card agent.
-- **Main itself crashed once** (tc_m_edit_2, 11:23:43), as did branch arm v (tc_v_edit_2, 11:14:59):
-  - gdn_step_commit_layers_kernel read an unmapped host page on card 1 (TCP fault);
-  - 53 SVM queue evictions and 129 failed restores;
-  - atop shows reclaim/swap at both fault clusters today.
+- **Main itself crashed once** (tc_m_edit_2, 11:23:43), as did branch arm v (tc_v_edit_2, 11:14:59). Both were
+  card-1 TCP page faults during SVM queue-eviction episodes; atop shows reclaim/swap at both fault clusters today.
 
-  This is a production stability bug, chased CPU-only on basalt38/svm-fix.
+  | load | faulting kernel | address | SVM eviction episodes | restore retries |
+  |---|---|---|---|---|
+  | branch (11:14:59) | gdn_step_commit_layers_kernel | 0x7f991cca3000 | 53 | 129 |
+  | main (11:23:43) | native_mmvq_rowset_kernel<8,true> | 0x7b7f361ff000 | 28 | 75 |
+
+  Host backing of the faulting address is unproven: device allocations share that VA range, and both GPU cores are
+  truncated. Hardening is on basalt38/svm-fix c990e459c; see Scope SVMFIX.
+
+## Scope SVMFIX: the host-immune policy still allowed SVM registration (CPU audit, 12:00)
+
+Branch basalt38/svm-fix c990e459c, compile-only.
+
+Audit:
+- Every operand of GDN commit and of the rowset matvec is a hipMalloc device arena. No hipMallocManaged anywhere on
+  the live path.
+- STRATA_HOST_IMMUNE=1 turned off HSA_USERPTR/SVM_FOR_PAGED_MEM (backing for new allocations). It did not turn off
+  HSA_USE_SVM, so the runtime could still SVM-register ordinary pointers.
+- Pageable conversation-cache K/V segments and PLE/indexer checkpoint vectors reached HIP copies directly.
+- On gfx1030 without XNACK, any CPU-page invalidation of an SVM range quiesces the process's GPU queues.
+- The 129 "failed restores" are restore-retry events (~43 worker retries across 3 nodes), not proven missing pages.
+
+Fix, no flag and no arithmetic change:
+- the immune policy also disables HSA_USE_SVM and re-execs so the settings are in the initial environment;
+- conversation endpoints stage through a persistent 4 MiB mapped GTT buffer per device;
+- verifier/commit operand ranges are validated and logged at load.
+
+Not proven to be the cure.
+Next: window SVMFIX (staging/90-windowsvmfix.sh, 60-90 min). It runs main vs fix, with and without bounded memory
+pressure, agent and edit24, two passes. PASS requires all of:
+- main faults or stalls under pressure;
+- the fix never faults;
+- text is identical;
+- speed is within 2%.
+
+INCONCLUSIVE if main doesn't reproduce.
