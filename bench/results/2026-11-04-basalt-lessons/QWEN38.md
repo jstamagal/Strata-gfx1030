@@ -2067,3 +2067,71 @@ identical:
 - g and r are small, real, text-identical wins: ~+0.15% each on agent, card-1 stages down to -62 us. They are the next
   merge candidates on top of live-1105 (g + r, without n).
 - n is dead as ported: slower on card 1, changes edit text, and hung the GPU once.
+
+## Slots 3 and 4: HC row padding is dead; two branches fail their GPU tests; live passes alone (14:28-15:07)
+
+Slot 3 (14:28-14:53) ran four builders on both cards at once: hcpad, owner, twocard, live.
+
+| builder | result |
+|---|---|
+| hcpad (basalt38/hc-pad e0d081549) | **PASS.** GPU parity bitwise on both cards, with pinned staging + `HSA_USE_SVM=0` |
+| owner (basalt38/owner-rdna2 69f2ec461) | **FAIL.** 152 tests pass, then hip_decode_expert_lab (head variant, pair 23/20, T3) takes a CPF host-page fault on card 0 at 14:33:29 |
+| twocard (basalt38/two-card 3cdbd4f70) | **FAIL.** Build and CPU self-tests pass; the GPU test tests/hip/mtp_handoff.cpp fails "invalid metadata fails closed with safe dummy inputs" |
+| live (basalt38/live-1105 25aa6ab85) | **FAIL.** Every parity test passes, then route-12 (hip_route_plan_parity, T1_DIET=12) hangs 1200 s on card 0 from 14:33 |
+
+- **HCPAD is dead.** The real fused-read pad sweep (cold weights, both cards, mirrored) finds:
+
+  | precision | best pad | score vs pad 0 | T=1 read |
+  |---|---|---|---|
+  | BF16 | 256 B | 0.990 (-1%) | 44.4 us |
+  | int8 (REQ8=1 and 2) | 0 | 1.000 | 28.6 us |
+
+  The isolated alias probe's -15..17% (window PRPORT2) does not carry into the fused read. Window HCPAD was not run.
+  Side number from the same bench: the int8 HC read is 36% faster than BF16 at T=1 (28.6 vs 44.4 us).
+- **OWNER's fault** is the host-page family below. That test still copies pageable host memory; it needs the same
+  pinned staging + `HSA_USE_SVM=0` that cured hcpad. Window OWNER was not run.
+- **TC2's failure** is in the new `STRATA_PL_DEVICE_CHAIN` error path. Invalid tail metadata must set
+  `MtpTailInvalid` and zero the token and output; on the GPU it did not. Window TC2 was not run.
+- **live's hang was collateral.** It started the minute OWNER faulted card 0. In slot 4 (15:06-15:07, live alone)
+  every test passed, route-12 included (`build exit 0`).
+- **Lesson:** slot builders share the cards, so one test's fault can hang another's. Critical builds run alone.
+- The config-audit queue ended at 14:59 (its window 28 was the last window boundary), so inserts no longer fire on
+  their own. Slot 4 and window LIVE were started by hand at 15:06.
+
+## The host-page fault family on 11-05
+
+| time | process | card | engine | fault | state |
+|---|---|---|---|---|---|
+| 08:13:24 | hip_prport (test) | 0 | SDMA0 | read of host pages | fixed: pinned 1 MiB chunks (053c2834a) |
+| 08:13:38 | hc_i8_bench (test) | 1 | SDMA | pageable `hipMemcpy2D` | moved to linear copies (510812b1a), not enough |
+| 11:14:59 | strata, two-card branch | 1 | TCP | gdn_step_commit_layers_kernel, 53 SVM eviction episodes | svm-fix built, untested |
+| 11:23:43 | strata, **main** | 1 | TCP | native_mmvq_rowset_kernel<8,true>, 28 episodes | svm-fix built, untested |
+| 12:19:49 | hc_i8_bench (test) | 0 | SDMA1 | linear copies still from pageable vectors | fixed: pinned staging + `HSA_USE_SVM=0` (e0d081549) |
+| 14:33:29 | hip_decode_expert_lab (owner test) | 0 | CPF | host pages | open |
+
+- None between 10-25 and 11-04. Every one landed under host memory pressure: reclaim/swap at 08:10-08:20 and
+  11:00-11:20 (atop), four slot builders compiling at 12:19 and 14:33.
+- Inference, not proven per fault: one mechanism fits all six. A pageable pointer reaches HIP, the runtime SVM-registers it (`HSA_USE_SVM` defaults on,
+  and HOST_IMMUNE didn't turn it off), reclaim moves the page, and gfx1030 without XNACK faults instead of retrying.
+- Every test binary given pinned staging + `HSA_USE_SVM=0` stopped faulting. The engine fix (scope SVMFIX) is built
+  and has not run on the GPU.
+- The two engine GPU cores (~/Strata_donttouch/gpucore.2596570.gpu, gpucore.2602525.gpu, ~7.3 of a declared 73 GB
+  each) are truncated past the faulting pages. They and the OWNER test's core (gpucore.2764237.gpu, 147 MB, 14:33)
+  were moved to ~/inbox/agents/claude/trash/2026-11-05/.
+
+## Lessons from running the 11-05 queue
+
+- **Read every A/B within a load state** (trace_t1.py --json hit/miss). A pooled +1-2% on agent is usually the
+  state.
+- **For text-changing arms, read stage medians** (GPU time per window), not tok/s: changed text moves acceptance.
+- **No compiles during measurement windows.** Compile pressure is the leading suspect for the stall that flips the
+  draft policy, and for the reclaim faults.
+- **A round's insert list is fixed when the round starts.** A held insert restored mid-round runs in that round.
+  Restore held inserts only in the gap after a round's last insert ends.
+- **Reader artifacts seen today**, to fix before the next use:
+  - the KFD regex `KFD.*evict` matches the benign "KFD at READY ... evicted 0 / 0 / 0 ms" line;
+  - "draft work differs" counts load-state effects as text differences;
+  - an exact-schedule gate fails on one-off speculation-class flips (a pipeline race);
+  - AB3's reader call omitted three arms;
+  - XXS's reader had a format bug in its reply-length note;
+  - T1's reader died on the iGPU (a third GPU agent with no dispatches).
