@@ -1465,3 +1465,45 @@ The branch splits the last prompt chunk so card 1's final chunk is small (TAIL=5
   Split 24 gives ~1327 / ~1345 ms per chunk, making card 1 the bottleneck, and ends at ~1327 + 36404 x 1345/4096 =
   ~13281 ms instead of ~13491 ms: about -210 ms (-1.6%) on 36K, if layers cost alike. Window PFX's split 24 measures it.
 - Window PFTAIL is still queued last (build slot 5675, window 5676), so the prediction gets a measurement.
+
+## Window T1: what a T=1 decode window is made of (rocprofv3 kernel trace, 11-05 01:55-01:59)
+
+Setup: live config, agent prompts, control arm and traced arm. Collection ran in half-second slices.
+- The window's own reader failed on yoda's third GPU agent (the 9950X iGPU, gfx1036, no dispatches). Fixed to keep only
+  agents that own dispatches; the analysis re-ran offline at 02:00.
+- Data: strata-ab/ab/t1_analysis (failed first attempt kept as t1_analysis.fail-0159).
+
+**Perturbation gate FAILED.** Captured T=1 windows ran 8.57 / 8.91 ms vs control 7.93 / 8.24 ms (+8.1% both cards); the
+whole traced arm matched control (+0.06% / +0.35%). The structure below is real; absolute times are inflated ~8%, likely
+mostly in the gaps (inference: the profiler intercepts each dispatch's completion signal).
+
+| per T=1 window | card 0 (28 windows) | card 1 (48 windows) |
+|---|---|---|
+| kernels | 558 | 514 |
+| kernel time (sum / union) | 7562 / 7020 us | 7824 / 7353 us |
+| graph-internal idle | 1708 us | 1599 us |
+| kernels under 5 us | 215, 547 us total | 192, 494 us total |
+| kernels 5-10 us | 51, 362 us total | 48, 334 us total |
+
+Biggest kernels per window (card 0; card 1 is similar plus the head):
+
+| kernel | count x mean | us/window | class |
+|---|---|---|---|
+| native_mmvq_rowset_kernel<1> | 25 x 58.0 | 1450 | mixer projection |
+| native_small_mmvq_kernel Q80 | 25 x 34.2 | 854 | mixer projection |
+| gr_up_q32e_kernel<8> | 50 x 16.1 | 803 | HC up |
+| gr_down_rows_kernel<1> | 50 x 15.9 | 796 | HC down |
+| native_gu_iq2s / gu_fused | 23 | 746 | expert gate+up |
+| s26_down_l | 25 | 578 | expert down |
+| route_plan_kernel | 25 x 12.5 | 313 | router plan |
+| bf16_f32_mmvf<256> (router) + rowset (router) | 25 + 25 | 569 | router projections (context inference) |
+| head_q6k_wide3 (card 1) | 1 x 998 | 998 | head |
+
+Readings:
+- HC down+up is ~1.6 ms per window on 625 MiB, ~410 GB/s. That is inference: bytes from the int8 lane's count, time
+  inflated ~8%. At the same rate int8 HC (352 MiB) would be ~0.9 ms, about -0.7 ms on card 0. Window HCINT8 measures it.
+- About 120 tiny kernels per card sit beside big ones: gr_norm_split_fast 27 x 2.7 us, sigmoid_scale_rows 25 x 2.7,
+  swiglu_quantize_q8_1 25 x 1.4, gr_norm_split_fast_cmb 23 x 3.6, norm_rope 18 x 2.7. Each one also costs a ~3-4 us gap.
+- route_plan_kernel takes 12.5 us per layer, as long as a router projection.
+- Unperturbed per-node cost comes from window FAB's STRATA_DUMMY_NODES arms. Per-kernel bytes and GB/s come from the
+  counter window (T1 lane, in prep).
