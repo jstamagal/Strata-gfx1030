@@ -1389,3 +1389,24 @@ stage 0's whole request (card 0, 25 layers).
 - Post-RXP phase shares (card 1 per chunk): gemm gate/up 20.5%, qsa attn 12.7%, gdn recurrence 9.9%, qsa proj 9.9%,
   gdn 8.7%, gemm down 8.2%, gdn out proj 5.3%, hc read down+silu 5.2%, hc read up 4.5%, dequant 3.6%, hc write 2.7%.
 - Window PFX (insert 5658) reshaped: live vs split 24 vs b/a 64, two mirrored passes, timed L and split 24.
+
+## Bonus-root misses: the drafter's runner-up catches 41% on agent (mtpq agent, offline, 11-05 01:40, fafe57aea)
+
+~70% of decode misses are "bonus-root": A accepted whole, B's guessed row 0 wrong (699 of 997 in sw3_s_b_agent_1).
+From captures (tools/mtp_bonus.py on basalt38/mtp-quant; bench/results/2026-11-04-mtpq/bonus/), runner-ups from the
+exact draft head over the recorded hidden state (exact top-1 = GPU's on 98-99% of steps):
+
+| capture | bonus steps | top-1 miss | true = runner-up 2 | in top 3 | in top 4 |
+|---|---|---|---|---|---|
+| agent B | 564 | 65% | 41% | 54% | 62% |
+| edit24 | 501 | 69% | 20% | 28% | 33% |
+| corpus | 7910 | 72% | 25% | 35% | 41% |
+
+- Carrying runner-up 2 as an extra row-0 candidate (spoils no hit), 8.4 ms per correction vs 0.85 ms (one stage) or
+  1.65 ms (both) per extra row: agent upper bound **+4% / +1.7%**, edit24 ~0, corpus +3% / -0.5%. Gating on p2 >= 0.2
+  carries 57-64% of bonus steps and keeps most corrections. Swapping to runner-up when p1 < x loses everywhere.
+- Upper bounds: a corrected row 0 has no drafts behind it (B's rows 1+ came from top-1), so a correction is worth less
+  than a full hit-vs-miss cycle; the branch needs a tree mask / forked GDN state in the verifier.
+- STRATA_MTP_TOP2's record_top2 has NO call site anywhere (the serial diagnostic has read zero since the call was lost).
+  An in-engine runner-up hook (head_proxy final_kernel top-4 + host-mapped per-step ranks, ~80-120 lines) measures the
+  live share before any branch is built.
