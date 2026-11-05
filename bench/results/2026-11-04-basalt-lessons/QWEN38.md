@@ -1429,3 +1429,39 @@ build-hip, then sets STRATA_HOST_IMMUNE=1 and STRATA_HC_DOWN2=1 in the live conf
   build-hip/strata.pre-a14e57959, d4d10152...), route_window_parity and kv_window_parity pass, and the live config now has
   STRATA_HOST_IMMUNE=1 and STRATA_HC_DOWN2=1 (old copy: strata-ab/staging/live-cfg.pre-immune-0130.json). Every window
   from here on runs on that binary and config.
+
+## Target check: the abliterated IQ3_XXS target reads +12% on agent (11-05 00:48 round + redo 01:33-01:44)
+
+Same drafter (s2gptq-a, live) on four targets, agent set (6 cases x 1200 tokens), 2 passes interleaved, harness config
+qwen-iq3s.json (no IMMUNE), both cards 100% resident. abl/ud4 ran in the 00:48 round on binary d4d10152; rco/ablxxs died
+there (PLE lives in shard 1) and re-ran 01:33 on 063bf754.
+
+| target | tok/rd | per-step accept | tok/s p1 / p2 |
+|---|---|---|---|
+| abl: SC117 GSQ-RCO abliterated IQ3_S (live) | 2.359 | 0.842 | 150.5 / 151.7 |
+| ablxxs: same abliteration, IQ3_XXS | 2.451 (+3.9%) | 0.883 | 166.7 / 170.5 |
+| rco: GSQ-RCO IQ3_XXS, not abliterated | 2.552 (+8.2%) | 0.845 | 163.2 / 172.7 |
+| ud4: unsloth UD-Q4_K_XL | 2.330 (-1.2%) | 0.855 | 114.7 / 118.6 |
+
+- ablxxs vs abl: about +12% tok/s. That is a cross-round, cross-binary inference: the IMMUNE check put the two binaries
+  within 0.6%, but this is not a same-binary A/B. The text differs (different weights), so it needs a quality number.
+- Abliteration costs acceptance: rco vs ablxxs is the same quant with and without it, +4.1% tok/rd. Which model to run
+  is KING's call; it is measured, not switched.
+- Next: the mtpq agent stages window XXS. It compares the live IQ3_S against the abliterated IQ3_XXS, plus IQ2_XS as a
+  longshot, on the live config and the same binary: agent + edit24 + 36K prompt. It also reports the expert-cache VRAM
+  each target leaves free, and teacher-forced top-1 agreement / KLD next to the speed.
+
+## Prompt tail chunk (STRATA_PREFILL_TAIL, basalt38/pf-tail d48867265): the model predicts no gain; queued last
+
+The branch splits the last prompt chunk so card 1's final chunk is small (TAIL=512 on 36404 tokens: 8 x 4096 + 3124 + 512).
+- The PF tail agent's own linear model: the final drain falls by 920 ms, but stage-0 fixed cost adds 89 ms and waiting adds
+  914 ms, net -83 ms.
+- Coordinator check, per-chunk times 1382 / 1290 ms: when card 0 finishes the last 3636 tokens (T+1227 ms), card 1 is
+  still on chunk 8 until T+1290. So card 1's remaining work ends at T+2435 however the 3636 tokens are split. The drain is
+  card 1's backlog, not card 0's latency.
+- A chunk can shrink by at most ~6.6% (1290/1382) per step without card 1 falling behind. Overall chunk size is flat near
+  its optimum (~3300 with ~89 ms fixed cost per chunk).
+- The prompt lever that remains is balance. Live split 25 means card 0 holds 25 of 48 layers, ~55 ms per layer per chunk.
+  Split 24 gives ~1327 / ~1345 ms per chunk, making card 1 the bottleneck, and ends at ~1327 + 36404 x 1345/4096 =
+  ~13281 ms instead of ~13491 ms: about -210 ms (-1.6%) on 36K, if layers cost alike. Window PFX's split 24 measures it.
+- Window PFTAIL is still queued last (build slot 5675, window 5676), so the prediction gets a measurement.
