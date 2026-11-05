@@ -1351,3 +1351,20 @@ Harness config + --resident-experts, 2 loads each, interleaved: main (qmr) vs ba
 eviction-aware #267 deadlines, watchdog recheck). Agent 148.1 vs 148.6 tok/s, edit24 310.8 vs 311.2; 0 errors,
 0 restarts, 0 #267 on both; KFD 157/343 episodes (longest 297 ms) on main vs 110/232 (longest 49 ms) on the branch.
 No overhead: the branch can merge with pinned-host if window IMMUNE holds.
+
+## Window SW3B: SW3's speed matrix finished, 3 passes, quiet (11-05 00:48-00:54)
+
+Main binary, copy of the live config, per-case medians over 3 passes, text vs b pass 1:
+
+| arm | agent tok/s | agent per-case median vs b | edit24 tok/s | edit24 per-case median vs b |
+|---|---|---|---|---|
+| b (live) | 151.7 | | 311.7 | |
+| `--spec-min-p 0.5` | 151.6 | +0.35% (3 faster, 2 slower) | 309.7 | -0.04% (10/14) |
+| `--spec-min-p 0.4` | 150.2 | -0.01% | | |
+| `STRATA_SPEC_COST=1` | 151.4 | +0.25% (4/1) | | |
+| `STRATA_HC_DOWN2=1` | 150.7 | -0.03% (1/3) | 312.4 | **+0.43% (24 faster, 0 slower)** |
+
+- Text identical everywhere. The pooled dips (p40 pass 3, d2 agent pass 3) are single eviction gaps (660, 688 ms).
+- min-p 0.5 / 0.4 and SPEC_COST: neutral; live 0.7 stays. Run 3's "undetermined" verdicts are now determined: dead.
+- HC_DOWN2: exact, edit24 +0.43% with every case faster, agent flat. Goes into the live config with the IMMUNE
+  adoption (one config change), not before.
