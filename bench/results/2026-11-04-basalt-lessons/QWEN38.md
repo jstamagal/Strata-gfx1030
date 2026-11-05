@@ -1644,3 +1644,42 @@ certified. 100% resident, zero-doorbell.
 - The live head (HEAD_WIDE, MTP_HEAD_PROXY, HEAD_SAMPLE) already reads the Q6_K rows in one ~1.0 ms pass. A screen
   wins only where the head reads well under bandwidth, and it doesn't here.
 - Dead on this config, both bit widths.
+
+## Window TOP4: the live runner-up share is 36% agent / 29% edit; a top-2 branch tops out near +1-2% agent, ~0 edit (05:34-05:58)
+
+Branch basalt38/mtp-top4 05994cee9 (the in-engine runner-up hook from the bonus-root section; STRATA_MTP_TOP4=1 logs the
+drafter's top-4 against the true bonus token). Arms: m = main, off = branch with the flag off, on = flag on. Agent + edit24,
+2 passes mirrored, live config.
+
+| | agent tok/s vs m | edit24 tok/s vs m |
+|---|---|---|
+| off | +0.02% (per-case +0.03%) | -0.19% (-0.04%) |
+| on | -0.02% (-0.05%) | -0.18% (-0.08%) |
+
+Text identical to main in every arm and case; 100% resident, zero-doorbell. The hook costs nothing measurable. Pass 1 vs
+pass 2 on agent moved 2.2% with identical code (151.8 vs 148.4), bigger than every effect here.
+
+Rank of the true bonus token in the drafter's top 4, where A was accepted whole (both on passes):
+
+| | bonus steps | top-1 hit | misses | runner-up 2 catches | in top 2-4 | offline estimate |
+|---|---|---|---|---|---|---|
+| agent | 5056 | 70.8% | 1477 | 36.0% | 60.7% | 41% |
+| edit24 | 1431 | 80.9% | 274 | 29.2% | 40.9% | 20% |
+
+Gated on p2 >= 0.2:
+- agent: 1269 guesses, 771 misses, 353 caught (45.8%).
+- edit24: 219 guesses, 142 misses, 62 caught (43.7%).
+
+The value of a top-2 row-0 branch, with the offline section's costs (8.4 ms saved per correction, 0.85 ms per extra row on
+one stage or 1.65 ms on both). My arithmetic, over the window's pooled time:
+
+| | saved | cost (one stage / both) | net |
+|---|---|---|---|
+| agent (95.9 s) | 353 x 8.4 = 2.97 s | 1.08 / 2.09 s | **+2.0% / +0.9%** |
+| edit24 (174.6 s) | 62 x 8.4 = 0.52 s | 0.19 / 0.36 s | **+0.2% / +0.05%** |
+
+- These are upper bounds. A corrected row 0 has no drafts behind it, and the verifier needs a tree mask plus forked GDN
+  state to carry two row-0 candidates.
+- The live agent share (36%) came in under the offline 41%, so the ceiling dropped from the offline +4% / +1.7%.
+- A tree verifier with forked GDN state for at most ~1-2% on agent and nothing on edits: **parked**. The hook stays on
+  its branch as a measurement tool.
