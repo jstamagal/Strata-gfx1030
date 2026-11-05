@@ -1990,3 +1990,54 @@ GATE FAIL on "one exact schedule".
 - **f** picks lookup T8 more often and is consistently faster on agent (+0.7%, all 3 loads within 0.07 tok/s) but
   slower on edit (-0.7%). A trade, not adopted. It shows the learned policy is not optimal for agent prompts; a
   per-workload policy tune is a lead.
+
+## Window BUNDLE1: int8 HC is the win (stages -0.45..0.50 ms, agent +5.7..7.5%); diet small and clean; q4n dropped (12:20-13:28)
+
+Branch basalt38/bundle1 30e522878 = main + 31398223c (q4n) + 6738da922 (t1-diet) + 806ecab63 (hc-int8 v2), plus
+KING's vendor 0004-0006 in a private vendored tree. Arms:
+- m: main; b: bundle, all off;
+- q4n: native Q4_0 drafter; diet: STRATA_T1_DIET=12;
+- hcj: STRATA_HC_REQ8=1 with HCQ's ROWS/UPR; hck: REQ8=2;
+- all: q4n + diet + hck.
+
+Agent + edit24, two mirrored passes, a fresh 36K read per load, state-aware reader. Main's agent loads: pass 1 slow
+(146.33, hit/miss 1814/1023), pass 2 fast (151.32). The window ended GATE FAIL on `all`'s residency.
+
+Stage medians (ms, s0 / s1):
+
+| arm | agent T1 | agent T3 | edit T1 | text vs m |
+|---|---|---|---|---|
+| m | 7.921 / 8.227 | 9.713 / 10.386 | 8.027 / 8.369 | ref |
+| b | 7.923 / 8.236 | 9.698 / 10.425 | 8.027 / 8.344 | identical |
+| diet | **7.831 / 8.133** | 9.683 / 10.375 | **7.936 / 8.265** | identical |
+| hcj | **7.417 / 7.788** | **9.226 / 9.954** | **7.522 / 7.884** | changes (rounding) |
+| hck | 7.456 / 7.968 | 9.254 / 10.000 | 7.574 / 7.926 | changes |
+| all | 7.334 / **8.713** | 9.217 / **11.780** | 7.423 / **8.699** | changes; card 1 residency dropped |
+
+Throughput:
+
+| arm | agent | edit24 |
+|---|---|---|
+| b | fast-state 151.29 vs 151.32 (0.0%) | -0.10% |
+| diet | fast-state 151.79, **+0.31%** (median +0.32%) | +0.09% (accepted identical) |
+| q4n | 151.95 / 151.89, about +0.4% vs m fast | -0.97% pooled (median -0.14%) |
+| hcj | 162.56 / 161.86; per-case median **+7.5%** (pooled +9.0%, text-confounded) | median **+1.7%** (pooled -0.8%, accepted -0.7%) |
+| hck | 157.80 / 157.79; median **+5.7%** | median +1.6% (pooled +0.9%) |
+| all | median -0.7% | -0.79% |
+
+- **int8 HC is a real engine speedup:** the GPU stage time per window drops 0.45-0.50 ms (~6%) on both cards at
+  T1-T3. Agent decode is mostly MTP T3, so it gains ~5-7%. Edit is lookup-T8-dominated and gains ~1-2% median.
+  - Quality was proven at the rounding floor in HCQ.
+  - Cost: +351/+323 MiB; card 1 keeps 1388 MiB free at 100% residency.
+  - hcj beats hck on stage time (card 1 T1 -180 us) and on medians in both workloads; hck is 0.001 better on KL. Adopt
+    **hcj**: REQ8=1, ROWS 4,2,2,2,2,2,2,2, UPR 2,2,2,1,1,1,1,1.
+- **diet 12** is clean and small: -90..104 us per T1 window, text identical. Adopt.
+- **q4n** is flat on agent within state, slightly negative on edit, and costs +675 MiB on card 1. Dropped.
+- **all** does not fit: q4n + int8 HC on card 1 leaves 812 MiB free, 11730 < 11776 slots, HC copies 92%, zero-doorbell
+  2/4, and card 1 stages slower.
+- **Vendor 0004-0006 (b):** decode flat and text identical. Fresh 36K across the bundle arms: 2397-2659 tok/s vs main
+  2562/2659, about -2.6% on average, but main's own two values differ by 4%. Prompt effect inconclusive; not merged.
+  Needs a dedicated 36K A/B (several fresh reads per arm).
+- Merge set for the live engine: hc-int8 v2 (hcj env) + t1-diet 12 + the bimodal clip guard (STRATA_PL_POLICY_CLIP=2.10).
+  It goes on its own branch and is validated in a window before the live switch. Merging into main now would trip the
+  drift gates of the queued branch windows.
