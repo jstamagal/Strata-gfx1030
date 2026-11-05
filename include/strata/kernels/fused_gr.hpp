@@ -27,6 +27,10 @@ struct FusedGrArgs {
     const float* R = nullptr;          ///< (hc, n_embd), read by `down`; `up` updates it in place when apply
     float* R_out = nullptr;            ///< == R for the in-place update
     bool apply = false;                ///< fold the previous half's gr_write
+    /// STRATA_HC_REQ8=2 (the layer split's decode copies): s_down / s_up (below) hold one fp16 scale per 16 contiguous
+    /// values ([row][col / 16], the same bytes) instead of one fp32 per 32.  (Next to `apply`, in its padding: the
+    /// struct's other offsets, and so the bf16 kernels' code, stay as they were.)
+    bool s16 = false;
     const float* bo_prev = nullptr;    ///< that half's block output, n_embd
     const float* inj_prev = nullptr;   ///< that half's injection, hc
     const float* w_norm = nullptr;     ///< (hc * n_embd) f32
@@ -81,8 +85,13 @@ constexpr int kFusedGrMaxT = 8;
 /// strictly its own, so the slices are bitwise the one read); `a` and `xn_scratch` hold up to kFusedGrWideT tokens.
 constexpr int kFusedGrWideT = kWindowMaxT;
 /// Returns true when it also wrote the q8_1 images (every token's q8_mixed set and this read supports it).
+/// `nrm_sync` (STRATA_T1_DIET (2); null = off): kFusedGrNrmSyncBytes of zeroed device memory owned by ONE call site
+/// whose reads all have the same w_inject presence and never overlap (the verifier's: one per layer, half and token
+/// group, one for the head).  Where the read's down launch is the wide row kernel's exact-T form (1-4 tokens), that
+/// launch also makes the split register norm (one launch fewer, every output the same bits); elsewhere it is unused.
 bool fused_gr_read_multi(const FusedGrArgs* a, int n_tok, float* xn_scratch, void* stream,
-                         unsigned long long* stamp_buf = nullptr, int stamp_i0 = 0);
+                         unsigned long long* stamp_buf = nullptr, int stamp_i0 = 0, void* nrm_sync = nullptr);
+constexpr int kFusedGrNrmSyncBytes = 256;
 /// The bench only: the AMD latency-hidden kernels on (1) or off (0); -1 = STRATA_GR_FAST.
 void fused_gr_set_fast(int on);
 /// The bench only: STRATA_HC_WIDE's bit mask (1 = the one-block-per-row down, 2 = the 8-lanes-a-row up); -1 = the
@@ -94,6 +103,11 @@ void fused_gr_set_wide8(int on);
 void fused_gr_set_up_tsum(int on);
 /// Tests: STRATA_HC_DOWN2 on (1) or off (0) whatever the environment says; -1 = the environment again.
 void fused_gr_set_down2(int on);
+/// The bench only: STRATA_HC_REQ8's wide down rows a block (1, 2 or 4) for windows of n_tok tokens (n_tok <= 0: every
+/// size); another value = STRATA_HC_I8_ROWS / the default again.
+void fused_gr_set_i8_rows(int n_tok, int rows);
+/// The bench only: STRATA_HC_REQ8's wide up rows in flight a warp (1, 2, 4 or 8), as fused_gr_set_i8_rows (STRATA_HC_I8_UPR).
+void fused_gr_set_i8_upr(int n_tok, int upr);
 /// The bench only: the v3 read's weight-prefetch kernels (STRATA_GR_V3_PF, bit 0 down / bit 1 up) for every read; -1 = the environment.
 void fused_gr_v3_pf(int mask);
 /// The bench only: registers / spills / shared memory / resident blocks a multiprocessor of the v3 kernels (T = 4), one line each.

@@ -4888,10 +4888,13 @@ int main(int argc, char** argv) {
     // STRATA_HC_REQ8=1 (opt-in, changes the output): the hyper-connection projections are not loaded as BF16;
     // load_hc_q8 below requantizes them to int8 + an fp32 scale per 32 values (~0.56x the bytes), and the freed VRAM
     // goes to the expert cache like any other.  (Upstream's STRATA_HC_Q8 is a different thing: the GGUF's Q8_0 bytes.)
+    // On a layer split the BF16 rows stay (the prompt path reads them): each stage adds an int8 copy of ITS layers'
+    // projections for the verify window once the split is known (make_hc_i8_copies, below) - decode-only int8.
     const bool hc_req8_env = std::getenv("STRATA_HC_REQ8") != nullptr && std::atoi(std::getenv("STRATA_HC_REQ8")) != 0;
-    if (hc_req8_env && multi_gpu)
-        std::fprintf(stderr, "strata generate: WARNING: STRATA_HC_REQ8 does not support a layer split yet - the BF16 "
-                             "projections are used\n");
+    // STRATA_HC_REQ8=2 (the layer split's copies only): one fp16 scale per 16 values instead of one fp32 per 32 - the same
+    // bytes, ~16% less weight error (hc_req8_quantize16); a single GPU runs =1's form either way
+    const bool hc_req8_s16 = hc_req8_env && std::atoi(std::getenv("STRATA_HC_REQ8")) == 2;
+    const bool hc_req8_split = hc_req8_env && multi_gpu;
     const bool hc_q8 = hc_req8_env && !multi_gpu;
     if (hc_q8) strata::core::WeightTable::hc_q8_names(g.n_layers, skip);
     uint64_t pool_bytes = 0;
@@ -6396,6 +6399,41 @@ int main(int argc, char** argv) {
             std::fprintf(stderr, "strata generate: layer split: CUDA%d holds its weights; %.2f GiB free (its session "
                                  "follows)\n", st.dev, (double) fb / 1073741824.0);
         }
+
+    // ---- STRATA_HC_REQ8=1 on a layer split (opt-in, changes the output): every stage keeps its layers' BF16
+    // hyper-connection rows (the prompt path reads them) and adds an int8 + fp32/32 copy of their down / up projections
+    // on its own card, which the verify window reads (fused_gr's int8 wide kernels: 0.5625x the bytes); =2 the same with
+    // one fp16 scale per 16 values.  Made here, once
+    // the split is known and before the sessions and the expert caches are sized, so the caches see the VRAM it takes.
+    if (hc_req8_split) {
+        auto make_i8 = [&](strata::core::WeightTable& t, int dev, int64_t lb, int64_t le) -> bool {
+            const strata::core::OnDevice on(dev);
+            const auto t0 = std::chrono::steady_clock::now();
+            uint64_t bytes = 0;
+            int n = 0;
+            if (!t.make_hc_i8_copies(lb, le, bytes, n, err, hc_req8_s16)) {
+                std::fprintf(stderr, "strata generate: CUDA%d: %s\n", dev, err.c_str());
+                return false;
+            }
+            size_t fb = 0, tb = 0;
+            cudaMemGetInfo(&fb, &tb);
+            std::fprintf(stderr, "strata generate: STRATA_HC_REQ8 on a layer split: CUDA%d layers %lld-%lld: %d hyper-connection "
+                                 "projections get an int8 + %s copy for the verify window (%llu MiB; the BF16 rows stay "
+                                 "for the prompt path) in %.1f s; %.2f GiB free\n",
+                         dev, (long long) lb, (long long) le - 1, n, hc_req8_s16 ? "fp16/16" : "fp32/32", (unsigned long long) (bytes >> 20),
+                         std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count(),
+                         (double) fb / 1073741824.0);
+            if (n != 4 * (int) (le - lb)) {
+                std::fprintf(stderr, "strata generate: STRATA_HC_REQ8 on a layer split: CUDA%d made %d copies for %lld layers "
+                                     "(4 a layer expected)\n", dev, n, (long long) (le - lb));
+                return false;
+            }
+            return true;
+        };
+        if (!make_i8(wt, primary_device, 0, split_at[0])) return 1;
+        for (auto& sp : stages)
+            if (!make_i8(sp->wt, sp->dev, sp->lb, sp->le)) return 1;
+    }
 
     // ---- CUDA0's session, and the stages' sessions: sized to each device's own layer range (the carve).  A
     // stage that runs [lb, le) carves only those layers' GDN rows and QSA pools - before the carve every stage
@@ -13597,6 +13635,37 @@ int main(int argc, char** argv) {
         strata::spec::SuffixDrafter sfx(std::max(1, o.suffix_draft), 64, (size_t) o.max_context + 4096);
         strata::spec::DraftPolicy policy(S);   // MTP or lookup window, learned over the whole process
         strata::spec::DraftPolicy policy_idle(S);   // --draft auto: the other drafter's learned costs; swapped in with it when a request uses the other drafter
+        // STRATA_PL_POLICY_COSTS=ms1,...,msS (unset or 0: unchanged). The pipeline's verdict intervals include
+        // rollback, PLE/driver stalls and overlap, not just this width's work. Feeding them back can flip a
+        // lookup choice and keep the process on a different schedule. A fixed profile removes that timer input;
+        // it does not fix the underlying stall or promise that the chosen profile is fastest.
+        const char* pl_policy_costs = std::getenv("STRATA_PL_POLICY_COSTS");
+        if (pipe && o.pipeline_windows >= 2 && pl_policy_costs != nullptr && pl_policy_costs[0] != '\0' &&
+            std::strcmp(pl_policy_costs, "0") != 0) {
+            if (!policy.set_fixed_costs(pl_policy_costs) || !policy_idle.set_fixed_costs(pl_policy_costs)) {
+                std::fprintf(stderr, "strata serve: STRATA_PL_POLICY_COSTS needs exactly %d comma-separated positive finite costs (ms, T1..T%d)\n", S, S);
+                return 1;
+            }
+            std::fprintf(stderr, "strata serve: STRATA_PL_POLICY_COSTS=%s: fixed window costs, acceptance still learned; no wall-clock cost feedback\n", pl_policy_costs);
+        }
+        // STRATA_PL_POLICY_CLIP=factor (unset or 0: off): upper-tail winsorization before the cost EMA.
+        // 2.10 keeps the recorded window-269 choice below the 1.03 gate with >= 0.01 ratio headroom on the
+        // clean-prefix replays, including a +31.25 ms injected stall. A real sustained 2x change is not clipped.
+        const char* pl_policy_clip = std::getenv("STRATA_PL_POLICY_CLIP");
+        if (pipe && o.pipeline_windows >= 2 && pl_policy_clip != nullptr && pl_policy_clip[0] != '\0' &&
+            std::strcmp(pl_policy_clip, "0") != 0) {
+            char* end = nullptr;
+            const double factor = std::strtod(pl_policy_clip, &end);
+            if (pl_policy_costs != nullptr && pl_policy_costs[0] != '\0' && std::strcmp(pl_policy_costs, "0") != 0) {
+                std::fputs("strata serve: choose STRATA_PL_POLICY_COSTS or STRATA_PL_POLICY_CLIP, not both\n", stderr);
+                return 1;
+            }
+            if (end == pl_policy_clip || *end != '\0' || !policy.set_cost_clip(factor) || !policy_idle.set_cost_clip(factor)) {
+                std::fputs("strata serve: STRATA_PL_POLICY_CLIP needs a finite factor > 1 (0 disables it)\n", stderr);
+                return 1;
+            }
+            std::fprintf(stderr, "strata serve: STRATA_PL_POLICY_CLIP=%.6g: upper cost samples clipped before EMA; first samples and lower costs unchanged\n", factor);
+        }
         bool policy_is_df2 = use_df2;   // which drafter's costs `policy` holds (the engine's first drafter; swapped with policy_idle when a request uses the other one)
         struct DraftBandit { double tps[2] = {0, 0}; int n[2] = {0, 0}; int64_t reqs = 0; };   // [1] = DFlash2, [0] = MTP: decode tok/s of finished requests (--draft-rule learn)
         std::unordered_map<uint64_t, DraftBandit> bandit;
@@ -17766,6 +17835,8 @@ int main(int argc, char** argv) {
                     float p_on = 0.0f;     // the chain's estimate that the window before is accepted whole, tok[0] its bonus
                     // launched: on stage 0; finished: done on every front stage (all but the last); s1: on the last
                     bool ready = false, launched = false, finished = false, s1 = false, s1_done = false;
+                    bool s1_served = false;  // trace: all host service supplied, not GPU completion
+                    uint32_t served = 0;     // same, per front stage (S0)
                     int fr = 0;            // front stages done
                     bool fl = false;       // in flight on front stage `fr`
                     uint32_t com = 0;      // the front stages this window was committed on speculatively (bit per stage)
@@ -17945,7 +18016,12 @@ int main(int argc, char** argv) {
                     // undo restores everything it wrote).  STRATA_PIPELINE_DOOM_SKIP=0: served in full.
                     static const bool doom_skip = [] { const char* e = pipe_dbg_env("STRATA_PIPELINE_DOOM_SKIP"); return e == nullptr || std::atoi(e) != 0; }();
                     const bool skip = doom_skip && doomed && &w == &D;
-                    if (v.service(skip ? nullptr : &drive_pool_split, SDf(w), err) < 0) return false;
+                    const int served = v.service(skip ? nullptr : &drive_pool_split, SDf(w), err);
+                    if (served < 0) return false;
+                    if (pl_trace_path != nullptr && served > 0 && (w.served & (1u << w.fr)) == 0) {
+                        w.served |= 1u << w.fr;
+                        tre("S0", w.seq, w.fr, w.spec);   // resident path: PLE rows arrived and flag 1 raised
+                    }
                     if (v.done(err)) {
                         if (!v.pl_finish(nullptr, err)) return false;
                         w.fl = false;
@@ -18128,6 +18204,11 @@ int main(int argc, char** argv) {
                     const int match = sfx.last_match();
                     if (k <= 0 || (!resynced && pl_sbuf[0] != chain0[0])) return;
                     const strata::spec::DraftPolicy::Pick pk = policy.choose(w.T, std::min(k, std::min(S, 8) - 1), match);
+                    tre("PK", w.seq, w.T, pk.lookup ? pk.t : 0);   // original MTP width, selected lookup width (0: kept MTP)
+                    if (pl_trace_path != nullptr) {
+                        auto us = [](double ms) { return (int) std::min((double) std::numeric_limits<int>::max(), 1000.0 * ms); };
+                        tre("PC", w.seq, us(policy.cost_ms(w.T)), us(policy.cost_ms(std::min(S, 8))));   // costs in us
+                    }
                     if (!pk.lookup && !resynced) return;
                     const int rows = lookup_rows(w.p, resynced ? std::min(std::min(S, 8), k + 1) : pk.t);
                     if (rows <= 0) return;
@@ -18229,6 +18310,10 @@ int main(int argc, char** argv) {
                         strata::core::Verifier& v = V1(A);
                         const int served = v.service(&drive_pool_split, SDf(A), err);
                         if (served < 0) return die(err);
+                        if (pl_trace_path != nullptr && served > 0 && !A.s1_served) {
+                            A.s1_served = true;
+                            tre("S1", A.seq, A.T);
+                        }
                         if (served > 0 && !ajob && !pl_adapt_thr.joinable() && !exch_wait && o.adapt_every > 0 &&
                             ((rounds + 1) % o.adapt_iv(rounds)) == 0) tier_rank_start();
                         if (v.done(err)) {

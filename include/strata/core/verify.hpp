@@ -784,6 +784,7 @@ private:
     mutable bool screened_logits_ = false;
     bool exact_head_logits() const;
     uint32_t* route_done_ = nullptr;           ///< STRATA_ROUTE_PLAN=2: the fused router launch's row counter (device)
+    uint8_t* nrm_sync_ = nullptr;              ///< STRATA_T1_DIET (2): the HC reads' norm-in-down tickets, one per call site (device)
     // STRATA_HEAD_SAMPLE=1 (sample_tokens_staged): a sampled request's draws as nodes of the window's graph
     void* sp_scratch_ = nullptr;               ///< the split sampler's block lists (its own allocation; null: off)
     int32_t* sp_dev_ = nullptr;                ///< the device copy of the staged SamplerParams
