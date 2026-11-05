@@ -1019,7 +1019,7 @@ mtpq branch binary 563dbb2f, harness IQ3_S config, only `--mtp` differs; agent x
 | q4g | 1514 | 150.35 (+0.9%; p2 148.4) | 150.75 (+1.9%) | 356.04 (-3.4%; p2 345.2) | 6/6, 3/3 | OK |
 | king (KING's quant) | - | 143.48 (-3.7%) | 142.79 | 361.21 (-2.0%) | 1/6, 3/3 | FAIL: CUDA1 11705 slots, 2 zero-doorbell graphs |
 
-- **s2gptq-a edit -0.6% is ONE draw, not a measured loss** (correction, 19:02). 366.2 / 366.1 vs 368.6 / 368.2 comes from
+- **s2gptq-a edit -0.6% is ONE draw, not a measured loss** (correction, 19:05). 366.2 / 366.1 vs 368.6 / 368.2 comes from
   7 accepted tokens: 3097 vs 3104 of 3600, 503 vs 496 rounds. Greedy decoding with the same drafts makes the two passes
   identical replays (they differ only in timing), so 3 cases are one sample, and a 7-token swing is the size of the
   draft drift any weight change causes. Offline edit can't settle it either: same 3 cases (959 steps, s2gptq-a +2/-1
