@@ -2135,3 +2135,88 @@ Slot 3 (14:28-14:53) ran four builders on both cards at once: hcpad, owner, twoc
   - AB3's reader call omitted three arms;
   - XXS's reader had a format bug in its reply-length note;
   - T1's reader died on the iGPU (a third GPU agent with no dispatches).
+
+## Window LIVE: GO; int8 HC + T1 diet + policy clip are live (15:07-15:42, switched 15:43-15:46)
+
+Branch basalt38/live-1105 25aa6ab85 = main c6ba587e9 + t1-diet 6738da922 + hc-int8 v2 806ecab63 + bimodal bf07bf391
+(no q4n, no vendor patches). Arms:
+- m: main binary, live config;
+- L0: live-1105 binary, same config, nothing new on;
+- L: live-1105 + `STRATA_HC_REQ8=1 STRATA_HC_I8_ROWS=4,2,2,2,2,2,2,2 STRATA_HC_I8_UPR=2,2,2,1,1,1,1,1 STRATA_T1_DIET=12
+  STRATA_PL_POLICY_CLIP=2.10`.
+
+Agent + edit24, two mirrored passes; nine fresh 36K reads. Every load passed its gates (11776 slots, 100% resident, 4
+zero-doorbell graphs). L leaves 1830 / 1388 MiB free (m: 2182 / 1712). No kernel fault during the window.
+
+| | m | L0 | L |
+|---|---|---|---|
+| agent tok/s (pooled) | 151.04 | 151.02 | **162.44 (+7.5%)** |
+| agent per-case median vs m | | -0.003% | **+4.63%** (6 of 6 faster: +1.5 .. +20.0%) |
+| agent hit / plc / miss | 1897 / 209 / 998 (both passes) | 1897 / 209 / 998, 1896 / 210 / 998 | 1894 / 206 / 914, 1914 / 207 / 906 |
+| agent text vs m | | 12 / 12 identical | 0 / 12 |
+| edit24 tok/s (pooled) | 313.75 | 313.54 | 310.87 (-0.92%) |
+| edit24 per-case median vs m | | -0.07% | **+1.64%** (20 of 24 faster) |
+| edit24 text vs m | | 48 / 48 identical | 26 / 48 |
+| 36K fresh reads | 2401 / 2668 / 2660 | 2606 / 2714 / 2592 | 2709 / 2714 / 2714 |
+
+Stage medians (ms, s0 / s1):
+
+| | agent T1 | agent T2 | agent T3 | edit24 T1 | edit24 T3 |
+|---|---|---|---|---|---|
+| m | 7.922 / 8.232 | 8.772 / 9.186 | 9.707 / 10.398 | 8.016 / 8.358 | 10.019 / 10.301 |
+| L | **7.322 / 7.698** | **8.204 / 8.682** | **9.207 / 9.949** | **7.409 / 7.780** | **9.474 / 9.893** |
+| delta | -0.600 / -0.534 | -0.568 / -0.504 | -0.500 / -0.449 | -0.607 / -0.578 | -0.546 / -0.408 |
+
+- **The engine is faster everywhere it is measured without text effects:** every stage median, both cards, both
+  workloads, -0.41..-0.61 ms. That is int8 HC (BUNDLE1: -0.45..-0.50) plus diet 12 (-0.09..-0.10).
+- **L0 is main:** text identical in all 60 requests, speed within 0.1%.
+- **Agent:** m and L0 were in the fast state in every load. L's hits match the fast state and its misses drop by
+  84-92 (the slow state is ~1750 hits / ~1030 misses), so L is not a slow-state load. The reader marked it
+  "STATE-CONFOUNDED" only because its text changed. Read: +4.6% per-case median, +7.5% pooled.
+- **Edit24's pooled -0.92% is one case.** wedit_rs_rename_1 runs 190.5 vs 291.9 tok/s (-34.7%) in both passes,
+  with 864 vs 1005 drafts accepted. Its text differs from the 12th character: L writes a longer deliberation before
+  the code ("...Let's look closely."), then a valid rename that ends on the 1200-token cap like m's. Fewer
+  copyable tokens, not broken output. This case and the rs_rename family sit near ties (window HCINT8).
+- **36K:** L's three reads are the tightest (2709-2714); m's and L0's spread 2401-2714 with the same prompt code. The
+  verdict's +2.0% is inside that spread: prompt is not worse.
+- Verdict: `LIVE_SWITCH GO` (agent median >= +3%, edit median >= 0, 36K >= -1%, stages 12 / 12, L0 identical).
+
+**The switch (15:43-15:46):**
+- main: merge 79714b3d3 (basalt38/live-1105 into 0624a97b3).
+- build-hip/strata rebuilt alone: sha256 dd61a9d3e12614db... The old binary is kept as build-hip/strata.pre-79714b3d3
+  (063bf7542446d28c..., the 01:33 IMMUNE build). All targets built; ctest subset (mmvq_dispatch, window, lookup, stop,
+  penalty, slot, route) 10 / 10 and hip_t1_diet_parity pass.
+- The live config strata-sc117-IQ3_S-qwen-abliterated.json gained exactly the five L keys; nothing else changed. The
+  old copy is ~/inbox/agents/claude/strata-ab/staging/live-cfg.pre-int8hc-1545.json.
+- Smoke load (production binary + live config, agent set, 15:45): **163.2 tok/s**, per-case drafts identical to L's
+  pass 2, int8 HC copies 351 / 323 MiB, card 1 11776 / 11776 resident. Output strata-ab/ab/smoke_live_1545.
+- New baseline: agent ~162-163 tok/s, edit24 ~311 pooled (median +1.6%), 36K ~2714.
+
+## Wind-down 11-05: built and held, in the order they should run
+
+KING paused the hunt at 14:17 ("wind down ... ill restart his hunt later this week"). Everything below is built or
+scripted and was never measured. Every branch was cut from a main older than the live switch, so each needs the new
+main merged in, a build slot (run alone), then its window. The held window inserts sit in
+~/inbox/agents/claude/strata-ab/staging/held-winddown/. Each branch's REPORT.md is committed in its worktree
+(~/inbox/agents/claude/strata-q38-<lane>/).
+
+| # | lane | branch | what | state |
+|---|---|---|---|---|
+| 1 | svmfix | basalt38/svm-fix c990e459c (report e7d02d3e8) | HOST_IMMUNE also disables `HSA_USE_SVM`; conversation endpoints staged through pinned GTT | window SVMFIX (56997-windowsvmfix.sh, 60-90 min) unrun; the fix for main's 11:23 fault |
+| 2 | prport | basalt38/pr-port 053c2834a | #3226 GDN commit, #26812 argmax | measured +0.15% / +0.16% exact: merge with the next main build, not a window |
+| 3 | prport3 | basalt38/pr-port3 10263e660 (report a023050c3) | prompt: #21698 `PF_REG_STAGE`, #26977 `PF_GROUP_TJ`, #4119 `SELECT_TWO_PASS`, #31047 `PF_COMPACT_TILES`, #21849 `PF_TILE_TABLE` | slot 07:28 passed GPU parity + microbench; window PRPORT3 (56999) unrun |
+| 4 | owner | basalt38/owner-rdna2 69f2ec461 (report daf19adad) | KING's 8 RDNA2 commits (rdna2-4lyfe): mul24, `STRATA_QSA_KQ8` int8 decode QK^T, zero heads, Q8K, `STRATA_CKPT_RECYCLE` | slot 3 CPF fault in the expert-lab test; needs pinned staging + `HSA_USE_SVM=0`; window OWNER unrun |
+| 5 | twocard | basalt38/two-card 3cdbd4f70 (report ed0d70d75) | `PF_GROUP_SCRATCH` NaN fix (+3.4% prompt if exact); `STRATA_PL_DEVICE_CHAIN` (ceiling ~2.1%) | slot 3 device-chain handoff test fails; window TC2 unrun |
+| 6 | diagnostics | main | T1PMC (per-kernel GB/s), PFX (split 24, b/a 64, `--prefill` 2048/3072), FAB (gfx103x switches, fusion leave-one-out, DUMMY_NODES) | unrun; no build |
+| 7 | pf-tail | basalt38/pf-tail d48867265 | `STRATA_PREFILL_TAIL` | predicted neutral; window PFTAIL unrun |
+| 8 | convcache | basalt38/conv-cache da7d19c76 (report 079d0e521) | #3945 uniform checkpoint retention; #5211 disk L2 (not qualified on the split) | replay window unrun |
+| - | hcpad | basalt38/hc-pad e0d081549 (report 0c1b469a6) | `STRATA_HC_PAD` | **dead** (slot 3 pad sweep); its pinned-staging host path is the useful leftover |
+
+Leads with no branch yet:
+- a per-workload draft policy (the fixed table gave agent +0.70% / edit -0.68%);
+- the 31 ms stall that flips the policy;
+- int8 HC REQ8=2 up-row tuning; an int8 up kernel that wins at T>=4;
+- the mixer projections (~2.3 ms of a T=1 window) as the next bytes lever;
+- vendor 0004-0006 into main's vendored tree, with a dedicated 36K A/B.
+
+Not tested and not switched until KING says: the unsloth UD 3.1 weights.
