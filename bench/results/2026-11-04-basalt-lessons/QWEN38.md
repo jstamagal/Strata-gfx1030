@@ -1507,3 +1507,39 @@ Readings:
 - route_plan_kernel takes 12.5 us per layer, as long as a router projection.
 - Unperturbed per-node cost comes from window FAB's STRATA_DUMMY_NODES arms. Per-kernel bytes and GB/s come from the
   counter window (T1 lane, in prep).
+
+## Window HCINT8: int8 HC on the layer split, -0.5 ms per T=1 window; tok/s +0.6% edit / +2.7% agent; text changes (02:11-02:42)
+
+Branch basalt38/hc-int8 c5aa9032a, STRATA_HC_REQ8=1:
+- Each card adds int8 + fp32/32 copies of its own HC down/up (351 MiB card 0, 323 MiB card 1).
+- Still 100% resident, with 28.07 / 29.62 GiB free after the copies.
+- Main's own STRATA_HC_Q8=1 ran as the extra arm.
+- Live config copy, agent + edit24, 2 passes mirrored. Flag off: text identical to main, speed -0.1%.
+
+Bench (card 0, real layers 0 and 40, cold weights): int8 wide is bitwise equal to int8 multi in 96/96 cases. HC read per
+layer half:
+
+| T | bf16 wide | int8 wide |
+|---|---|---|
+| 1 | 45.3 us | 30.4 us |
+| 2 | 44.0 us | 37.2 us |
+| 3 | 45.4 us | 38.4 us |
+| 8 | 78.7 us (71.9 with DOWN2) | 69.2 us |
+
+At T=8 the int8 up kernel is no faster: 40.8 us, 90 GB/s.
+
+| arm | s0 / s1 T=1 ms | agent tok/s (per-case median) | edit24 tok/s (per-case median) | text vs main |
+|---|---|---|---|---|
+| main | 7.97 / 8.29 | 151.6 | 313.9 | - |
+| int8 (i) | 7.43 / 7.80 (-0.54 / -0.49) | 155.7, +2.67% (+4.76%, 5 of 6 faster) | 315.8, +0.60% (+1.62%, 21 of 24) | agent 0/6, edit 16/24 identical |
+| Q8_0 (q) | 7.50 / 7.86 | 160.5, +5.87% (+1.61%) | 309.2, -1.50% (-1.79%, 20 of 24 slower) | agent 0/6, edit 16/24 identical |
+
+- The T=1 window gain (-6.8% / -5.9%) shrinks to -4.2% per verdict on agent and -2.4% on edit24. Edit windows run at
+  larger T, where the int8 kernels gain less.
+- The changed text also moves acceptance: int8 edit24 has 887 misses vs 821. That cost is noise in either direction,
+  not a quality measure.
+- Q8_0 is close to int8 at T=1 but slower at large T, and loses on edit24.
+- Same 8 edit cases differ under both quant arms. rs_rename_0/2/4 differ from the first token, so those cases sit near
+  ties.
+- Not adopted yet: the quality number is missing (the 10-06 single-GPU REQ8 measured code argmax 93.3%). Next: a
+  teacher-forced quality read (argmax / KL vs BF16 HC), and a better int8 up kernel at T >= 4.
