@@ -1260,3 +1260,23 @@ reads 4.911 vs the GPU's own 4.913 on the same steps). Gated E[L] at p >= 0.7 vs
   offline and the engine sees roughly half: the whole drafter-quant road at today's VRAM is worth ~2% at most.
 - Calibration source isn't the lever (corpus vs agent-A builds about level, lower KL). Per-route S2 quality is: QAT
   (insert 56, running) then AB3 on agent + edit24.
+
+## Pinned-host lane (GPT-6 Astra xhigh via codex, 21:26-22:00): which host memory can freeze the queues
+
+Report: ~/inbox/agents/claude/astra-pinned/REPORT.md (ROCm 10.3.0a20261023 rocm-systems 39fd0ea5 and CachyOS
+7.3-rc6 source, fetched). Branch basalt38/pinned-host (02a1049847d3, on basalt38/parked-graph).
+- **Correction to ROOT CAUSE:** `kv_host_alloc` on Linux defaults to a host allocation (hipHostMalloc path), not
+  hipHostRegister; registration is a fallback or `STRATA_KV_HOST_REGISTER=1`. On this ROCm, ordinary hipHostMalloc /
+  paged hsaKmt host memory is a KFD **USERPTR** BO (HMM notifier: page moves evict queues), and hipHostRegister is an SVM
+  range. Both freeze the queues on a page move. KFD **GTT** BOs (hsaKmt NonPaged, HIP VMM host) have no user-page
+  notifier, but TTM can still evict them under memory pressure (trigger=TTM). mlock and hugetlb are mitigations only:
+  notifiers stay; partially mapped mlocked THPs can still be split.
+- The 59.2 MiB range unmapped at every request end matches stage 0's **GDN checkpoint** exactly (19 GDN layers x 3.117
+  MiB; stage 1's is 53.0 MiB), pinned in place by ROCclr in 32 MiB chunks at `checkpoint_save`. The 6 MiB range is the
+  mrope table. The 24 MiB and 0.4 MiB ranges are unattributed. Host KV images: 6.19 GiB trunk + 0.52 GiB per drafter.
+- `STRATA_HOST_IMMUNE=1` (default off): HSA_USERPTR_FOR_PAGED_MEM=0 + HSA_SVM_FOR_PAGED_MEM=0 before HIP init (paged
+  host allocations become GTT), GPU_PINNED_MIN_XFER_SIZE raised so ROCclr stages instead of pinning in place, KV host
+  storage GTT, persistent per-device GDN checkpoint buffers from session start. Ten TUs compile; nothing run.
+- Queued: one build slot with gdnlife / iqsigned / pinnedhost (insert 566), then window PIN: main vs branch
+  HOST_IMMUNE 0/1, edit24 under compact_memory + page-cache pressure, 6 passes, KFD SVM/USERPTR/TTM counts, text
+  identity. PGR (insert 57) trimmed to its quiet phase B: its arena arms test the pre-RXP config.
