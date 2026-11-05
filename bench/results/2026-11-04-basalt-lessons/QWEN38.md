@@ -1159,3 +1159,34 @@ under `compact_memory` every 10 s. Quiet sets: agent x2 + edit x1; provoked: age
 - Mechanism (open): the registered arena is tied to the stalls even on a quiet box, although few evictions sat inside
   decode spans in EVP. What touches the arena during fully resident decode (adaptive swap/exchange, SDMA) is with the
   parked-graph agent, plus whether #267 itself goes away (edit24 repro arm with the flag).
+
+## ROOT CAUSE of the stalls and #267: KFD queue evictions of GPU-registered host memory (parked-graph agent, 20:40)
+
+Opus xhigh subagent; full report saved at ~/inbox/agents/claude/parked-graph/REPORT.md.
+- gfx1030 has no XNACK. When a page of GPU-mapped host memory changes on the CPU side (compaction, reclaim/swap, THP
+  split or collapse, a free), KFD evicts EVERY queue of the process on every GPU node (`svm_range_evict` ->
+  `kgd2kfd_quiesce_mm`); the restore worker retries every ~2.5 ms and fails while pages keep moving. Nothing runs on
+  the GPU until one succeeds. A 20+ s eviction is #267 (flags raised, no wave running to read them); shorter ones are
+  the 0.3-4 s window stalls.
+- libhsakmt registers every `hipHostRegister` range as an unpinned KFD **SVM** range (HSA_USE_SVM on by default), not a
+  userptr. That is why evict.bt (it probed `amdgpu_amdkfd_evict_userptr`) and the EVP gap map saw few evictions: they
+  were looking at the wrong path. ROCclr also pins pageable copies over 64 KiB in place (32 MiB chunks), which stay
+  GPU-mapped; a 59.2 MiB one is unmapped at every request end, which fits the gaps that cluster at request starts.
+- KFD's own event stream (kfd_events.py --all, root, 70 s; coordinator check of the log): 189 evictions with
+  trigger=SVM, 12 with trigger=USERPTR, 6288 restore events (mostly failed retries). The serving engine was frozen 7.7%
+  of 36 s (longest 793 ms); a loading engine was frozen 10.1 of 31 s.
+- The 46.84 GiB arena was the biggest registered range AND kept the box at 1-2 GiB available, so kcompactd, kswapd
+  (swappiness 100) and khugepaged churned over every registered page. That is why RXP's `--resident-experts`
+  (adopted) took the gaps from 13 to 1. The remaining registered ranges: the KV host copy (`kv_host_alloc`, ~3.09
+  GiB), ROCclr's pinned-in-place copy buffers, a few small ones.
+- **Correction of my correction:** case 1 (mtpq_cap_edit24) DID hang in the prompt read; the watchdog's label was
+  right. Its first snapshot shows no pipelined loop yet; the 214 captured tokens were decoded during the report's 2 s
+  sleep, after the queues came back (major faults 655 -> 11097), and the watchdog then killed an engine that had
+  recovered. Case 2 (main binary) hung in decode (a 25-30 s eviction). The shared-HW-queue hypothesis is not the
+  cause: an eviction stops every queue regardless.
+- Branch basalt38/parked-graph (47d396d88): STRATA_KFD_WATCH (own-process KFD event log, no root), STRATA_KFD_EVICT_WAIT
+  (the #267 deadlines and the watchdog count only time the GPU could run; the engine waits out an eviction instead of
+  dying), a watchdog recheck after its report, the failing request's trace written, decode stage labels,
+  STRATA_MLOCK_REGISTERED (from KING's cl-mlock/1020). Builds in insert 55's slot; window PGR (insert 57, ~2.5-3 h):
+  edit24 under pressure on main / main + resident / branch, a quiet speed A/B, and diagnostics
+  (HSA_SVM_HOST_UNREGISTER_DEBUG, mlock, hugetlb arena).
