@@ -1,4 +1,4 @@
-# Swarm brief: make Qwen3.8 go zoom on 2x V620 (written 2026-11-04 15:15, updated 20:42 for run 3, 21:18 with run 3's verdicts)
+# Swarm brief: make Qwen3.8 go zoom on 2x V620 (written 2026-11-04 15:15, updated 20:42 for run 3, 21:18 with run 3's verdicts, 23:57 for run 4)
 
 **Earlier swarm runs' reports (runs 1 and 2) are withheld on purpose.** What they proposed, and what the measurements
 said, is folded into section 2 ("Already proposed and judged"). Don't go looking for those reports, their chat or
@@ -37,6 +37,18 @@ mechanism and one deciding measurement beats a safe idea that's already in the j
 ## 2. Where things stand (IQ3_S pack, the daily driver)
 
 Live config: `~/Strata_donttouch/strata-sc117-IQ3_S-qwen-abliterated.json`. Pack: SC117 GSQ-RCO abliterated IQ3_S.
+
+**Two facts from tonight that frame everything (ledger, 21:37 and 23:33):**
+- **This fork vs the newest upstream Strata** (ffa80d73, same pack, config and env, 2 passes): agent 150.6 vs 97.0
+  tok/s (1.55x), edits 365.9 vs 152.1 (2.41x), 36K prompt 2708 vs 1775 (1.52x). Same drafts accepted on both: the gap
+  is the verify/compute path.
+- **The decode expert kernels are at the memory roofline.** A microbench on layer 0's real experts reads IQ3_XXS
+  gate/up at 377 GB/s for a 1-row window, 456 at 3 rows, 477-483 GB/s at 4-8 rows (V620 peak 512). Two exact
+  instruction-count kernel builds (signed IQ codebook, GDN register lifetimes) were bitwise, faster in their own
+  microbenches, and neutral on the engine. Decode speed now has to come from **fewer expert bytes per accepted token**
+  (smaller expert quants, longer accepted windows, fewer distinct experts per window) or from the **non-expert part of
+  the window** (attention, HC, GDN, router, handoffs, graph launch). The agent target (200 tok/s) needs 24% less time
+  per token.
 
 - **Layout:** layer split 25/23, `--pipeline-windows 2`, MTP on card 1 with `--spec 8 --mtp-max-t 3`,
   `--spec-min-p 0.7`, suffix/lookup drafter on, English draft vocab, 2-bit head proxy.
@@ -120,10 +132,17 @@ rdna2-mmq opt-in prompt kernels, Q6 head-proxy auto, and a real bug fix (the gfx
   - DFlash2 drafter, serial or pipelined. DFlash+MTP.
   - MTP on card 0 (-11%). `--mtp-max-t 4` (-17%). `--mtp-max-t 2` (-6.1% at min-p 0.7).
   - `--spec 5` on edits (303 vs 369). `--spec-min-p` 0.4: per-case median +3.4% slower (window 18).
-  - NOT dead, undetermined (run 3, nyira): `--spec-min-p` 0.5 and `STRATA_SPEC_COST=1`. Window 18's pooled -2.1% and
-    -4.7% each came from one outlier case with the same acceptance (per-case medians +0.3% and +1.3%), on the
-    pre-RXP config with eviction stalls. Re-test queued in window SW3. (The pipelined drafter never calls
-    `chain_rule_`, so SPEC_COST's effect on the live path is indirect at best.)
+  - `--spec-min-p` 0.5 and 0.4, `STRATA_SPEC_COST=1`: **neutral post-RXP** (window SW3, per-case medians over 3
+    passes: agent +0.35% / -0.01% / +0.25%, edit24 min-p 0.5 -0.34%). Window 18's losses were eviction noise; there is
+    no gain either. Settled.
+  - Drafter weights: corpus-calibrated GPTQ (level with s2gptq-a), scale-only QAT (val KL -4%, acceptance unchanged,
+    overfits), a learned correction on the drafter's MoE input or output (rank-64, MLP, acceptance-shaped objective:
+    -25% to -36% or 0 held-out; an in-sample fit gains +77%, so the misses are request-specific). Offline replay
+    over-predicts the engine: differences under ~3% don't pick a drafter. The BF16 drafter itself is only +3.6% offline.
+- **Kernels at the roofline (exact, engine-neutral):** `STRATA_HC_DOWN2=1` (+0.27% edits, -0.51% agent); in-place GDN
+  state update (recurrence -3-5%, 36K prompt neutral: the kernel is ~0.3% of a chunk); signed IQ3_XXS codebook in LDS
+  (gate/up -4-6% at 3-8 rows, +3.7% at 1 row; engine +0.10%).
+- **OS:** THP `shrink_underused` 0 (window SW3: frozen time 11.3 s vs 5.1 s, splits went up).
   - MTP chain cap 7->5 outputs (0 agent / -5.5% edits). `STRATA_PL_GUESS_T` 2 (-5-7%) and 1 (-23-26%).
   - `--mtp-q4` projections (neutral). All-native-Q4_0 MTP experts (+4.3% acceptance, -4.5% speed).
   - Smaller draft vocab (16-24K) instead of the English vocab: offline, no gain.
@@ -163,17 +182,17 @@ rdna2-mmq opt-in prompt kernels, Q6 head-proxy auto, and a real bug fix (the gfx
 | `STRATA_DRAFT_CONTEXT=1` disables the 2-bit head proxy | **Open** code road: proxy base plus dynamic exact rows. |
 | Guessed-window survival is overconfident (predicted 0.45 -> observed ~0.27) | **Open:** a policy calibration, split by fresh/guessed window and drafter. |
 | Cursor-following lookup for edits | Open, edits-only, small; nobody owns it. |
-| HC down/up reads are ~27% of the stage, so the HC kernels are the lever (run 3, maggie) | **Narrowed** (doc, from the kernel's own bench): `STRATA_HC_DOWN2=1` (two rows share one activation read, bitwise) is flat at 1-4 rows and -17-22% of that kernel at 5-8. So edits only, and that kernel's time, not the stage. The 3.31 ms is a profile-mode number with fusions altered, not a live critical-path share. Window SW3 runs DOWN2 on agent + edit24. `STRATA_HC_REQ8` changes the numbers and sits behind a `multi_gpu` guard: KING's call. |
-| THP `shrink_underused=1` keeps splitting huge pages inside GPU-registered ranges (run 3, pablo) | **Queued** (window SW3 T): the box has it on, 97% of 7.1M lifetime THP splits are that path; the mostly-unwritten 3.09 GiB KV host copy (sized for 524K cells) is the likely target. Decider: KFD SVM evictions under pressure, 1 vs 0. |
-| Right-size `--max-context` to shrink the KV host copy (run 3, pablo/effie) | **Parked behind SW3 T and PGR's mlock arm:** context length is a product choice; pinning or not-splitting the range keeps 524K. |
+| HC down/up reads are ~27% of the stage, so the HC kernels are the lever (run 3, maggie) | **Narrowed, then measured** (doc was right): `STRATA_HC_DOWN2=1` is +0.27% on edits, -0.51% agent (window SW3). The 3.31 ms is a profile-mode number with fusions altered. `STRATA_HC_REQ8` (0.56x HC bytes) changes the numbers and sits behind a `multi_gpu` guard: KING's call, untested. |
+| THP `shrink_underused=1` keeps splitting huge pages inside GPU-registered ranges (run 3, pablo) | **Dead** (window SW3): 0 doubled frozen time and raised splits. |
+| Right-size `--max-context` to shrink the KV host copy (run 3, pablo/effie) | **Parked behind window PIN** (GTT host memory): context length is a product choice. |
 | Reboot for a bigger `vm_fragment_size` (GPU page fragments) | **Dead** (run 3, doc): the boot log says 9-bit (2 MiB) already. Host hugetlb does not touch VRAM reads. |
-| "The experts already run at the bandwidth floor" / "1-2 ms of guaranteed headroom" | **Neither holds** (run 3, gruff): every roofline closure charged all 48 layers to one stage, mixed logical bytes with DRAM traffic, or used peak bandwidth as measured. |
+| "The experts already run at the bandwidth floor" | **Now measured: yes for gate/up at 3+ rows** (377-483 GB/s of 512 on real rows; see section 2). Run 3's arithmetic closures were wrong; the microbench settles it. |
 | The live config silently runs split 24 | **False** (run 3, kaje withdrew it): 25/23. |
 | `STRATA_GDN_CHUNKED` (the chunked GDN recurrence, 1.81x on an RTX 5090) | **A port, not a flag** (run 3, tuck corrected): the CUDA code is `#if !defined(__HIPCC__)`, the HIP chunked path targets gfx11/12, and the CUDA scan exceeds gfx1030's LDS per workgroup. Build lane. |
 | Dispatch census | **Exists and is discarded** (run 3, kaje): `STRATA_DISPATCH_REPORT=<path>` writes it at exit. SW3 sets it on a baseline arm. |
-| Shorter GDN register lifetimes (load and use k, then q) | **Open build lane** (run 3, gruff), gated on compiler VGPR/spill evidence before any engine run. |
-| Signed IQ codebook (precomputed signed grid entries instead of sign-mask XOR/add) | **Open build lane** (run 3, gruff/pip): the CPU check found the integer tables exact for every IQ3_XXS and IQ3_S combination; a GPU microbench on the live formats comes first, within the current LDS budget. |
-| Cold first prompt chunk (~1 s extra on the first 4096 tokens after a load) | **Measuring** (run 3, nyira; window SW3 F): may be eviction recovery, not cold caches. Prewarming before READY changes what the harness compares, so it isn't a speed win by itself. |
+| Shorter GDN register lifetimes (load and use k, then q) | **Done, neutral:** the compiler already did the reorder; the real lifetime fix (in-place state fma, 220 -> 186 VGPRs) is bitwise and engine-neutral. Branch basalt38/gdn-life parked. |
+| Signed IQ codebook (precomputed signed grid entries instead of sign-mask XOR/add) | **Done, neutral:** bitwise, gate/up -4-6% at 3-8 rows, engine +0.10%. Branch basalt38/iq-signed parked. |
+| Cold first prompt chunk (~1 s extra on the first 4096 tokens after a load) | **Gone post-RXP** (window SW3; nyira's eviction-recovery guess was right): chunk 1 is 1310-1328 ms like the rest; GEMM warm-up 0.15 s (was 6.9 s). |
 | The agent harness measures task speed | **It measures capped decode** (run 3, nyira/cantsbee): 1200-token cap, most cases end on `length`. Kept as the stress bench; SW3's reader reports finish_reason; a completion fixture is still to build. |
 | Offline drafter scores (teacher-forced replay of captured steps) | **Picks direction, not small margins:** it ranked the IQ2_XXS drafter well above s2gptq-a; the engine has them level. Deep-chain drift is invisible to it. |
 
@@ -188,25 +207,33 @@ rdna2-mmq opt-in prompt kernels, Q6 head-proxy auto, and a real bug fix (the gfx
   SVM-triggered and 12 userptr evictions in 70 s, and a serving engine frozen 7.7% of the time.
   - The 46.84 GiB arena was the biggest registered range and also kept RAM at 1-2 GiB, which kept compaction and
     reclaim busy. `--resident-experts` (adopted) removed it.
-  - What still registers host memory: the KV host copy (`kv_host_alloc`, ~3.09 GiB), ROCclr's pinned-in-place copy
-    buffers (copies over 64 KiB, 32 MiB chunks; a 59.2 MiB one is unmapped at every request end), small heap ranges.
-    Open questions: which Strata copy makes the 59.2 MiB buffer, and whether any registration can be truly pinned.
-  - Branch `basalt38/parked-graph`: an own-process KFD event watcher, #267 deadlines that count only time the GPU
-    could run (the engine waits out an eviction instead of dying), mlock of registered ranges. Window PGR (queued,
-    ~2.5-3 h): edit24 under compaction plus page-cache pressure on main, main + resident, and the branch; diagnostics
-    with `HSA_SVM_HOST_UNREGISTER_DEBUG=1`, mlock, and a hugetlb-backed arena.
+  - **Correction (pinned-host lane, Astra, ROCm 10.3 + kernel source):** `kv_host_alloc` defaults to a host
+    allocation, not hipHostRegister. On this ROCm ordinary hipHostMalloc / paged host memory is a KFD **USERPTR** BO
+    and hipHostRegister an **SVM** range: both freeze the queues on a page move. KFD **GTT** BOs have no user-page
+    notifier (TTM can still evict them under memory pressure). mlock / hugetlb are mitigations, not immunity.
+  - The 59.2 MiB range unmapped at every request end is stage 0's **GDN checkpoint** (19 layers x 3.117 MiB), pinned
+    in place by ROCclr at `checkpoint_save`; 6 MiB = the mrope table; 24 MiB and 0.4 MiB ranges unattributed.
+  - Post-RXP, quiet decode still sees short freezes (12-30 KFD episodes per agent arm, mostly < 10 ms, a few
+    400-700 ms); under compaction + page-cache pressure ~300-490 per edit24 arm.
+  - **Window PIN (running):** branch `basalt38/pinned-host` (on parked-graph) with `STRATA_HOST_IMMUNE=1`: paged host
+    allocations as GTT, ROCclr stages instead of pinning in place, persistent GDN checkpoint buffers. main vs branch
+    off vs on, edit24 under pressure, 6 passes, KFD SVM/USERPTR/TTM counts, text identity.
+  - **A second #267 mechanism (window SW3, 22:16):** an *idle* foreign GPU process (a 1.7B llama-cli that never
+    generated) made card 1 take ~330-440 ms per window (~20x) and caused two #267s with no KFD eviction (longest 18
+    ms). Inference: its queues oversubscribe the HWS runlist, the same collapse as GPU_MAX_HW_QUEUES > 4. Strata needs
+    the GPUs to itself; a guard now kills foreign GPU processes during benchmark windows.
+  - Branch `basalt38/parked-graph`: own-process KFD event watcher, eviction-aware #267 deadlines, mlock of registered
+    ranges. Its window was trimmed to the quiet speed A/B (the arena arms tested the pre-RXP config).
   - Ruled out as the cause: shared HW queues (an eviction stops every queue anyway). KFD sysfs
     (`/sys/class/kfd/kfd/proc/<pid>/queues`): the engine holds 5 compute + 1 SDMA queues per card; the idle picture
     reader holds 3 compute + 1 SDMA on card 0, which is why 5+ queues oversubscribe. Without the reader, 6 queues fit
     (window HWQ3: 4 stays; 3 and 2 cost ~2%, 6 without the reader costs 4-6%).
-- **Window SW3 (queued, run 3's zero-build checks):** THP `shrink_underused` 1 vs 0 under pressure; `--spec-min-p`
-  0.5 / 0.4, `STRATA_SPEC_COST=1` and `STRATA_HC_DOWN2=1` against live on agent + edit24 with per-case medians and
-  eviction tags; the dispatch census; the cold first prompt chunk.
-- **Stock vs modded:** upstream's newest Strata built with main's options, same config, same env (fork-only knobs
-  included as no-ops), vs main. Queued.
-- **MTP drafter weights** (branch `basalt38/mtp-quant`): corpus-calibrated GPTQ builds, QAT of the S2 expert scales
-  against the BF16 drafter (queued, both cards), then AB3 on agent + edit24. Main can load native and mixed drafter
-  formats once branch `mtp/native-experts` merges (engine parity passed).
+- **Drafter vs target mismatch** (branch `basalt38/mtp-quant`): even the BF16 drafter agrees with the IQ3_S
+  abliterated target only 59.5% per step on agent (live 59.1%). A queued target check runs the same drafters on four
+  targets (abliterated IQ3_S live / abliterated IQ3_XXS / NOT abliterated IQ3_XXS / original UD-Q4_K_XL) to split
+  abliteration from quant level. If abliteration is the gap, the next road is an input-side correction on the
+  drafter's hyper-connection input (needs a capture hook + a torch replay of the whole MTP layer). AB3 (corpus GPTQ
+  and IQ2_XXS drafters in the engine) is queued. The dispatch census is in ab/sw3_s_b_{agent,edit}_1/dispatch.json.
 - **Config audit** (`~/inbox/agents/claude/config-audit/AUDIT.md`): windows 19-28 remain (prompt cache, KV
   allocation, decode split 25-28, SIMT selector, CPU share, I/O threads, PCIe miss share, YaRN-vs-native quality,
   Gumbel sampling). 124 config entries only repeat built-in defaults.
