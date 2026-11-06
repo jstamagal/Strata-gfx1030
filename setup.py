@@ -70,6 +70,7 @@ from strata_control import atomic
 from strata_control import draft_layer
 from strata_control import dsv41_context
 from strata_control import engine_component
+from strata_control import sysinfo
 from strata_control.discovery import in_trash
 from strata_control import user_args
 
@@ -434,7 +435,7 @@ CODER_FILES = {
 UNSLOTH_REPO = "unsloth/Qwen3.8-Flash-Next-GGUF"
 UNSLOTH_V31_REVISION = "d96201194f103c906994f283f504209dc8d2a10c"          # 2026-11-04
 UNSLOTH_V31_IQ4_XS = "UD-IQ4_XS-v31"      # the catalog name of the new UD-IQ4_XS (its files on the Hub have the pinned one's names, with four shards instead of three)
-UNSLOTH_V31_ENGINE = (0, 1, 56)       # this fork's engine: 0.1.56 ran UD-IQ4_XS-v31 and UD-Q3_K_XL on HIP (2026-11-06); upstream names 0.1.57, whose v3.1 engine work is parity tests only
+UNSLOTH_V31_ENGINE = (0, 1, 57)       # the engine that ships with these sets (i-quant experts with Q2_0 / IQ4_NL / Q5_0 downs, a Q6_K dense side)
 
 MODELS = {
     # the original model only for now: Swift 1.5's Q2_0 files split one layer's experts across the two shards, which
@@ -493,26 +494,26 @@ MODELS = {
     # download_gb / arena_gb: the pinned shard sizes and the routed experts' bytes (tests/fixtures/unsloth_v31); ram_gb: the RAM-budget floor of UD-Q4_K_XL.
     "UD-IQ1_M": {"about": "~1-bit (Unsloth Dynamic v3.1), the smallest download", "download_gb": 68.0, "ram_gb": 48, "arena_gb": 34.8, "families": ("unsloth",), "budget": True,
                  "shards": 3, "file": "Qwen3.8-Flash-Next-{q}-0000{i}-of-00003.gguf", "quant": "UD-IQ1_M",
-                 "revision": UNSLOTH_V31_REVISION, "engine": UNSLOTH_V31_ENGINE, "vision": True},
+                 "revision": UNSLOTH_V31_REVISION, "engine": UNSLOTH_V31_ENGINE, "vision": True, "uma_pool_auto": True},
     "UD-Q2_0": {"about": "2-bit (Unsloth Dynamic v3.1)", "download_gb": 70.5, "ram_gb": 48, "arena_gb": 37.4, "families": ("unsloth",), "budget": True,
                 "shards": 3, "file": "Qwen3.8-Flash-Next-{q}-0000{i}-of-00003.gguf", "quant": "UD-Q2_0",
-                "revision": UNSLOTH_V31_REVISION, "engine": UNSLOTH_V31_ENGINE, "vision": True},
+                "revision": UNSLOTH_V31_REVISION, "engine": UNSLOTH_V31_ENGINE, "vision": True, "uma_pool_auto": True},
     "UD-IQ2_XS": {"about": "2-bit i-quant (Unsloth Dynamic v3.1)", "download_gb": 75.8, "ram_gb": 48, "arena_gb": 42.3, "families": ("unsloth",), "budget": True,
                   "shards": 3, "file": "Qwen3.8-Flash-Next-{q}-0000{i}-of-00003.gguf", "quant": "UD-IQ2_XS",
-                  "revision": UNSLOTH_V31_REVISION, "engine": UNSLOTH_V31_ENGINE, "vision": True},
+                  "revision": UNSLOTH_V31_REVISION, "engine": UNSLOTH_V31_ENGINE, "vision": True, "uma_pool_auto": True},
     "UD-Q2_K_XL": {"about": "2-bit (Unsloth Dynamic v3.1) with some 3-bit experts", "download_gb": 79.6, "ram_gb": 48, "arena_gb": 46.0, "families": ("unsloth",), "budget": True,
                    "shards": 4, "file": "Qwen3.8-Flash-Next-{q}-0000{i}-of-00004.gguf", "quant": "UD-Q2_K_XL",
-                   "revision": UNSLOTH_V31_REVISION, "engine": UNSLOTH_V31_ENGINE, "vision": True},
+                   "revision": UNSLOTH_V31_REVISION, "engine": UNSLOTH_V31_ENGINE, "vision": True, "uma_pool_auto": True},
     "UD-IQ3_XXS": {"about": "3-bit i-quant (Unsloth Dynamic v3.1)", "download_gb": 83.6, "ram_gb": 48, "arena_gb": 50.3, "families": ("unsloth",), "budget": True,
                    "shards": 4, "file": "Qwen3.8-Flash-Next-{q}-0000{i}-of-00004.gguf", "quant": "UD-IQ3_XXS",
-                   "revision": UNSLOTH_V31_REVISION, "engine": UNSLOTH_V31_ENGINE, "vision": True},
+                   "revision": UNSLOTH_V31_REVISION, "engine": UNSLOTH_V31_ENGINE, "vision": True, "uma_pool_auto": True},
     "UD-Q3_K_XL": {"about": "3-bit (Unsloth Dynamic v3.1) with some 4-bit experts", "download_gb": 89.5, "ram_gb": 48, "arena_gb": 56.2, "families": ("unsloth",), "budget": True,
                    "shards": 4, "file": "Qwen3.8-Flash-Next-{q}-0000{i}-of-00004.gguf", "quant": "UD-Q3_K_XL",
-                   "revision": UNSLOTH_V31_REVISION, "engine": UNSLOTH_V31_ENGINE, "vision": True},
+                   "revision": UNSLOTH_V31_REVISION, "engine": UNSLOTH_V31_ENGINE, "vision": True, "uma_pool_auto": True},
     # the v3.1 UD-IQ4_XS is another file from the pinned UD-IQ4_XS (345 of 1224 tensors changed type; four shards): its own name
     UNSLOTH_V31_IQ4_XS: {"about": "~4-bit i-quant (Unsloth Dynamic v3.1), a newer file than UD-IQ4_XS with other tensor types", "download_gb": 93.7, "ram_gb": 48, "arena_gb": 60.4, "families": ("unsloth",), "budget": True,
                          "shards": 4, "file": "Qwen3.8-Flash-Next-{q}-0000{i}-of-00004.gguf", "quant": "UD-IQ4_XS",
-                         "revision": UNSLOTH_V31_REVISION, "engine": UNSLOTH_V31_ENGINE, "vision": True},
+                         "revision": UNSLOTH_V31_REVISION, "engine": UNSLOTH_V31_ENGINE, "vision": True, "uma_pool_auto": True},
     # MODEL-UPDATE Phase 4: NVFP4 experts, ready-made packs (NVFP4_REPOS).  63.3 GiB (68.0 GB) of experts in the
     # pack's experts.bin; the low-RAM mode reads them from there on a PC whose RAM does not hold them.  NVIDIA only
     # (the HIP and SYCL engines have no NVFP4 kernels).  Images: both packs keep Qwen's vision tower unquantized, so the
@@ -1695,7 +1696,7 @@ def vision_threads(logical: int | None = None) -> int:
 def cpu_info():
     """(name, avx2, avx512): avx512 means everything Strata's fast AVX-512 kernels use (F, BW, VL, VNNI, VBMI),
     the same test the engine makes (cpu_avx512_ok), not just AVX-512F."""
-    name, avx2, avx512 = platform.processor() or "unknown CPU", False, False
+    name, avx2, avx512 = sysinfo.processor() or "unknown CPU", False, False
     if WIN:
         pf = ctypes.windll.kernel32.IsProcessorFeaturePresent
         avx2 = bool(pf(40)) or _cpuid_avx2()      # PF_AVX2_INSTRUCTIONS_AVAILABLE, else the CPU itself (#159)
@@ -1710,7 +1711,7 @@ def cpu_info():
                 # aarch64 lists Features, not the x86 flags line, and no "model name": lscpu names the cores (a DGX Spark:
                 # Cortex-X925 + Cortex-A725). No AVX of any kind; the arm64 engine needs none.
                 cores = re.findall(r"^\s*Model name:\s*(.+)$", out(["lscpu"]), re.M)
-                name = " + ".join(dict.fromkeys(c.strip() for c in cores)) or (platform.processor() or "arm64 CPU")
+                name = " + ".join(dict.fromkeys(c.strip() for c in cores)) or (sysinfo.processor() or "arm64 CPU")
                 return name, False, False
             flags = set(mflags.group(1).split())
             avx2 = "avx2" in flags
@@ -1745,7 +1746,7 @@ def _cpuid_floor() -> str:
 
 def is_arm64() -> bool:
     """An ARM64 CPU (DGX Spark / GB10, Grace): there is no AVX here, and no ready-made engine for it."""
-    return platform.machine().lower() in ("aarch64", "arm64")
+    return sysinfo.machine().lower() in ("aarch64", "arm64")
 
 
 def is_gb10(g) -> bool:
@@ -2644,6 +2645,33 @@ def free_gb(path):
     return shutil.disk_usage(path).free / 1e9
 
 
+def disk_room_problem(models_dir, pack_dir, other_gb, copy_gb, other_note="", free=None):
+    """None when the files this setup run still writes fit, else (message, hint).  `other_gb` is what goes to the model folder (a download, the
+    preparation, the picture files); `copy_gb` is the low-RAM mode's copy of the experts, which is written to the data folder's packs folder
+    and not to the model folder (QA 0213: the refusal named the model folder of the person's own files and said to use --data-dir, although the model
+    files were already there and the 51 GB belonged to the copy in the data folder).  The copy is measured where it goes; on one drive both add up."""
+    free = free or free_gb
+    packs = pack_dir.parent
+    free_models = free(models_dir)
+    models_problem = (f"not enough free disk space in {models_dir}: need ~{other_gb:.0f} GB, {free_models:.0f} GB free" + other_note,
+                      "use --data-dir on a bigger drive (strata launch --data-dir)" if CONTROL else "use --models-dir on a bigger drive")
+    if free_models < other_gb:
+        return models_problem
+    if not copy_gb:
+        return None
+    free_packs = free(packs)
+    try:
+        same_drive = os.stat(models_dir).st_dev == os.stat(packs).st_dev
+    except OSError:
+        same_drive = False
+    needs = copy_gb + (other_gb if same_drive else 0)
+    if free_packs < needs:
+        return (f"not enough free disk space for the low-RAM copy of the experts in {pack_dir}: it needs about {needs:.0f} GB "
+                f"and {free_packs:.0f} GB are free there.",
+                "Free some space, move Strata's data folder to a bigger drive (strata launch --data-dir), or set Low-RAM mode to Automatic to run without the copy.")
+    return None
+
+
 # ------------------------------------------------------------------------------------------------ downloads
 def drop_archive(z: Path) -> None:
     """An unpacked or refused engine archive and its .done mark go: a refused one kept them, and every later run
@@ -3444,6 +3472,26 @@ def whole_shard(s: Path) -> bool:
         return False
 
 
+def mark_whole_unless_pinned(shards, hf: str | None, own: bool) -> None:
+    """#173's finish mark for a file copied in by hand (it has the length its own tensor directory says), except a file with a pinned SHA-256 (#4088).
+
+    A run that stopped between the rename of a finished .part and the end of verify_sha256 leaves a full-length shard with no mark. Marking it "whole"
+    made done() true, download() skipped it and the pinned hash was never looked at, so a shard damaged by that crash stayed in place (a deleted mark
+    was written again by the next run). For a file the pin table names, leave it unmarked: download() takes its "finished by an older setup (no mark
+    yet), or stopped before the check" path, hashes it, repairs the damaged parts and writes the finish mark itself. `own` is --gguf-dir: a person's
+    own file is not a download and is not hash-checked here either way, so it keeps the mark; so does a file the pin table does not name, and every file of a
+    family with no Hugging Face folder of its own (`hf` None: the NVFP4 families download a file list, not shards)."""
+    for s in shards:
+        if not (s.exists() and not done(s) and whole_shard(s)):
+            continue
+        if not own and hf is not None and file_pin(hf + s.name) is not None:
+            continue
+        try:
+            mark(s, "whole (checked against its own tensor directory)")
+        except OSError as e:                           # a read-only folder (--gguf-dir on a share): the file is still whole
+            warn(f"{s.name} is whole but its finish mark cannot be written ({e})")
+
+
 SHARD_NAME = re.compile(r"-(\d{5})-of-(\d{5})\.gguf$")
 
 
@@ -3708,9 +3756,28 @@ def unsloth_budget(model, ram, gpu=None, asked=None) -> bool:
     """Does setup write the RAM-budget mode (--resident-budget-gib) for this Unsloth file: asked for (--resident-budget-gib
     N), a unified-memory APU (#1715: there the budget and the GPU's cache are the same RAM, and the all-in-RAM mode was
     measured on discrete cards only), or its experts with UNSLOTH_RESIDENT_BESIDE_GB beside them do not fit this PC's RAM
-    (GiB, ram_gb()).  Else every expert is kept in RAM, as for ISTA's files."""
-    return asked is not None or bool((gpu or {}).get("uma")) or \
+    (GiB, ram_gb()).  Else every expert is kept in RAM, as for ISTA's files.
+    Round 0214: a unified-memory APU keeps the budget mode (above) except for a set that says "uma_pool_auto" (Unsloth's v3.1 sets) whose experts fit
+    the GPU's shared pool whole (uma_holds_experts): there every expert is in the pool, the cache is `auto` and nothing is pinned.  The fixed cache and
+    the pinned RAM part the budget mode wrote for them (367 slots + 35 GiB on a 64 GB Strix Halo) failed the first launch of UD-IQ2_XS three times of three
+    ("prefill: the token id buffer (unspecified launch failure)" right after pinning); `--expert-cache auto` with nothing pinned passed (ENG-AMD)."""
+    return asked is not None or (bool((gpu or {}).get("uma")) and not uma_holds_experts(model, ram, gpu)) or \
         ram < MODELS[model]["arena_gb"] / 1.073741824 + UNSLOTH_RESIDENT_BESIDE_GB
+
+
+def uma_holds_experts(model, ram, gpu) -> bool:
+    """A unified-memory GPU whose shared pool holds every expert of `model` beside everything else the engine keeps there (strata_control/uma_pool.py: the
+    measured fixed part, the experts, a margin) and whose RAM holds them with UNSLOTH_RESIDENT_BESIDE_GB more.  Only for a set that asks ("uma_pool_auto"):
+    the sets measured under the budget mode (UD-IQ4_XS, UD-Q4_K_XL, ...) keep their plans."""
+    if sys.platform == "darwin" or not MODELS.get(model, {}).get("uma_pool_auto") or not (gpu or {}).get("uma"):
+        return False                                   # (a Mac never reaches this: metal/setup_mac.py and mac_control_setup have their own plans; the check keeps it so)
+    shared = float((gpu or {}).get("vram_gb") or 0.0)
+    if shared <= 0:
+        return False
+    from strata_control import uma_pool
+    arena_gib = MODELS[model]["arena_gb"] / 1.073741824
+    return (uma_pool.FIXED_GIB + arena_gib + uma_pool.MARGIN_GIB <= uma_pool.pool_gib(shared)
+            and ram >= arena_gib + UNSLOTH_RESIDENT_BESIDE_GB)
 
 
 def images_default(model, family, ram, gpu=None) -> bool:
@@ -4245,6 +4312,12 @@ def is_uma_apu(g) -> bool:
             or (GFX1103_OPT_IN and gfx_arch_is(arch, "gfx1103")))
 
 
+def apu_hides_chunk_tip(g, line: str) -> bool:
+    """The bench tip for --prefill auto:32768 is not said on an APU: its prompt buffers share the pool with the expert cache, a 32768 chunk can take the last of it
+    (Strix Halo with UD-Q4_K_XL: the engine ends at the start, round0212), and the tip was measured on discrete cards."""
+    return is_uma_apu(g) and line.startswith("tip") and "auto:32768" in line
+
+
 def amd_apply_uma(g: dict, gtt_gb: float = 0.0, ram: float | None = None) -> dict:
     """Strix Halo is an APU with unified memory.  Its "dedicated VRAM" is a BIOS carve-out (512 MB to 96 GB; 2 GB on the
     maintainers' box) and the GPU also reaches shared system memory (Linux: the GTT pool, `mem_info_gtt_total`, half the
@@ -4355,12 +4428,16 @@ def installed_size(family: str, names: list, have: list) -> str | None:
     return None
 
 
-def unsloth_default_env(family: str, model: str, hip: bool, in_budget: bool) -> dict:
+def unsloth_default_env(family: str, model: str, hip: bool, in_budget: bool, arch: str = "") -> dict:
     """0.1.44 (owner, review-quants.md section 5): the run-config "env" setup writes for Unsloth's files.
     STRATA_MMQ_KQ=1 (the K-quant MMQ prompt kernels) for UD-Q5_K_XL and UD-Q6_K_XL, where its prompt-path KL is equal
-    or better than the FP16 path's; UD-Q4_K_XL keeps it opt-in.  STRATA_HC_Q8=1 on CUDA for the UD-* files (the
-    GGUF's own Q8_0 hyper-connection projections, closer to the file and faster; the GSQ-RCO packs are untouched).
-    STRATA_ROUTE_TAIL_SKIP=0 where every expert is in RAM (the skip costs KL there); the RAM-budget mode keeps it."""
+    or better than the FP16 path's; UD-Q4_K_XL keeps it opt-in here (the Linux gfx12 engine takes it by itself since 0.2.10.1).
+    STRATA_HC_Q8=1 on CUDA for the UD-* files (the GGUF's own Q8_0 hyper-connection projections, closer to the file
+    and faster; the GSQ-RCO packs are untouched).
+    STRATA_ROUTE_TAIL_SKIP=0 where every expert is in RAM (the skip costs KL there); the RAM-budget mode keeps it.
+    0.2.10.1 (owner 11-03, "3 Yes"): NOT on Linux gfx12 (``arch`` "gfx1200"/"gfx1201", the R9700 and RX 9000): there the engine's own default
+    (rank 7, STRATA_ROUTE_TAIL_SKIP=0 still turns it off) stays, which decodes UD-Q4_K_XL 6-16% faster at an unchanged 61-task suite
+    (phaseA-tests/round0212/RESULTS-TAILSKIP.md).  Windows and every other card keep the 0."""
     env = {}
     if family != "unsloth":
         return env
@@ -4368,7 +4445,8 @@ def unsloth_default_env(family: str, model: str, hip: bool, in_budget: bool) -> 
         env["STRATA_MMQ_KQ"] = "1"
     if not hip and model.startswith("UD-"):
         env["STRATA_HC_Q8"] = "1"
-    if not in_budget:
+    gfx12_linux = hip and not WIN and str(arch or "").lower().startswith(("gfx1200", "gfx1201"))
+    if not in_budget and not gfx12_linux:
         env["STRATA_ROUTE_TAIL_SKIP"] = "0"
     return env
 
@@ -5806,7 +5884,7 @@ def get_prebuilt(url_base, gpu, vision, updating=False, toolkit=13) -> Path | No
         # package when the release carries one; without it the caller compiles (spark/build_engine.sh does the same by hand)
         got = engine_from_feed(eng, updating) if int(toolkit) != 12 else None
         if got is None:
-            warn(f"no ready-made engine for {platform.machine()} in the update feed" + ("" if updating else ": compiling it here, once"))
+            warn(f"no ready-made engine for {sysinfo.machine()} in the update feed" + ("" if updating else ": compiling it here, once"))
         return got
     if not url_base:
         return None
@@ -7954,7 +8032,23 @@ def arg_after(args, flag):
     return args[args.index(flag) + 1] if flag in args[:-1] else None
 
 
-def bench_tips(args, env, ram: float, model_ram_gb: float, vram_gb: float, vision: str, win: bool) -> list[str]:
+def bare_auto_is_32768(gpu, args, env) -> bool:
+    """Round 0212 (owner 11-03): the engine gives a bare `--prefill auto` a 32768-token ceiling on one NVIDIA card of compute capability 8.0 or up
+    (generate.cpp, nv_chunk.hpp); STRATA_NV_CHUNK=0 or STRATA_DEFAULTS=026 (the config's env or this process's) keep 8192, and a layer split reads 8192-token chunks."""
+    arch = str((gpu or {}).get("arch", ""))
+    if not arch.isdigit() or len(arch) < 2 or int(arch[:-1]) < 8:
+        return False
+    if any(a in (args or []) for a in ("--gpus", "--layer-split")):
+        return False
+    e = dict(env or {})
+    nv_chunk = e.get("STRATA_NV_CHUNK", os.environ.get("STRATA_NV_CHUNK"))
+    defaults = e.get("STRATA_DEFAULTS", os.environ.get("STRATA_DEFAULTS"))
+    if (nv_chunk is not None and str(nv_chunk).startswith(("0", "16"))) or str(defaults) in ("026", "0.2.6", "v0.2.6"):
+        return False
+    return True
+
+
+def bench_tips(args, env, ram: float, model_ram_gb: float, vram_gb: float, vision: str, win: bool, gpu=None) -> list[str]:
     """Recommendations from the community bench data (plan 0.1.40 item 14).  Text only: nothing here changes a
     default, the config or the engine's arguments (recommend, never force).  `ram` is this PC's RAM, `model_ram_gb`
     what the chosen model keeps in it."""
@@ -7967,7 +8061,7 @@ def bench_tips(args, env, ram: float, model_ram_gb: float, vram_gb: float, visio
     if prefill == "auto:32768" and ram < PREFILL_RISK_RAM_GB:
         tips.append(f"warning: --prefill auto:32768 on {ram:.0f} GB of RAM: it ran ~3x slower than --prefill auto with "
                     "32 GB (#834 #669); it paid off (+21-35%) with 96 GB")
-    elif prefill == "auto" and ram >= PREFILL_BIG_RAM_GB:
+    elif prefill == "auto" and ram >= PREFILL_BIG_RAM_GB and not bare_auto_is_32768(gpu, args, env):   # already the default there (round 0212)
         tips.append(f"tip: with {ram:.0f} GB of RAM, --prefill auto:32768 in the config's args read prompts 21-35% "
                     "faster in community benchmarks (#433 #440 #834); not set, nothing changes")
     resident = any(a in args for a in ("--resident-experts", "--resident-budget-gib"))
@@ -9615,6 +9709,88 @@ def prepare_pack_only(a) -> int:
     return 0
 
 
+MAC_PREPARE_LOCK = ".preparing.lock"        # beside the repacked file, holds setup's pid from the repack to the end of the pack (metal/setup_mac.py PREPARE_LOCK)
+MAC_EXPERTS_MARGIN_GB = 10.0                # what stays free on the disk after the experts' streaming copy (metal/setup_mac.py EXPERTS_MARGIN_GB)
+
+
+def mac_tools_dir() -> Path:
+    """metal/tools: metal_repack.py (many Unsloth shards -> one GGUF for the GPU) and stream_experts.py; both ship in the installer's bundle."""
+    return Path(ROOT, "metal", "tools")
+
+
+def mac_ple_shard(files: list) -> Path:
+    """The shard that holds the n-gram table (per_layer_token_embd): the repacked file leaves it out and the engine reads it from there (--ple-gguf)."""
+    sys.path.insert(0, str(mac_tools_dir()))
+    import metal_repack as R
+    for f in files:
+        rd = R.Reader(f)
+        rd.f.close()
+        if any(t["name"] == R.PLE for t in rd.tensors):
+            return f
+    fail(f"no shard of {files[0].name} holds the n-gram table (per_layer_token_embd)")
+
+
+def mac_engine_pids() -> list[int]:
+    """Pids of this user's running Metal engines (`strata`): a repack beside an engine of 70-90 GB froze the 128 GB M5 Max twice."""
+    cmd = ["pgrep", "-x", "strata"]
+    if hasattr(os, "getuid"):
+        cmd[1:1] = ["-u", str(os.getuid())]
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=10).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return [int(x) for x in out.split() if x.isdigit() and int(x) != os.getpid()]
+
+
+def mac_experts_file(native: Path) -> None:
+    """A streaming Mac: <model>.experts beside the GPU's GGUF (metal/tools/stream_experts.py), written only when the disk has room (metal/setup_mac.py experts_file)."""
+    from strata_control import mac_fit as MF
+    out = native.with_name(native.name + ".experts")
+    if out.exists() and done(out):
+        ok(f"the experts' streaming copy: {out.name}")
+        return
+    sys.path.insert(0, str(mac_tools_dir()))
+    import stream_experts as X
+    need = X.size_bytes(native) / 1e9
+    free = free_gb(native.parent)
+    if not os.access(native.parent, os.W_OK):
+        warn(f"{native.parent} cannot be written: the experts' streaming copy ({need:.0f} GB) is not written; the "
+             f"engine streams from the model file ({MF.STREAM_COPY_GAIN} slower)")
+        return
+    if free < need + MAC_EXPERTS_MARGIN_GB:
+        warn(f"the experts' streaming copy needs {need:.0f} GB and {MAC_EXPERTS_MARGIN_GB:.0f} GB to spare on the disk "
+             f"({free:.0f} GB free): not written; the engine streams from the model file ({MF.STREAM_COPY_GAIN} "
+             f"slower). Free some space and run ./setup.sh --setup again to add it")
+        return
+    say(f"  Writing the experts in SSD-read order (one time, {need:.0f} GB; each expert is read with one request) ...")
+    run([sys.executable, str(mac_tools_dir() / "stream_experts.py"), "--gguf", str(native), "--verify"])
+    mark(out)
+    ok(f"the experts' streaming copy: {out.name}")
+
+
+def mac_prepare_lock(native: Path) -> Path:
+    """Take the prepare lock beside the repacked file (it holds our pid from the repack to the end of the pack: metal/setup_mac.py's start() and the engine look at it),
+    and never beside a running engine: an engine of 70-90 GB beside a repack froze the 128 GB M5 Max twice.  The caller removes the lock."""
+    running = mac_engine_pids()
+    if running:
+        fail(f"a Strata engine is running (pid {running[0]}): preparing a model beside it can freeze this Mac",
+             "stop the model in Strata (unload it), then install again")
+    native.parent.mkdir(parents=True, exist_ok=True)
+    lock = native.parent / MAC_PREPARE_LOCK
+    lock.write_text(str(os.getpid()))
+    return lock
+
+
+def mac_repack(files: list, model: str, native: Path) -> None:
+    """Unsloth's many-shard set as ONE GGUF for the GPU (metal/tools/metal_repack.py --verify: every tensor hashed against its shard; the n-gram table stays
+    in its shard); the same step as metal/setup_mac.py."""
+    from strata_control import mac_fit as MF
+    say(f"  Writing the model's experts and weights into one file for the GPU (one time, "
+        f"{MF.MAC_MODELS[model]['shard1_gb']:.0f} GB) ...")
+    run([sys.executable, str(mac_tools_dir() / "metal_repack.py"), "--shard1", str(files[0]), "--out", str(native), "--verify"])
+    mark(native)
+
+
 def mac_control_setup(a) -> int:
     """The app (and the Terminal's `strata launch`) on a Mac, STRATA_CONTROL_INSTALL=1: the same job as on Windows and Linux. It
     downloads and prepares the model files and writes a run config whose engine is "component:strata-engine"; it builds nothing
@@ -9644,8 +9820,8 @@ def mac_control_setup(a) -> int:
         fail(problems[0])
 
     step(2, "your choices")
-    app_sizes = [m for m, d in MF.MAC_MODELS.items() if d.get("family", "qwen") in ("qwen", "gyro")]   # Gyro: one file, no repack
-    if a.family not in (None, "qwen", "gyro"):
+    app_sizes = [m for f in MF.APP_FAMILIES for m in MF.app_sizes(f)]   # Gyro: one file, no repack; Unsloth's sets: the repack below (round 0214)
+    if a.family not in (None, *MF.APP_FAMILIES):
         fail(f"the app on a Mac runs the Qwen3.8-Flash-Next sizes ({', '.join(app_sizes)}); {a.family} is not one of them",
              "choose Qwen3.8-Flash-Next")
     rec, notes = MF.recommend_model(ram)
@@ -9702,13 +9878,11 @@ def mac_control_setup(a) -> int:
     problem = gguf_dir_problem(models_dir, files[0], fam, model) if a.gguf_dir else None
     if problem:                                        # files Strata cannot run, or another choice's files
         fail(*problem)
-    for s in files:                                    # a whole file copied in by hand has no finish mark
-        if s.exists() and not done(s) and whole_shard(s):
-            try:
-                mark(s, "whole (checked against its own tensor directory)")
-            except OSError as e:                       # a read-only folder: the file is still whole
-                warn(f"{s.name} is whole but its finish mark cannot be written ({e})")
-    need = (0 if a.gguf_dir or all(s.exists() and done(s) for s in files) else MODELS[model]["download_gb"]) + 6
+    mark_whole_unless_pinned(files, model_hf(fam, model) if fam.get("hf") else None, bool(a.gguf_dir))     # a whole file copied in by hand has no finish mark
+    repacked = family == "unsloth" and len(files) > 2           # Unsloth's many-shard set: one GGUF for the GPU (mac_repack), the n-gram table left in its shard
+    native = data / "metal" / f"{tag.lower()}-metal.gguf"
+    need = MF.install_disk_gb(model, 0 if a.gguf_dir or all(s.exists() and done(s) for s in files) else MODELS[model]["download_gb"]) \
+        - (MF.repacked_gb(model) if native.exists() and done(native) else 0.0)
     if free_gb(models_dir if models_dir.exists() else data) < need:
         warn(f"about {need:.0f} GB are needed on the disk: kept as you chose; it may run out")
     if not a.gguf_dir:
@@ -9740,9 +9914,20 @@ def mac_control_setup(a) -> int:
     step(6, "preparing the model for Strata")
     pack = find_in(roots, f"packs/{tag.lower()}") or data / "packs" / tag.lower()
     env = dict(os.environ, STRATA_GGUF_PY=str(llama / "gguf-py"))
-    if not (pack / "native_experts.txt").exists() or not (pack / "tokenizer" / "vocab.json").exists():
-        run([sys.executable, str(ROOT / "tools" / "iq_pack.py"), "--gguf", str(files[0]), "--out", str(pack),
-             *fam.get("pack_args", [])], env=env)       # Gyro: --compat-bf16
+    shards = [files[0], files[0]] if family == "gyro" else files      # Gyro: one file, the model and its n-gram table
+    pack_todo = not (pack / "native_experts.txt").exists() or not (pack / "tokenizer" / "vocab.json").exists()
+    prep_lock = mac_prepare_lock(native) if repacked and (pack_todo or not (native.exists() and done(native))) else None
+    try:
+        if repacked:
+            if not (native.exists() and done(native)):
+                mac_repack(files, model, native)
+            shards = [native, mac_ple_shard(files)]
+        if pack_todo:
+            run([sys.executable, str(ROOT / "tools" / "iq_pack.py"), "--gguf", str(shards[0]), "--out", str(pack),
+                 *fam.get("pack_args", [])], env=env)       # Gyro and Unsloth: --compat-bf16 (the host's copies; the GPU reads the file)
+    finally:
+        if prep_lock is not None:
+            prep_lock.unlink(missing_ok=True)
     ok(f"model prepared: {pack}")
     use_mtp = MF.stream_mtp(stream, ram)
     mtp = (find_in(roots, "mtp/mtp-q2_0.gguf") or data / "mtp" / "mtp-q2_0.gguf").parent
@@ -9767,11 +9952,12 @@ def mac_control_setup(a) -> int:
         rt.mkdir(parents=True, exist_ok=True)          # the Metal engine reads mtp-q2_0.gguf beside it (no rt pack)
         refresh_draft_vocab(rt, a.draft_vocab or "cjk")
         ok(f"MTP draft layer: {mtp / 'mtp-q2_0.gguf'}")
+    if repacked and stream and ram < MF.STREAM_MTP_FROM_GB:
+        mac_experts_file(shards[0])                    # a small Mac: its misses are many; a big Mac's arena holds most experts
 
     step(7, "writing the run settings")
     port = a.port or 8080
-    args = MF.engine_args(pack, [files[0], files[0]] if family == "gyro" else files, rt, ctx, stream, ram,
-                          ROOT / "data" / "expert-profile.bin", model)      # Gyro: one file, the model and its n-gram table
+    args = MF.engine_args(pack, shards, rt, ctx, stream, ram, ROOT / "data" / "expert-profile.bin", model)     # Unsloth: --native the repacked file, --ple-gguf the table's shard
     cfg = {"exe": engine_exe(Path("engine")), "args": args, "cwd": str(ROOT), "tokenizer": str(pack / "tokenizer"),
            "model_name": f"{fam['name']}-{model.lower()}", "log": str(home() / f"strata-{tag.lower()}.log"),
            "lib_dirs": [], "port": port, "backend": "metal", "env": {"STRATA_METAL_STREAM": "1" if stream else "0"}}
@@ -10674,12 +10860,7 @@ def main() -> int:
                 models_dir, shards = cand[0].parent, cand
                 ok(f"model files found in {models_dir}")
                 break
-    for s in ([] if ready else shards):                # #173: a whole file copied in by hand has no finish mark
-        if s.exists() and not done(s) and whole_shard(s):
-            try:
-                mark(s, "whole (checked against its own tensor directory)")
-            except OSError as e:                       # a read-only folder (--gguf-dir on a share): the file is still whole
-                warn(f"{s.name} is whole but its finish mark cannot be written ({e})")
+    mark_whole_unless_pinned([] if ready else shards, model_hf(fam, model) if fam.get("hf") else None, bool(a.gguf_dir))   # #173: a whole file copied in by hand has no finish mark
     have_model = all(ready_verified(ready_where(models_dir, f), f[5]) for f in ready_needed(model, models_dir)) if ready else \
         all(s.exists() and (done(s) or a.gguf_dir) for s in shards)
     # #425 (jctaborda): a download that resumes needs room only for what is still missing - the finished shards and
@@ -10699,15 +10880,15 @@ def main() -> int:
         not prepared_done(model, models_dir) else 0.0
     margin = 2 if mtp_have else 8                      # working room: a guess, not bytes that will be written
     mtp_fetch = 5.2 if (not mtp_have and not ready and a.mtp != "off" and getattr(a, "drafter", None) != "dflash2") else 0.0      # the draft layer's tensors step 6 fetches (strata_control.discovery.MTP_FETCH_GB)
+    copy_gb = MODELS[model]["arena_gb"] + 1 if low_ram and not q2_avx and not pack_bin else 0      # the low-RAM mode's copy of the experts (goes to the data folder's packs)
     real = to_fetch + prep_gb + mtp_fetch + \
-        (40 if q2_avx and not pack_bin else 0) + (1 if vision != "none" else 0) + \
-        (MODELS[model]["arena_gb"] + 1 if low_ram and not q2_avx and not pack_bin else 0)
+        (40 if q2_avx and not pack_bin else 0) + (1 if vision != "none" else 0) + copy_gb
     need = real + margin
     free_now = free_gb(models_dir)
-    if free_now < real:
-        fail(f"not enough free disk space in {models_dir}: need ~{real:.0f} GB, {free_now:.0f} GB free" +
-             (f" ({on_disk:.0f} GB of the model is already there)" if on_disk >= 1 and not have_model else ""),
-             ("use --data-dir on a bigger drive (strata launch --data-dir)" if CONTROL else "use --models-dir on a bigger drive"))
+    problem = disk_room_problem(models_dir, pack_now, real - copy_gb, copy_gb,
+                                (f" ({on_disk:.0f} GB of the model is already there)" if on_disk >= 1 and not have_model else ""))
+    if problem:
+        fail(*problem)
     if free_now < need:
         warn(f"little free disk space in {models_dir}: {free_now:.0f} GB free for about {real:.0f} GB of files. "
              "Setup goes on and should fit; free up space if it stops")
@@ -11086,7 +11267,7 @@ def main() -> int:
            "lib_dirs": lib_dirs, "port": port}
     if cuda_tk == 12:                                  # the experimental CUDA 12 engine (engine-cuda12/)
         cfg["cuda"] = 12
-    if (uenv := unsloth_default_env(family, model, hip, in_budget)):
+    if (uenv := unsloth_default_env(family, model, hip, in_budget, str(gpu.get("arch") or ""))):
         cfg["env"] = uenv
     if hip:
         cfg["backend"] = "hip"
@@ -11234,7 +11415,9 @@ def main() -> int:
             warn(line)
         for line in two_socket_note(cpu_sockets()):    # bench tips: text only, the config is not touched
             say("  " + line)
-    for line in bench_tips(cfg["args"], cfg.get("env"), ram, MODELS[model]["ram_gb"], gpu.get("vram_gb", 0.0), vision, WIN):
+    for line in bench_tips(cfg["args"], cfg.get("env"), ram, MODELS[model]["ram_gb"], gpu.get("vram_gb", 0.0), vision, WIN, gpu):
+        if apu_hides_chunk_tip(gpu, line):
+            continue
         say("  " + line)
     write_setup_config(cfg_path, cfg, adopted if adopted is not None and adopted.name == cfg_path.name else None, explicit_args(a),
                        after_carry=(lambda c: uma_cache_guard(c, model, gpu)) if gpu.get("uma") else None)
