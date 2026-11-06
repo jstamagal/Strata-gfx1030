@@ -58,7 +58,7 @@ class Catalog(unittest.TestCase):
                 self.assertEqual(d["quant"], HUB[model])
                 self.assertEqual(d["families"], ("unsloth",))
                 self.assertTrue(d["budget"] and d["vision"] is True)
-                self.assertEqual(d["engine"], (0, 1, 57))
+                self.assertEqual(d["engine"], setup.UNSLOTH_V31_ENGINE)
                 self.assertEqual(d["ram_gb"], setup.UNSLOTH_MIN_RAM_GB)          # the RAM-budget floor of UD-Q4_K_XL and UD-IQ4_XS
                 self.assertEqual(setup.model_quant(model), HUB[model])
 
@@ -205,10 +205,10 @@ class Install(Base):
     def _main(self, model, **kw):
         return self.main(["--context", "8192"], version="0.1.57", m=model, **kw)
 
-    def test_an_engine_older_than_0157_stops_before_the_download(self):
-        code, out, cfg = self.main(["--context", "8192"], version="0.1.56", m="UD-IQ1_M")
+    def test_an_engine_older_than_the_v31_minimum_stops_before_the_download(self):
+        code, out, cfg = self.main(["--context", "8192"], version="0.1.55", m="UD-IQ1_M")
         self.assertEqual(code, 1, out)
-        self.assertIn("needs engine 0.1.57 or newer", out)
+        self.assertIn("needs engine " + ".".join(map(str, setup.UNSLOTH_V31_ENGINE)) + " or newer", out)
         self.assertEqual(self.downloads, [])
 
     def test_the_pinned_ones_still_download_from_38bb39ee(self):

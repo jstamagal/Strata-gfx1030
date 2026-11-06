@@ -434,7 +434,7 @@ CODER_FILES = {
 UNSLOTH_REPO = "unsloth/Qwen3.8-Flash-Next-GGUF"
 UNSLOTH_V31_REVISION = "d96201194f103c906994f283f504209dc8d2a10c"          # 2026-11-04
 UNSLOTH_V31_IQ4_XS = "UD-IQ4_XS-v31"      # the catalog name of the new UD-IQ4_XS (its files on the Hub have the pinned one's names, with four shards instead of three)
-UNSLOTH_V31_ENGINE = (0, 1, 57)       # the engine that ships with these sets (i-quant experts with Q2_0 / IQ4_NL / Q5_0 downs, a Q6_K dense side)
+UNSLOTH_V31_ENGINE = (0, 1, 56)       # this fork's engine: 0.1.56 ran UD-IQ4_XS-v31 and UD-Q3_K_XL on HIP (2026-11-06); upstream names 0.1.57, whose v3.1 engine work is parity tests only
 
 MODELS = {
     # the original model only for now: Swift 1.5's Q2_0 files split one layer's experts across the two shards, which
@@ -9589,7 +9589,8 @@ def prepare_pack_only(a) -> int:
     download); the model's files are never downloaded or changed."""
     if not a.gguf_dir:
         fail("--prepare-pack needs --gguf-dir, the folder with the model's .gguf files")
-    family = a.family or "qwen"
+    own = MODELS.get(a.model or "", {}).get("families", ("qwen",))
+    family = a.family or (own[0] if len(own) == 1 else "qwen")    # a size only one family has (UD-*): that family's pack args
     if family not in FAMILIES:
         fail(f"cannot prepare a pack for the family {family}", "choose qwen, swift, coder or gyro")
     fam, model = FAMILIES[family], a.model
