@@ -279,7 +279,8 @@ int main(int argc, char** argv) {
     ck(cudaStreamCreate(&s), "stream");
     const int pairs[][2] = {{18, 20}, {22, 20}, {21, 20}, {22, 42}, {18, 42}, {21, 42}, {23, 20}, {12, 7}, {12, 8}, {13, 8},
                             {18, 23}, {23, 23}, {18, 18}, {12, 12}, {12, 13}, {13, 13}, {23, 12}, {2, 2}, {3, 3}, {2, 3},
-                            {16, 23}, {19, 23}, {22, 23}, {11, 23}, {8, 8}};   // (+ Ornith 1.5's)
+                            {16, 23}, {19, 23}, {22, 23}, {11, 23}, {8, 8},   // (+ Ornith 1.5's)
+                            {18, 21}};   // Ornith 1.5 AD-IQ3_XXS: IQ3_XXS gate/up, IQ3_S down
     if (tpx_compare) {
         bool pass = true;
         for (const auto& pr : pairs) {

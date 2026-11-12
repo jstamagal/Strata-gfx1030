@@ -90,7 +90,7 @@ struct Weight {
 
 struct Call {
     int T, topk, n_expert, cap, groups;
-    bool fused_t1;
+    bool fused_t1, new_down;
     const Weight& w;
     cudaStream_t stream;
     float *logits, *x, *ewts, *shared, *sgate, *out[2], *combined[2];
@@ -99,8 +99,8 @@ struct Call {
     uint8_t *xq, *scratch[2];
     cudaGraphExec_t graph[2] = {};
     size_t graph_nodes[2] = {};
-    Call(const Weight& weight, int tokens, int k, int ne, cudaStream_t s, bool repeated, bool fused) :
-        T(tokens), topk(k), n_expert(ne), cap(T * k), groups(std::min(cap, ne)), fused_t1(fused), w(weight), stream(s) {
+    Call(const Weight& weight, int tokens, int k, int ne, cudaStream_t s, bool repeated, bool fused, bool down) :
+        T(tokens), topk(k), n_expert(ne), cap(T * k), groups(std::min(cap, ne)), fused_t1(fused), new_down(down), w(weight), stream(s) {
         const int N = (int) w.L.n_embd;
         logits = alloc<float>((size_t) T * ne);
         x = alloc<float>((size_t) T * N);
@@ -133,7 +133,7 @@ struct Call {
             scratch[i] = alloc<uint8_t>(scratch_bytes + 256);
             out[i] = alloc<float>((size_t) cap * N + 64);
             combined[i] = alloc<float>((size_t) T * N);
-            K::native_expert_tpx_tune(fused_t1 ? 0 : i, 0);
+            K::native_expert_tpx_tune(fused_t1 ? 0 : i, new_down ? i : 0);   // --down: graph 1 also takes the TP / IQ3_S down kernels
             K::native_expert_tpx_fused_t1_tune(fused_t1 ? i : 0);
             cudaGraph_t g;
             ck(cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal), "begin capture");
@@ -217,13 +217,14 @@ struct Call {
 };
 
 int main(int argc, char** argv) {
-    if (argc < 2) { std::fprintf(stderr, "usage: hip_tpx_engine_call MODEL.gguf [--layer N] [--rank 0|1] [--device N] [--T 1..4] [--all] [--fused-t1]\n"); return 2; }
+    if (argc < 2) { std::fprintf(stderr, "usage: hip_tpx_engine_call MODEL.gguf [--layer N] [--rank 0|1] [--device N] [--T 1..4] [--all] [--fused-t1] [--down]\n"); return 2; }
     int layer = -1, rank = -1, device = 0, only_T = 0;
-    bool all = false, fused_t1 = false;
+    bool all = false, fused_t1 = false, new_down = false;
     for (int i = 2; i < argc; ++i) {
         const std::string flag = argv[i];
         if (flag == "--all") { all = true; continue; }
         if (flag == "--fused-t1") { fused_t1 = true; continue; }
+        if (flag == "--down") { new_down = true; continue; }
         if (i + 1 == argc) return 2;
         if (flag == "--layer") layer = std::atoi(argv[++i]);
         else if (flag == "--rank") rank = std::atoi(argv[++i]);
@@ -258,7 +259,7 @@ int main(int argc, char** argv) {
                 for (int T = 1; T <= 4; ++T) {
                     if (only_T && T != only_T) continue;
                     for (bool repeated : {false, true}) {
-                        Call call(w, T, (int) topk, (int) g.n_expert, s, repeated, fused_t1);
+                        Call call(w, T, (int) topk, (int) g.n_expert, s, repeated, fused_t1, new_down);
                         ok &= call.run();
                         const float old_us = call.us(0), new_us = call.us(1);
                         std::printf("  route+quant+expert %s: %.1f -> %.1f us\n", repeated ? "repeat" : "varied",

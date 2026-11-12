@@ -915,9 +915,9 @@ STRATA_TQP_FMT(149)
 // Q4_K / Q5_K / Q6_K downs: Qwen3.6-35B-A3B (FF 512) and Qwen3.5-122B-A10B / Ornith 1.5 (FF 1024, Unsloth UD-Q4_K_XL
 // has Q4_K downs), whole 256-blocks per row; Flash-Next's FF 640 never selects them
 #ifdef STRATA_Q6K_EXPERTS
-#define STRATA_D_FMTS(X) X(20) X(23) X(42) X(18) X(19) X(11) X(7) X(6) X(2) X(3) X(8) X(12) X(13) X(14) X(40) X(144) X(146) X(147) X(148) X(149)
+#define STRATA_D_FMTS(X) X(20) X(23) X(42) X(18) X(21) X(19) X(11) X(7) X(6) X(2) X(3) X(8) X(12) X(13) X(14) X(40) X(144) X(146) X(147) X(148) X(149)
 #else
-#define STRATA_D_FMTS(X) X(20) X(23) X(42) X(18) X(19) X(11) X(7) X(6) X(2) X(3) X(8) X(12) X(13) X(40) X(144) X(146) X(147) X(148) X(149)
+#define STRATA_D_FMTS(X) X(20) X(23) X(42) X(18) X(21) X(19) X(11) X(7) X(6) X(2) X(3) X(8) X(12) X(13) X(40) X(144) X(146) X(147) X(148) X(149)
 #endif
 #define STRATA_MMVQ_FMTS(X) X(16) X(17) X(18) X(20) X(21) X(22) X(23) X(29) X(42) X(12) X(13) X(7) X(6) X(2) X(3) X(8) X(40) X(144) X(145) X(146) X(147) X(148) X(149)
 template<> struct Fmt<40> { static constexpr int qk = 64, ipb = 2, step = 4;     // NVFP4: 2 calls of 32 values
@@ -5571,6 +5571,7 @@ constexpr bool nib_layout(const NativeExpertLayout& L) {
 }
 
 #include "../../qwen35/q36_tpx_expert.cuh"
+#include "../../qwen35/q36_down_iq3s.cuh"
 
 template<int T>
 bool launch_tpx_gu_type(const NativeExpertLayout& L, dim3 grid, cudaStream_t s,
@@ -5630,7 +5631,7 @@ bool launch_tpx_down(const NativeExpertLayout& L, dim3 grid, cudaStream_t s,
     tpx_expert_trace("down", L, true);
 #define TPX_DOWN(T) case T: return launch_tpx_down_type<T>(L, grid, s, grp_ptr, grp_start, n_groups, ent_dst, hq, out)
     switch (L.d_type) {
-        TPX_DOWN(16); TPX_DOWN(18); TPX_DOWN(19); TPX_DOWN(22); TPX_DOWN(23);
+        TPX_DOWN(16); TPX_DOWN(18); TPX_DOWN(21); TPX_DOWN(19); TPX_DOWN(22); TPX_DOWN(23);
         TPX_DOWN(11); TPX_DOWN(12); TPX_DOWN(8); TPX_DOWN(2); TPX_DOWN(3);
         default: return false;
     }
@@ -7096,6 +7097,10 @@ void native_expert_grouped(const NativeExpertLayout& L, const unsigned long long
         check("native_expert_grouped/swiglu");
     }
     if (g_exp_phase == 1) return;
+    if (launch_q36_down_iq3s(L, (unsigned) gy, s, grp_ptr, grp_start, n_groups, ent_dst, hq, out)) {
+        check("native_expert_grouped/down (iq3_s)");
+        return;
+    }
     if (launch_tpx_down(L, dim3(1, (unsigned) gy), s, grp_ptr, grp_start, n_groups, ent_dst, hq, out)) {
         check("native_expert_grouped/down (tpx)");
         return;
