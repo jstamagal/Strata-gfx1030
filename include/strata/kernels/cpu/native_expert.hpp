@@ -11,15 +11,25 @@
 #include <cstdint>
 #include <string>
 
+#include "strata/core/geometry.hpp"
+
 namespace strata::kernels::cpu {
 
-/// Bytes of the largest quantized activation any native layer uses (2560 values as Q8_K: 10 x 292).
-inline constexpr size_t kNativeActBytes = 4096;
-/// The widest expert intermediate a native layer may have (Flash-Next 640, Qwen3.6-35B-A3B 512,
-/// Qwen3.5-122B-A10B / Ornith 1.5 1024): sizes the pool's per-token SwiGLU rows.
-inline constexpr int kNativeMaxFF = 2048;
-/// Bytes of the largest quantized down activation (kNativeMaxFF values as Q8_K: 8 x 292, or Q8_0 64 x 34).
-inline constexpr size_t kNativeHBytes = 2560;
+/// Bytes of the quantized activation of a row of `n` values: the larger of Q8_K (292 bytes per 256) and a 32-block
+/// format at 36 bytes per 32 (Q8_1 and friends).
+constexpr size_t native_act_bytes_for(int64_t n) {
+    const size_t q8k = (size_t) (n / 256) * 292, q81 = (size_t) (n / 32) * 36;
+    return q8k > q81 ? q8k : q81;
+}
+/// Bytes of the largest quantized activation any native layer uses (2560 values as Q8_K: 10 x 292); never below the
+/// 4096 of the Flash-Next engine, and it grows with the compiled hidden size (4096 values need 4672).
+inline constexpr size_t kNativeActBytes =
+    native_act_bytes_for(strata::core::kCompiledGeometry.n_embd) > 4096 ? native_act_bytes_for(strata::core::kCompiledGeometry.n_embd) : 4096;
+/// Bytes of the largest quantized down activation (640 values as Q8_0: 20 x 34, or Q8_K 3 x 292); never below 1024,
+/// and it grows with the compiled expert width (1024 values as Q8_K need 1168).
+inline constexpr size_t kNativeHBytes =
+    native_act_bytes_for(strata::core::kCompiledGeometry.n_ff) > 2560 ? native_act_bytes_for(strata::core::kCompiledGeometry.n_ff) : 2560;
+inline constexpr int kNativeMaxFF = strata::core::kCompiledGeometry.n_ff > 2048 ? strata::core::kCompiledGeometry.n_ff : 2048;
 
 /// Arithmetic fixed for one pool batch. WindowInvariant preserves the legacy singleton result at every width.
 enum class NativeArithmetic { Default, WindowInvariant };

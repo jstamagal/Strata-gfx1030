@@ -24,7 +24,9 @@
 #include "strata/kernels/native_moe.hpp"
 #include "strata/kernels/native_router.hpp"
 #include "strata/prefill/gemm.hpp"
+#include "strata/prefill/mmq_ids_margin.hpp"
 #include "strata/prefill/moe_mmq.hpp"
+#include "strata/qwen35/context_fit.hpp"
 #include "strata/qwen35/engine.hpp"
 #include "strata/qwen35/sampling.hpp"
 #include "q36_kernels.cuh"
@@ -1904,12 +1906,18 @@ struct Engine {
             rcur = dalloc_t<int32_t>((size_t) g.n_expert);
             rbounds = dalloc_t<int32_t>((size_t) g.n_expert + 1);
             rmax = dalloc_t<int32_t>(1);
-            // MMQ reads a whole tile (up to 128 columns) of ids past an expert's last row: the padding keeps that in
-            // the allocation (on a layer split the second device's table can end a mapping: a GPU memory fault)
-            ident = dalloc_t<int32_t>((size_t) ne + 128);
+            // The row table (ids) is read past its end by llama.cpp's MMQ: mul_mat_q copies ids_dst[col_low + jt*J + j] for a whole J-column tile before it
+            // compares the tile with the expert's rows, and its stream-k fixup does the same for every tile up to roundup(max_rows, J) from an expert's first row,
+            // which can be the table's last (mmq.cuh; J goes to 128).  mmq_ids_table_rows adds roundup(max_rows, 128) + 128 entries, max_rows <= T (an expert takes at
+            // most one row per token): the margin the Flash-Next prompt path already uses (prefill.cpp mmq_ids_rows, PR #5108).  An exact table of ne ints (64 KB at the
+            // default chunk) was read past its end: compute-sanitizer on the same size in the Qwen3.6 one-layer test (z440-20261111-2224-d478), 311 invalid reads of size 4
+            // in mul_mat_q<Q8_0, 96>, 29 to 57+ bytes after a 65,536-byte allocation.  The identity is written over the whole table, as there.
+            const int64_t ids_rows = (int64_t) MMQ::mmq_ids_table_rows((uint64_t) ne, (uint64_t) T);
+            if (ids_rows <= 0) { std::fprintf(stderr, "strata-q36: the MMQ row table does not fit\n"); std::exit(1); }
+            ident = dalloc_t<int32_t>((size_t) ids_rows);
             rinv = dalloc_t<int32_t>((size_t) ne);
             CK(cudaDeviceSynchronize());   // ident's cudaMemset (legacy stream) before the iota on the non-blocking stream
-            MMQ::iota(ident, ne, st);
+            MMQ::iota(ident, ids_rows, st);
             CK(cudaMalloc(&mq_x, MMQ::q8_bytes(ne, g.n_embd)));
             CK(cudaMalloc(&mq_hq, MMQ::q8_bytes(ne, g.n_ff)));
             mq_gu = dalloc((size_t) ne * 2 * FF);
@@ -1960,6 +1968,45 @@ struct Engine {
             pick_m = dalloc_t<int32_t>(1);
         }
         gsets.resize((size_t) n_sess);
+        {   // the sessions' caches: said before they fail (a slot's K / V at the context, fp32, for the attention layers and
+            // the MTP block, and its recurrent state)
+            size_t n_attn = m->has_mtp ? 1 : 0, n_gdn = 0;
+            for (const Layer& L : m->layers) (L.attn ? n_attn : n_gdn) += 1;
+            const size_t per = (size_t) (g.n_head_kv * g.head_dim * 2 * 4) * (size_t) ctx * n_attn +
+                               (size_t) g.ssm_v_heads * g.ssm_state_size * g.ssm_state_size * 4 * n_gdn;
+            size_t fr0 = 0, tot0 = 0;
+            CK(cudaMemGetInfo(&fr0, &tot0));
+            if (n_sess > 1)
+                std::fprintf(stderr, "strata-q36: %d sessions (--batch): %.2f GiB of VRAM each at a context of %d (%.2f GiB in "
+                             "all), %.2f GiB free before them\n", n_sess, (double) per / (1 << 30), ctx,
+                             (double) per * n_sess / (1 << 30), (double) fr0 / (1 << 30));
+            if (n_sess > 1 && per * (size_t) n_sess + ((size_t) 1 << 30) > fr0) {
+                std::fprintf(stderr, "strata-q36: not enough VRAM for %d slots at a context of %d (%.2f GiB each, %.2f GiB "
+                             "free): use fewer slots (\"parallel\" / --batch) or a shorter --max-context\n", n_sess, ctx,
+                             (double) per / (1 << 30), (double) fr0 / (1 << 30));
+                std::exit(1);
+            }
+            if (n_sess == 1) {   // #5715: one session whose context cannot fit, said in words before the allocation fails
+                const size_t shared_tok = (size_t) g.n_head_kv * g.head_dim * 2 * 2;   // the fp16 K / V copy (k16 / v16 above)
+                const size_t kv_tok = (size_t) (g.n_head_kv * g.head_dim * 2 * 4) * n_attn;
+                const size_t ne = (size_t) g.n_expert;
+                size_t total_main = 0, max_layer = 0, packed = 0;
+                for (const Layer& L : m->layers) {
+                    total_main += L.stride * ne + kMmqTail;
+                    max_layer = std::max(max_layer, L.stride * ne);
+                }
+                if (m->has_mtp) max_layer = std::max(max_layer, m->mtp.stride * ne);
+                for (const auto& pk : m->packed) packed += std::get<2>(pk);
+                const strata::qwen35::OneSessionFit f = strata::qwen35::one_session_fit(
+                    {(size_t) ctx, kv_tok, shared_tok, per - kv_tok * (size_t) ctx, fr0, total_main, packed,
+                     kAttScoreFloats > ((size_t) 16 << 20) ? (kAttScoreFloats - ((size_t) 16 << 20)) * 6 : 0,
+                     use_mmq ? 2 * (max_layer + kMmqTail) : 0, T * Kp * N * 4 + T * Kp * 4});
+                if (f.refuse) {   // the old ending: the bare cudaMalloc line in alloc_session, or the hybrid buffers' text in place_experts
+                    std::fprintf(stderr, "strata-q36: %s\n", strata::qwen35::one_session_fit_line(ctx, f).c_str());
+                    std::exit(1);
+                }
+            }
+        }
         if (vision) {
             d_mtab = dalloc_t<int32_t>((size_t) ctx * 3);
             d_map = dalloc_t<int32_t>(T);
