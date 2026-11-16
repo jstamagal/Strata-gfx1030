@@ -3559,11 +3559,11 @@ __global__ void dequant_gu_kernel(int ty, const void* __restrict__ gate, const v
 // the types dq_dispatch dequantizes
 bool is_iq(int t) {
     return t == 16 || t == 17 || t == 18 || t == 19 || t == 20 || t == 21 || t == 22 || t == 23 || t == 29 || t == 42 || t == 11 ||
-#ifdef STRATA_Q6K_EXPERTS
+//#ifdef STRATA_Q6K_EXPERTS
            t == 12 || t == 13 || t == 14 || t == 7 || t == 6 || t == 2 || t == 3 || t == 8 || t == 40 || t == 144 || t == 145 || t == 146 || t == 147 || t == 148 || t == 149;
-#else
-           t == 12 || t == 13 || t == 7 || t == 6 || t == 2 || t == 3 || t == 8 || t == 40 || t == 144 || t == 145 || t == 146 || t == 147 || t == 148 || t == 149;
-#endif
+//#else
+ //          t == 12 || t == 13 || t == 7 || t == 6 || t == 2 || t == 3 || t == 8 || t == 40 || t == 144 || t == 145 || t == 146 || t == 147 || t == 148 || t == 149;
+//#endif
 }
 // values per block of the types the grouped expert kernels take (0 = none)
 int gu_qk(int t) {

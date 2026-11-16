@@ -1008,7 +1008,7 @@ void Context::run(const Product& p, void* stream) {
                         p.w_cols, p.w_rows, p.total_rows, bpr, p.total_rows, p.ld_dst,
                         p.n, p.n, p.tab ? 0 : (int64_t) (p.expert_bytes / type_bytes((int) t)), 0, 0,
                         1, 1, 0, 0, 0,
-                        p.max_rows, p.max_rows};
+                        p.max_rows, static_cast<int>(p.max_rows)};
     if (p.each) {
 #if defined(MMQ_X_EACH_MAX)
         // each expert's matrix where it lies: its rows must be one run (gate rows, then up rows right behind them)
@@ -1357,3 +1357,5 @@ void set_bounds(int32_t* dst, int32_t rows, void* stream) {
 #endif
 
 }  // namespace strata::prefill::mmq
+
+void ggml_cuda_rdna2_mmq_attest_auto(const mmq_args & args, int cc) { (void)args; (void)cc; }
